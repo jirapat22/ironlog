@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0f0f0f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="IronLog" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/style.css" />
+    <title>IronLog</title>
+  </head>
+  <body>
+    <div id="pin-lock" class="pin-lock hidden">
+      <div class="pin-lock__inner">
+        <div class="pin-lock__title">IronLog</div>
+        <div class="pin-lock__subtitle" id="pin-subtitle">Enter PIN</div>
+        <div class="pin-lock__dots" id="pin-dots">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="pin-lock__keypad" id="pin-keypad"></div>
+      </div>
+    </div>
+
+    <main id="app" class="app">
+      <header class="app__header" id="app-header">
+        <div class="app__title" id="app-title">IronLog</div>
+        <div class="app__subtitle" id="app-subtitle"></div>
+      </header>
+
+      <section id="view-workout" class="view hidden"></section>
+      <section id="view-programs" class="view hidden"></section>
+      <section id="view-progress" class="view hidden"></section>
+      <section id="view-history" class="view hidden"></section>
+    </main>
+
+    <nav class="nav">
+      <button class="nav__btn" data-tab="workout">
+        <span class="nav__icon">&#x1F4AA;</span>
+        <span class="nav__label">Workout</span>
+      </button>
+      <button class="nav__btn" data-tab="programs">
+        <span class="nav__icon">&#x1F4C5;</span>
+        <span class="nav__label">Programs</span>
+      </button>
+      <button class="nav__btn" data-tab="progress">
+        <span class="nav__icon">&#x1F4C8;</span>
+        <span class="nav__label">Progress</span>
+      </button>
+      <button class="nav__btn" data-tab="history">
+        <span class="nav__icon">&#x1F4DC;</span>
+        <span class="nav__label">History</span>
+      </button>
+    </nav>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="pr-flash" class="pr-flash hidden">
+      <div class="pr-flash__text">NEW PR &#x1F3C6;</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
