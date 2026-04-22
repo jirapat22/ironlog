@@ -103,45 +103,99 @@ function init() {
   seed();
 }
 
+const CANONICAL_EXERCISES = [
+  // Chest
+  ['Bench Press', 'chest', 'Barbell, flat bench'],
+  ['Incline Bench Press', 'chest', 'Barbell, 30-45 degree bench'],
+  ['Decline Bench Press', 'chest', 'Barbell, decline bench'],
+  ['Incline Dumbbell Press', 'chest', 'Adjustable bench at 30-45 degrees'],
+  ['Flat Dumbbell Press', 'chest', 'Dumbbells, flat bench'],
+  ['Dumbbell Fly', 'chest', 'Flat or incline bench'],
+  ['Cable Fly', 'chest', 'Mid-height cables'],
+  ['Cable Crossover', 'chest', 'High to low'],
+  ['Machine Chest Press', 'chest', 'Plate-loaded or selectorized'],
+  ['Pec Deck', 'chest', 'Machine fly'],
+  ['Chest Dip', 'chest', 'Leaning forward, bodyweight'],
+  ['Push-Up', 'chest', 'Bodyweight'],
+
+  // Back
+  ['Deadlift', 'back', 'Conventional'],
+  ['Sumo Deadlift', 'back', 'Wide stance'],
+  ['Rack Pull', 'back', 'Deadlift from pins, knee height'],
+  ['Pull-Up', 'back', 'Overhand, wide or shoulder-width'],
+  ['Chin-Up', 'back', 'Underhand grip'],
+  ['Lat Pulldown', 'back', 'Cable, neutral or wide'],
+  ['Wide-Grip Lat Pulldown', 'back', 'Wide overhand grip'],
+  ['Barbell Row', 'back', 'Bent over, overhand'],
+  ['Pendlay Row', 'back', 'Dead-stop from floor'],
+  ['One-Arm Dumbbell Row', 'back', 'Knee-on-bench'],
+  ['T-Bar Row', 'back', 'Landmine or machine'],
+  ['Seated Cable Row', 'back', 'Neutral grip'],
+  ['Chest-Supported Row', 'back', 'Incline bench or machine'],
+  ['Face Pull', 'back', 'Rope attachment, high cable'],
+  ['Shrug', 'back', 'Barbell or dumbbell'],
+
+  // Shoulders
+  ['Overhead Press', 'shoulders', 'Standing barbell'],
+  ['Seated Dumbbell Press', 'shoulders', 'Dumbbells, upright bench'],
+  ['Arnold Press', 'shoulders', 'Rotating dumbbell press'],
+  ['Machine Shoulder Press', 'shoulders', 'Plate-loaded or selectorized'],
+  ['Lateral Raise', 'shoulders', 'Dumbbell'],
+  ['Cable Lateral Raise', 'shoulders', 'Low cable, one arm'],
+  ['Rear Delt Fly', 'shoulders', 'Bent-over dumbbell'],
+  ['Reverse Pec Deck', 'shoulders', 'Machine rear delts'],
+  ['Upright Row', 'shoulders', 'Barbell or cable'],
+
+  // Arms — biceps
+  ['Barbell Curl', 'arms', 'Straight or EZ bar'],
+  ['Dumbbell Curl', 'arms', 'Alternating or simultaneous'],
+  ['Hammer Curl', 'arms', 'Neutral grip dumbbell'],
+  ['Preacher Curl', 'arms', 'EZ bar or machine'],
+  ['Incline Dumbbell Curl', 'arms', 'Incline bench'],
+  ['Cable Curl', 'arms', 'Low cable, bar or rope'],
+
+  // Arms — triceps
+  ['Tricep Pushdown', 'arms', 'Cable, straight bar'],
+  ['Rope Pushdown', 'arms', 'Cable, rope attachment'],
+  ['Overhead Tricep Extension', 'arms', 'Dumbbell or rope'],
+  ['Skull Crusher', 'arms', 'EZ bar, lying'],
+  ['Close-Grip Bench Press', 'arms', 'Shoulder-width grip'],
+  ['Tricep Dip', 'arms', 'Parallel bars, upright'],
+
+  // Legs
+  ['Back Squat', 'legs', 'High or low bar'],
+  ['Front Squat', 'legs', 'Clean grip'],
+  ['Goblet Squat', 'legs', 'Dumbbell or kettlebell'],
+  ['Romanian Deadlift', 'legs', 'Hamstring focus'],
+  ['Stiff-Leg Deadlift', 'legs', 'Straight legs, hamstrings'],
+  ['Leg Press', 'legs', 'Machine, 45 degree'],
+  ['Hack Squat', 'legs', 'Machine'],
+  ['Bulgarian Split Squat', 'legs', 'Rear foot elevated'],
+  ['Walking Lunge', 'legs', 'Dumbbells or barbell'],
+  ['Leg Extension', 'legs', 'Machine, quads'],
+  ['Lying Leg Curl', 'legs', 'Machine, hamstrings'],
+  ['Seated Leg Curl', 'legs', 'Machine, hamstrings'],
+  ['Standing Calf Raise', 'legs', 'Machine or Smith'],
+  ['Seated Calf Raise', 'legs', 'Machine'],
+  ['Hip Thrust', 'legs', 'Barbell, bench-supported'],
+  ['Glute Bridge', 'legs', 'Barbell or bodyweight'],
+
+  // Core
+  ['Hanging Leg Raise', 'core', 'From pull-up bar'],
+  ['Cable Crunch', 'core', 'Kneeling, rope attachment'],
+  ['Ab Wheel Rollout', 'core', 'From knees or toes'],
+  ['Plank', 'core', 'Timed hold — log seconds in reps'],
+  ['Russian Twist', 'core', 'Weighted, seated']
+];
+
 function seed() {
-  const exerciseCount = db.prepare('SELECT COUNT(*) as c FROM exercises').get().c;
-  if (exerciseCount === 0) {
-    const insertExercise = db.prepare(
-      'INSERT INTO exercises (name, muscle_group, notes) VALUES (?, ?, ?)'
-    );
-
-    const exercises = [
-      ['Bench Press', 'chest', 'Barbell, flat bench'],
-      ['Incline Dumbbell Press', 'chest', 'Adjustable bench at 30-45 degrees'],
-      ['Cable Fly', 'chest', 'High to low or mid-height'],
-      ['Push-Up', 'chest', 'Bodyweight'],
-
-      ['Deadlift', 'back', 'Conventional or sumo'],
-      ['Pull-Up', 'back', 'Wide or neutral grip'],
-      ['Barbell Row', 'back', 'Bent over, overhand grip'],
-      ['Lat Pulldown', 'back', 'Cable machine'],
-      ['Seated Cable Row', 'back', 'Neutral grip'],
-
-      ['Overhead Press', 'shoulders', 'Standing barbell'],
-      ['Lateral Raise', 'shoulders', 'Dumbbell or cable'],
-      ['Rear Delt Fly', 'shoulders', 'Reverse pec deck or dumbbell'],
-
-      ['Barbell Curl', 'arms', 'EZ bar optional'],
-      ['Hammer Curl', 'arms', 'Dumbbell, neutral grip'],
-      ['Tricep Pushdown', 'arms', 'Cable, straight or rope'],
-      ['Skull Crusher', 'arms', 'EZ bar, lying'],
-
-      ['Back Squat', 'legs', 'High or low bar'],
-      ['Romanian Deadlift', 'legs', 'Hamstring focus'],
-      ['Leg Press', 'legs', 'Machine'],
-      ['Leg Curl', 'legs', 'Lying or seated'],
-      ['Standing Calf Raise', 'legs', 'Machine or smith']
-    ];
-
-    tx(() => {
-      for (const row of exercises) insertExercise.run(...row);
-    });
-  }
+  // Additive: add any missing canonical exercises on every startup
+  const insertExercise = db.prepare(
+    'INSERT OR IGNORE INTO exercises (name, muscle_group, notes) VALUES (?, ?, ?)'
+  );
+  tx(() => {
+    for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
+  });
 
   const programCount = db.prepare('SELECT COUNT(*) as c FROM programs').get().c;
   if (programCount === 0) {

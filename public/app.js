@@ -33,6 +33,12 @@ const API = {
   addExercise: (data) => api('/api/exercises', { method: 'POST', body: data }),
   programs: () => api('/api/programs'),
   program: (id) => api(`/api/programs/${id}`),
+  addDayExercise: (programId, dayId, data) =>
+    api(`/api/programs/${programId}/days/${dayId}/exercises`, { method: 'POST', body: data }),
+  updateDayExercise: (programId, dayId, pdeId, data) =>
+    api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'PATCH', body: data }),
+  removeDayExercise: (programId, dayId, pdeId) =>
+    api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'DELETE' }),
   lastWorkout: (programDayId) => api(`/api/workouts/last/${programDayId}`),
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),
@@ -260,6 +266,14 @@ async function renderPrograms() {
         header.closest('.program-card').classList.toggle('expanded');
         return;
       }
+      const editBtn = e.target.closest('[data-edit-day]');
+      if (editBtn) {
+        haptic(15);
+        const dayId = Number(editBtn.dataset.editDay);
+        const programId = Number(editBtn.dataset.programId);
+        openEditDay(programId, dayId);
+        return;
+      }
       const startBtn = e.target.closest('[data-start-day]');
       if (startBtn) {
         haptic();
@@ -295,16 +309,21 @@ function programCardHTML(p) {
         <span class="program-card__chevron">&#x276F;</span>
       </button>
       <div class="program-card__body">
-        ${p.days.map((d) => dayCardHTML(d)).join('')}
+        ${p.days.map((d) => dayCardHTML(d, p.id)).join('')}
       </div>
     </div>
   `;
 }
 
-function dayCardHTML(d) {
-  const exList = d.exercises
-    .map((e) => `${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span>`)
-    .join(' · ');
+function dayCardHTML(d, programId) {
+  const exList = d.exercises.length
+    ? d.exercises
+        .map(
+          (e) =>
+            `${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span>`
+        )
+        .join(' · ')
+    : '<em style="opacity:.5">No exercises yet — tap Edit to add some</em>';
   return `
     <div class="day-card" data-day-id="${d.id}">
       <div class="day-card__top">
@@ -312,7 +331,10 @@ function dayCardHTML(d) {
         <div class="day-card__last" data-last="${d.id}">—</div>
       </div>
       <div class="day-card__exercises">${exList}</div>
-      <button class="btn btn--primary btn--block btn--sm" data-start-day="${d.id}">Start workout</button>
+      <div class="day-card__actions">
+        <button class="btn btn--ghost btn--sm" data-edit-day="${d.id}" data-program-id="${programId}">Edit</button>
+        <button class="btn btn--primary btn--sm" data-start-day="${d.id}" style="flex:1">Start workout</button>
+      </div>
     </div>
   `;
 }
@@ -330,6 +352,320 @@ async function decorateLastTrained(dayId) {
   } catch {
     /* ignore */
   }
+}
+
+// ---------- Edit Program Day ----------
+let editDayState = null; // { programId, dayId, day, allExercises }
+
+async function openEditDay(programId, dayId) {
+  const sheet = ensureEditSheet();
+  sheet.innerHTML = `<div class="sheet__inner"><div class="skeleton" style="height:120px"></div></div>`;
+  showSheet(sheet);
+
+  try {
+    const [program, allExercises] = await Promise.all([API.program(programId), API.exercises()]);
+    const day = program.days.find((d) => d.id === dayId);
+    if (!day) throw new Error('Day not found');
+    editDayState = { programId, dayId, day, allExercises };
+    renderEditSheet();
+  } catch (err) {
+    sheet.innerHTML = `<div class="sheet__inner"><div class="empty">Couldn't load: ${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div>`;
+  }
+}
+
+function ensureEditSheet() {
+  let sheet = document.getElementById('edit-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'edit-sheet';
+    sheet.className = 'sheet hidden';
+    document.body.appendChild(sheet);
+  }
+  return sheet;
+}
+
+function showSheet(el) {
+  el.classList.remove('hidden');
+  requestAnimationFrame(() => el.classList.add('open'));
+}
+
+function hideSheet(el) {
+  el.classList.remove('open');
+  setTimeout(() => el.classList.add('hidden'), 180);
+}
+
+function renderEditSheet() {
+  const sheet = document.getElementById('edit-sheet');
+  const { day, programId, dayId } = editDayState;
+
+  const rows = day.exercises
+    .map(
+      (e, i) => `
+      <div class="edit-row" data-pde="${e.id}">
+        <div class="edit-row__main">
+          <div class="edit-row__name">${escapeHtml(e.name)}</div>
+          <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}</div>
+        </div>
+        <div class="edit-row__controls">
+          <div class="edit-stepper">
+            <button class="edit-stepper__btn" data-field="target_sets" data-step="-1">−</button>
+            <span class="edit-stepper__value" data-display="target_sets">${e.target_sets}</span>
+            <button class="edit-stepper__btn" data-field="target_sets" data-step="1">+</button>
+            <span class="edit-stepper__label">sets</span>
+          </div>
+          <div class="edit-stepper">
+            <button class="edit-stepper__btn" data-field="target_reps" data-step="-1">−</button>
+            <span class="edit-stepper__value" data-display="target_reps">${e.target_reps}</span>
+            <button class="edit-stepper__btn" data-field="target_reps" data-step="1">+</button>
+            <span class="edit-stepper__label">reps</span>
+          </div>
+        </div>
+        <div class="edit-row__actions">
+          <button class="btn--icon" data-move="up" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="btn--icon" data-move="down" title="Move down" ${i === day.exercises.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="btn--icon btn--icon-danger" data-remove title="Remove">×</button>
+        </div>
+      </div>
+    `
+    )
+    .join('');
+
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">${escapeHtml(day.day_label)}</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        ${rows || '<div class="empty" style="padding:20px 0">No exercises yet. Add one below.</div>'}
+        <button class="btn btn--primary btn--block" data-open-picker style="margin-top:16px">+ Add exercise</button>
+      </div>
+    </div>
+  `;
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) {
+      hideSheet(sheet);
+      if (localStorage.getItem(LS.currentTab) === 'programs') renderPrograms();
+      return;
+    }
+    if (e.target.closest('[data-open-picker]')) return openPicker();
+
+    const row = e.target.closest('.edit-row');
+    if (!row) return;
+    const pdeId = Number(row.dataset.pde);
+
+    const step = e.target.closest('.edit-stepper__btn');
+    if (step) {
+      const field = step.dataset.field;
+      const delta = Number(step.dataset.step);
+      const current = editDayState.day.exercises.find((x) => x.id === pdeId);
+      const next = Math.max(1, current[field] + delta);
+      current[field] = next;
+      row.querySelector(`[data-display="${field}"]`).textContent = next;
+      haptic(10);
+      try {
+        await API.updateDayExercise(programId, dayId, pdeId, { [field]: next });
+      } catch (err) {
+        toast(err.message);
+      }
+      return;
+    }
+
+    const remove = e.target.closest('[data-remove]');
+    if (remove) {
+      if (!confirm('Remove this exercise from the day?')) return;
+      try {
+        await API.removeDayExercise(programId, dayId, pdeId);
+        editDayState.day.exercises = editDayState.day.exercises.filter((x) => x.id !== pdeId);
+        renderEditSheet();
+        haptic(20);
+      } catch (err) {
+        toast(err.message);
+      }
+      return;
+    }
+
+    const move = e.target.closest('[data-move]');
+    if (move) {
+      const dir = move.dataset.move === 'up' ? -1 : 1;
+      const exs = editDayState.day.exercises;
+      const idx = exs.findIndex((x) => x.id === pdeId);
+      const swapIdx = idx + dir;
+      if (swapIdx < 0 || swapIdx >= exs.length) return;
+      [exs[idx], exs[swapIdx]] = [exs[swapIdx], exs[idx]];
+      renderEditSheet();
+      haptic(10);
+      try {
+        await Promise.all(
+          exs.map((x, i) =>
+            x.order_index !== i
+              ? API.updateDayExercise(programId, dayId, x.id, { order_index: i }).then(() => {
+                  x.order_index = i;
+                })
+              : null
+          )
+        );
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+  };
+}
+
+// ---------- Exercise picker ----------
+async function openPicker() {
+  const picker = ensurePicker();
+  const { allExercises } = editDayState;
+  const groups = {};
+  for (const ex of allExercises) {
+    if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
+    groups[ex.muscle_group].push(ex);
+  }
+
+  const currentIds = new Set(editDayState.day.exercises.map((e) => e.exercise_id));
+
+  const groupOrder = ['chest', 'back', 'shoulders', 'arms', 'legs', 'core'];
+  const keys = [...new Set([...groupOrder, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-picker>←</button>
+        <div class="sheet__title">Pick exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <input class="input" id="picker-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <button class="btn btn--ghost btn--block" data-new-exercise style="margin-bottom:16px">+ Create custom exercise</button>
+        ${keys
+          .map(
+            (g) => `
+          <div class="picker-group" data-group="${g}">
+            <div class="picker-group__title">${escapeHtml(g)}</div>
+            ${groups[g]
+              .map(
+                (ex) => `
+                <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+                  <span>${escapeHtml(ex.name)}</span>
+                  <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
+                </button>
+              `
+              )
+              .join('')}
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+  showSheet(picker);
+
+  const search = document.getElementById('picker-search');
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    picker.querySelectorAll('.picker-row').forEach((r) => {
+      r.classList.toggle('hidden', q && !r.dataset.name.includes(q));
+    });
+    picker.querySelectorAll('.picker-group').forEach((g) => {
+      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
+      g.classList.toggle('hidden', !any);
+    });
+  };
+
+  picker.onclick = async (e) => {
+    if (e.target.closest('[data-close-picker]')) return hideSheet(picker);
+    if (e.target.closest('[data-new-exercise]')) return openNewExerciseForm(picker);
+
+    const pickBtn = e.target.closest('[data-pick]');
+    if (!pickBtn) return;
+    if (pickBtn.classList.contains('picker-row--added')) {
+      toast('Already in this day');
+      return;
+    }
+    const exerciseId = Number(pickBtn.dataset.pick);
+    haptic(20);
+    try {
+      const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
+        exercise_id: exerciseId,
+        target_sets: 3,
+        target_reps: 10
+      });
+      editDayState.day.exercises.push(row);
+      hideSheet(picker);
+      renderEditSheet();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+}
+
+function ensurePicker() {
+  let picker = document.getElementById('picker-sheet');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'picker-sheet';
+    picker.className = 'sheet hidden';
+    document.body.appendChild(picker);
+  }
+  return picker;
+}
+
+function openNewExerciseForm(picker) {
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-back-picker>←</button>
+        <div class="sheet__title">New exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <label class="form-label">Name</label>
+        <input class="input" id="new-ex-name" placeholder="e.g. Cable Pullover" />
+
+        <label class="form-label" style="margin-top:14px">Muscle group</label>
+        <select class="input" id="new-ex-muscle">
+          <option value="chest">chest</option>
+          <option value="back">back</option>
+          <option value="shoulders">shoulders</option>
+          <option value="arms">arms</option>
+          <option value="legs">legs</option>
+          <option value="core">core</option>
+        </select>
+
+        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
+        <input class="input" id="new-ex-notes" placeholder="Setup cue or variation" />
+
+        <button class="btn btn--primary btn--block" id="new-ex-save" style="margin-top:20px">Create & add</button>
+      </div>
+    </div>
+  `;
+
+  picker.querySelector('[data-back-picker]').onclick = () => openPicker();
+  picker.querySelector('#new-ex-save').onclick = async () => {
+    const name = picker.querySelector('#new-ex-name').value.trim();
+    const muscle = picker.querySelector('#new-ex-muscle').value;
+    const notes = picker.querySelector('#new-ex-notes').value.trim() || null;
+    if (!name) return toast('Name required');
+    try {
+      const ex = await API.addExercise({ name, muscle_group: muscle, notes });
+      // Refresh exercise list so picker shows it next time
+      editDayState.allExercises.push(ex);
+      // Immediately add to day
+      const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
+        exercise_id: ex.id,
+        target_sets: 3,
+        target_reps: 10
+      });
+      editDayState.day.exercises.push(row);
+      hideSheet(picker);
+      renderEditSheet();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
 }
 
 // ---------- WORKOUT tab ----------

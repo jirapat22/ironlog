@@ -385,6 +385,220 @@ button {
   line-height: 1.55;
 }
 
+.day-card__actions {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+/* Bottom-sheet overlay for edit day / picker */
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
+}
+
+.sheet.open {
+  opacity: 1;
+}
+
+.sheet__inner {
+  width: 100%;
+  max-width: 720px;
+  max-height: 92vh;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.2s ease-out;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.sheet.open .sheet__inner {
+  transform: translateY(0);
+}
+
+.sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 18px 18px 0 0;
+}
+
+.sheet__title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.sheet__body {
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.btn--icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn--icon:disabled {
+  opacity: 0.3;
+}
+
+.btn--icon-danger {
+  color: var(--danger);
+}
+
+.edit-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.edit-row__main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.edit-row__name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.edit-row__muscle {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.edit-row__controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.edit-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.edit-stepper__btn {
+  width: 30px;
+  height: 32px;
+  color: var(--text-dim);
+  font-size: 18px;
+}
+
+.edit-stepper__value {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.edit-stepper__label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-right: 4px;
+}
+
+.edit-row__actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* Picker */
+.picker-group {
+  margin-bottom: 18px;
+}
+
+.picker-group__title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+
+.picker-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+}
+
+.picker-row:active {
+  background: var(--surface-2);
+}
+
+.picker-row__state {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.picker-row--added {
+  opacity: 0.55;
+}
+
+.picker-row--added .picker-row__state {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.form-label {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
 /* Workout tab */
 .workout-sticky {
   position: sticky;
