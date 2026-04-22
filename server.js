@@ -7,6 +7,7 @@ const programsRouter = require('./routes/programs');
 const workoutsRouter = require('./routes/workouts');
 const setsRouter = require('./routes/sets');
 const progressRouter = require('./routes/progress');
+const bodyweightRouter = require('./routes/bodyweight');
 
 init();
 console.log('DB ready');
@@ -18,6 +19,7 @@ app.use('/api/exercises', exercisesRouter);
 app.use('/api/programs', programsRouter);
 app.use('/api/workouts', workoutsRouter);
 app.use('/api/sets', setsRouter);
+app.use('/api/bodyweight', bodyweightRouter);
 app.use('/api', progressRouter);
 
 app.get('/health', (req, res) => {

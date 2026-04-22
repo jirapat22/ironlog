@@ -1,0 +1,64 @@
+const express = require('express');
+const { db } = require('../db');
+
+const router = express.Router();
+
+router.get('/', (req, res) => {
+  const rows = db
+    .prepare('SELECT id, weight, weight_unit, logged_at, notes FROM bodyweights ORDER BY logged_at DESC')
+    .all();
+  res.json(rows);
+});
+
+router.post('/', (req, res) => {
+  const { weight, weight_unit = 'kg', notes = null, logged_at = null } = req.body || {};
+  if (weight == null || isNaN(Number(weight))) {
+    return res.status(400).json({ error: 'weight is required' });
+  }
+  if (!['kg', 'lbs'].includes(weight_unit)) {
+    return res.status(400).json({ error: 'weight_unit must be kg or lbs' });
+  }
+
+  let info;
+  if (logged_at) {
+    info = db
+      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, logged_at) VALUES (?, ?, ?, ?)')
+      .run(Number(weight), weight_unit, notes, logged_at);
+  } else {
+    info = db
+      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes) VALUES (?, ?, ?)')
+      .run(Number(weight), weight_unit, notes);
+  }
+  const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(Number(info.lastInsertRowid));
+  res.status(201).json(row);
+});
+
+router.patch('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'entry not found' });
+
+  const fields = ['weight', 'weight_unit', 'notes', 'logged_at'];
+  const updates = [];
+  const values = [];
+  for (const f of fields) {
+    if (f in (req.body || {})) {
+      updates.push(`${f} = ?`);
+      values.push(req.body[f]);
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
+  values.push(id);
+  db.prepare(`UPDATE bodyweights SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(id);
+  res.json(row);
+});
+
+router.delete('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const result = db.prepare('DELETE FROM bodyweights WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'entry not found' });
+  res.json({ deleted: true });
+});
+
+module.exports = router;

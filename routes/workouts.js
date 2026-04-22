@@ -64,6 +64,34 @@ router.get('/last/:programDayId', (req, res) => {
   res.json(workout);
 });
 
+router.patch('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'workout not found' });
+
+  const fields = ['notes', 'started_at', 'finished_at'];
+  const updates = [];
+  const values = [];
+  for (const f of fields) {
+    if (f in (req.body || {})) {
+      updates.push(`${f} = ?`);
+      values.push(req.body[f]);
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
+  values.push(id);
+  db.prepare(`UPDATE workouts SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
+  res.json(row);
+});
+
+router.delete('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const result = db.prepare('DELETE FROM workouts WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'workout not found' });
+  res.json({ deleted: true });
+});
+
 router.patch('/:id/finish', (req, res) => {
   const id = Number(req.params.id);
   const result = db

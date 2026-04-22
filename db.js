@@ -94,10 +94,19 @@ function init() {
       UNIQUE(exercise_id, reps)
     );
 
+    CREATE TABLE IF NOT EXISTS bodyweights (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      weight REAL NOT NULL,
+      weight_unit TEXT NOT NULL DEFAULT 'kg',
+      logged_at TEXT NOT NULL DEFAULT (datetime('now')),
+      notes TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sets_workout ON sets(workout_id);
     CREATE INDEX IF NOT EXISTS idx_sets_exercise ON sets(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workouts_program_day ON workouts(program_day_id);
     CREATE INDEX IF NOT EXISTS idx_program_day_exercises_day ON program_day_exercises(program_day_id);
+    CREATE INDEX IF NOT EXISTS idx_bodyweights_logged ON bodyweights(logged_at DESC);
   `);
 
   seed();
@@ -197,21 +206,16 @@ function seed() {
     for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
   });
 
-  const programCount = db.prepare('SELECT COUNT(*) as c FROM programs').get().c;
-  if (programCount === 0) {
-    const insertProgram = db.prepare('INSERT INTO programs (name, description) VALUES (?, ?)');
-    const insertDay = db.prepare(
-      'INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)'
-    );
-    const insertDayEx = db.prepare(
-      'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index) VALUES (?, ?, ?, ?, ?)'
-    );
-    const findEx = db.prepare('SELECT id FROM exercises WHERE name = ?');
+  seedPrograms();
+}
 
-    const days = [
+const CANONICAL_PROGRAMS = [
+  {
+    name: 'Push / Pull / Legs',
+    description: '3-day split focused on compound lifts and hypertrophy',
+    days: [
       {
         label: 'Day A — Push',
-        order: 1,
         exercises: [
           ['Bench Press', 4, 6],
           ['Overhead Press', 3, 8],
@@ -222,7 +226,6 @@ function seed() {
       },
       {
         label: 'Day B — Pull',
-        order: 2,
         exercises: [
           ['Deadlift', 3, 5],
           ['Pull-Up', 4, 8],
@@ -233,36 +236,212 @@ function seed() {
       },
       {
         label: 'Day C — Legs',
-        order: 3,
         exercises: [
           ['Back Squat', 4, 6],
           ['Romanian Deadlift', 3, 8],
           ['Leg Press', 3, 10],
-          ['Leg Curl', 3, 12],
+          ['Lying Leg Curl', 3, 12],
           ['Standing Calf Raise', 4, 15]
         ]
       }
-    ];
+    ]
+  },
+  {
+    name: 'Upper / Lower',
+    description: '4-day split — two upper, two lower',
+    days: [
+      {
+        label: 'Upper A',
+        exercises: [
+          ['Bench Press', 4, 6],
+          ['Barbell Row', 4, 6],
+          ['Incline Dumbbell Press', 3, 10],
+          ['Lat Pulldown', 3, 10],
+          ['Lateral Raise', 3, 12],
+          ['Barbell Curl', 3, 10]
+        ]
+      },
+      {
+        label: 'Lower A',
+        exercises: [
+          ['Back Squat', 4, 6],
+          ['Romanian Deadlift', 3, 8],
+          ['Leg Press', 3, 10],
+          ['Lying Leg Curl', 3, 12],
+          ['Standing Calf Raise', 4, 15]
+        ]
+      },
+      {
+        label: 'Upper B',
+        exercises: [
+          ['Overhead Press', 4, 6],
+          ['Pull-Up', 4, 8],
+          ['Flat Dumbbell Press', 3, 10],
+          ['Seated Cable Row', 3, 10],
+          ['Tricep Pushdown', 3, 12],
+          ['Hammer Curl', 3, 10]
+        ]
+      },
+      {
+        label: 'Lower B',
+        exercises: [
+          ['Deadlift', 3, 5],
+          ['Front Squat', 3, 8],
+          ['Bulgarian Split Squat', 3, 10],
+          ['Seated Leg Curl', 3, 12],
+          ['Seated Calf Raise', 4, 15]
+        ]
+      }
+    ]
+  },
+  {
+    name: '5/3/1 (BBB)',
+    description: '4-day strength template — main lift + Boring But Big volume work',
+    days: [
+      {
+        label: 'OHP Day',
+        exercises: [
+          ['Overhead Press', 3, 5],
+          ['Chin-Up', 5, 10],
+          ['Tricep Pushdown', 3, 12]
+        ]
+      },
+      {
+        label: 'Deadlift Day',
+        exercises: [
+          ['Deadlift', 3, 5],
+          ['Barbell Row', 5, 10],
+          ['Hanging Leg Raise', 3, 12]
+        ]
+      },
+      {
+        label: 'Bench Day',
+        exercises: [
+          ['Bench Press', 3, 5],
+          ['Pull-Up', 5, 10],
+          ['Dumbbell Curl', 3, 12]
+        ]
+      },
+      {
+        label: 'Squat Day',
+        exercises: [
+          ['Back Squat', 3, 5],
+          ['Romanian Deadlift', 5, 10],
+          ['Standing Calf Raise', 3, 15]
+        ]
+      }
+    ]
+  },
+  {
+    name: 'Bro Split',
+    description: '5-day split — one muscle group per day',
+    days: [
+      {
+        label: 'Chest Day',
+        exercises: [
+          ['Bench Press', 4, 8],
+          ['Incline Dumbbell Press', 3, 10],
+          ['Cable Fly', 3, 12],
+          ['Pec Deck', 3, 12],
+          ['Push-Up', 3, 15]
+        ]
+      },
+      {
+        label: 'Back Day',
+        exercises: [
+          ['Deadlift', 3, 5],
+          ['Pull-Up', 4, 8],
+          ['Barbell Row', 3, 8],
+          ['Lat Pulldown', 3, 10],
+          ['Face Pull', 3, 15]
+        ]
+      },
+      {
+        label: 'Shoulder Day',
+        exercises: [
+          ['Overhead Press', 4, 8],
+          ['Lateral Raise', 4, 12],
+          ['Rear Delt Fly', 3, 12],
+          ['Upright Row', 3, 10],
+          ['Shrug', 3, 12]
+        ]
+      },
+      {
+        label: 'Arm Day',
+        exercises: [
+          ['Barbell Curl', 3, 10],
+          ['Hammer Curl', 3, 10],
+          ['Preacher Curl', 3, 12],
+          ['Tricep Pushdown', 3, 12],
+          ['Skull Crusher', 3, 10],
+          ['Overhead Tricep Extension', 3, 12]
+        ]
+      },
+      {
+        label: 'Leg Day',
+        exercises: [
+          ['Back Squat', 4, 8],
+          ['Romanian Deadlift', 3, 10],
+          ['Leg Press', 3, 12],
+          ['Lying Leg Curl', 3, 12],
+          ['Standing Calf Raise', 4, 15]
+        ]
+      }
+    ]
+  },
+  {
+    name: 'Starting Strength',
+    description: '3-day full-body for beginners — alternates A and B',
+    days: [
+      {
+        label: 'Workout A',
+        exercises: [
+          ['Back Squat', 3, 5],
+          ['Bench Press', 3, 5],
+          ['Deadlift', 1, 5]
+        ]
+      },
+      {
+        label: 'Workout B',
+        exercises: [
+          ['Back Squat', 3, 5],
+          ['Overhead Press', 3, 5],
+          ['Deadlift', 1, 5]
+        ]
+      }
+    ]
+  }
+];
 
-    tx(() => {
+function seedPrograms() {
+  const findProgram = db.prepare('SELECT id FROM programs WHERE name = ?');
+  const insertProgram = db.prepare('INSERT INTO programs (name, description) VALUES (?, ?)');
+  const insertDay = db.prepare(
+    'INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)'
+  );
+  const insertDayEx = db.prepare(
+    'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index) VALUES (?, ?, ?, ?, ?)'
+  );
+  const findEx = db.prepare('SELECT id FROM exercises WHERE name = ?');
+
+  tx(() => {
+    for (const program of CANONICAL_PROGRAMS) {
+      const existing = findProgram.get(program.name);
+      if (existing) continue; // respect user customizations; never overwrite an existing program
       const programId = Number(
-        insertProgram.run(
-          'Push / Pull / Legs',
-          '3-day split focused on compound lifts and hypertrophy'
-        ).lastInsertRowid
+        insertProgram.run(program.name, program.description).lastInsertRowid
       );
-
-      for (const day of days) {
+      program.days.forEach((day, dayIdx) => {
         const dayId = Number(
-          insertDay.run(programId, day.label, day.order).lastInsertRowid
+          insertDay.run(programId, day.label, dayIdx + 1).lastInsertRowid
         );
         day.exercises.forEach(([name, sets, reps], i) => {
           const ex = findEx.get(name);
           if (ex) insertDayEx.run(dayId, ex.id, sets, reps, i);
         });
-      }
-    });
-  }
+      });
+    }
+  });
 }
 
 module.exports = { db, init, tx };
