@@ -57,7 +57,10 @@ const API = {
   deleteWorkout: (id) => api(`/api/workouts/${id}`, { method: 'DELETE' }),
   bodyweight: () => api('/api/bodyweight'),
   addBodyweight: (data) => api('/api/bodyweight', { method: 'POST', body: data }),
-  deleteBodyweight: (id) => api(`/api/bodyweight/${id}`, { method: 'DELETE' })
+  deleteBodyweight: (id) => api(`/api/bodyweight/${id}`, { method: 'DELETE' }),
+  duplicateProgram: (id, data) => api(`/api/programs/${id}/duplicate`, { method: 'POST', body: data }),
+  updateProgram: (id, data) => api(`/api/programs/${id}`, { method: 'PATCH', body: data }),
+  deleteProgram: (id) => api(`/api/programs/${id}`, { method: 'DELETE' })
 };
 
 const REST_SECONDS = 180; // 3 minutes
@@ -353,6 +356,58 @@ async function renderPrograms() {
     );
 
     root.onclick = async (e) => {
+      const dupBtn = e.target.closest('[data-dup-program]');
+      if (dupBtn) {
+        e.stopPropagation();
+        const id = Number(dupBtn.dataset.dupProgram);
+        const src = full.find((p) => p.id === id);
+        const suggested = `My ${src?.name || 'Program'}`;
+        const name = prompt('Name for the new program?', suggested);
+        if (!name || !name.trim()) return;
+        try {
+          await API.duplicateProgram(id, { name: name.trim() });
+          haptic(20);
+          toast('Program duplicated');
+          renderPrograms();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+
+      const renameBtn = e.target.closest('[data-rename-program]');
+      if (renameBtn) {
+        e.stopPropagation();
+        const id = Number(renameBtn.dataset.renameProgram);
+        const src = full.find((p) => p.id === id);
+        const name = prompt('Rename program to?', src?.name || '');
+        if (!name || !name.trim() || name.trim() === src?.name) return;
+        try {
+          await API.updateProgram(id, { name: name.trim() });
+          haptic(20);
+          renderPrograms();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+
+      const delBtn = e.target.closest('[data-delete-program]');
+      if (delBtn) {
+        e.stopPropagation();
+        const id = Number(delBtn.dataset.deleteProgram);
+        const src = full.find((p) => p.id === id);
+        if (!confirm(`Delete "${src?.name}" and all its days? This cannot be undone.`)) return;
+        try {
+          await API.deleteProgram(id);
+          haptic(20);
+          renderPrograms();
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+
       const header = e.target.closest('.program-card__header');
       if (header) {
         header.closest('.program-card').classList.toggle('expanded');
@@ -401,6 +456,11 @@ function programCardHTML(p) {
         <span class="program-card__chevron">&#x276F;</span>
       </button>
       <div class="program-card__body">
+        <div class="program-card__actions">
+          <button class="btn btn--ghost btn--sm" data-dup-program="${p.id}">&#x29C9; Duplicate</button>
+          <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Rename</button>
+          <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
+        </div>
         ${p.days.map((d) => dayCardHTML(d, p.id)).join('')}
       </div>
     </div>
@@ -977,8 +1037,17 @@ function recommendForNext(ex, lastSets) {
 
 function setRowHTML(ex, setNumber, { w, u, r, logged }) {
   const wStr = w === '' ? '' : Number(w);
+  const rpe = logged?.rpe ?? '';
+  const note = logged?.notes ?? '';
+  const rpeButtons = [6, 7, 8, 9, 10]
+    .map(
+      (n) => `<button class="rpe-btn ${Number(rpe) === n ? 'rpe-btn--active' : ''}" data-rpe="${n}">${n}</button>`
+    )
+    .join('');
+  const rpeBadge = rpe !== '' && rpe != null ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${rpe}</span>` : '';
+
   return `
-    <div class="set-row ${logged ? 'done' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" ${logged ? `data-set-id="${logged.id}"` : ''}>
+    <div class="set-row ${logged ? 'done' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${rpe}" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <div class="set-row__num">${setNumber}</div>
       <div class="num-input" data-field="weight">
         <button class="num-input__btn" data-step="-1">−</button>
@@ -997,9 +1066,15 @@ function setRowHTML(ex, setNumber, { w, u, r, logged }) {
         <div class="set-row__tools">
           <button data-toggle-note>&#x270E; note</button>
           <button data-rest class="rest-timer">start rest</button>
+          <div class="rpe-group" data-rpe-group>
+            <span class="rpe-group__label">RPE</span>
+            ${rpeButtons}
+            ${rpe !== '' && rpe != null ? '<button class="rpe-btn rpe-btn--clear" data-rpe-clear>×</button>' : ''}
+          </div>
         </div>
-        <input class="set-row__note" data-note placeholder="Form cue, RPE, etc." />
+        <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
       </div>
+      ${rpeBadge}
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
     </div>
   `;
@@ -1049,6 +1124,28 @@ function wireWorkoutView() {
       row.classList.toggle('extras-open');
       const noteInput = row.querySelector('[data-note]');
       if (row.classList.contains('extras-open')) noteInput.focus();
+      return;
+    }
+
+    const rpeBtn = e.target.closest('[data-rpe]');
+    if (rpeBtn) {
+      const val = Number(rpeBtn.dataset.rpe);
+      row.dataset.rpe = String(val);
+      row.querySelectorAll('.rpe-btn').forEach((b) =>
+        b.classList.toggle('rpe-btn--active', Number(b.dataset.rpe) === val)
+      );
+      haptic(10);
+      // If this set is already logged, persist immediately
+      if (row.dataset.setId) persistRpeChange(row);
+      updateRpeBadge(row);
+      return;
+    }
+
+    if (e.target.closest('[data-rpe-clear]')) {
+      row.dataset.rpe = '';
+      row.querySelectorAll('.rpe-btn').forEach((b) => b.classList.remove('rpe-btn--active'));
+      if (row.dataset.setId) persistRpeChange(row);
+      updateRpeBadge(row);
       return;
     }
 
@@ -1125,6 +1222,8 @@ async function confirmSet(row) {
     10
   );
   const note = row.querySelector('[data-note]')?.value?.trim() || null;
+  const rpeRaw = row.dataset.rpe;
+  const rpe = rpeRaw === '' || rpeRaw == null ? null : Number(rpeRaw);
 
   if (!weight || !reps) {
     toast('Enter weight and reps first');
@@ -1133,11 +1232,11 @@ async function confirmSet(row) {
 
   try {
     if (row.dataset.setId) {
-      // Already logged: update
       await API.updateSet(Number(row.dataset.setId), {
         weight,
         weight_unit: unit,
         reps,
+        rpe,
         notes: note
       });
       haptic(20);
@@ -1150,6 +1249,7 @@ async function confirmSet(row) {
         weight,
         weight_unit: unit,
         reps,
+        rpe,
         notes: note
       });
       row.dataset.setId = res.id;
@@ -1159,8 +1259,39 @@ async function confirmSet(row) {
       if (res.is_new_pr) showPRFlash();
       startRestCountdown();
     }
+    updateRpeBadge(row);
   } catch (err) {
     toast(err.message);
+  }
+}
+
+async function persistRpeChange(row) {
+  const setId = Number(row.dataset.setId);
+  if (!setId) return;
+  const raw = row.dataset.rpe;
+  const rpe = raw === '' || raw == null ? null : Number(raw);
+  try {
+    await API.updateSet(setId, { rpe });
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function updateRpeBadge(row) {
+  const existing = row.querySelector('[data-rpe-badge]');
+  const raw = row.dataset.rpe;
+  if (raw === '' || raw == null) {
+    existing?.remove();
+    return;
+  }
+  if (existing) {
+    existing.textContent = `RPE ${raw}`;
+  } else {
+    const badge = document.createElement('span');
+    badge.className = 'set-row__rpe-badge';
+    badge.dataset.rpeBadge = '';
+    badge.textContent = `RPE ${raw}`;
+    row.appendChild(badge);
   }
 }
 
@@ -1469,6 +1600,10 @@ async function renderProgress() {
       <div id="strength-standards"></div>
     </div>
     <div class="progress-section">
+      <div class="progress-section__title">What if I took a break?</div>
+      <div id="break-projection"></div>
+    </div>
+    <div class="progress-section">
       <div class="progress-section__title">Strength Curve</div>
       <select class="input" id="strength-ex"></select>
       <div class="chart-wrap" style="margin-top:12px"><canvas id="strength-chart"></canvas></div>
@@ -1528,6 +1663,7 @@ async function renderProgress() {
     renderVolumeChart(weekly);
     renderCalendar(calendarDates);
     renderStrengthStandards();
+    renderBreakProjection();
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load progress: ${err.message}</div>`;
   }
@@ -1725,6 +1861,123 @@ async function renderStrengthStandards() {
     root.innerHTML = `
       <div class="card__subtitle" style="margin-bottom:10px">Based on your best e1RM ÷ latest body weight (${bw[0].weight} ${bw[0].weight_unit}).</div>
       ${rows}
+    `;
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// Rough detraining model based on published literature:
+// - Week 1 off: ~1% loss (mostly negligible, may even improve recovery)
+// - Weeks 2-3: ~0.5%/day loss accelerating
+// - Weeks 4+: ~0.7%/day, plateauing around 30-40% loss at several months
+function projectStrengthLoss(daysOff) {
+  if (daysOff <= 0) return 0;
+  if (daysOff <= 7) return daysOff * 0.0014; // ~1% total at 1 week
+  if (daysOff <= 21) return 0.01 + (daysOff - 7) * 0.003; // ~5% at 2 wk, ~7% at 3 wk
+  if (daysOff <= 56) return 0.05 + (daysOff - 21) * 0.004; // ~19% at 2 months
+  return Math.min(0.35, 0.19 + (daysOff - 56) * 0.002);
+}
+
+async function renderBreakProjection() {
+  const root = $('#break-projection');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+
+  try {
+    const prs = await API.prs();
+    const mainLifts = ['Bench Press', 'Back Squat', 'Deadlift', 'Overhead Press'];
+    const rows = [];
+
+    for (const name of mainLifts) {
+      const group = prs.find((p) => p.exercise_name === name);
+      if (!group || !group.records.length) {
+        rows.push({ name, empty: true });
+        continue;
+      }
+      let bestE1RM = 0;
+      let bestAt = null;
+      for (const r of group.records) {
+        const e = e1RM(toKg(r.weight, r.weight_unit), r.reps);
+        if (e > bestE1RM) {
+          bestE1RM = e;
+          bestAt = r.achieved_at;
+        }
+      }
+
+      // Days since last session containing this exercise (from progress endpoint)
+      let daysSince = null;
+      try {
+        const data = await API.progress(group.exercise_id);
+        const lastSet = data.sets[data.sets.length - 1];
+        if (lastSet) {
+          const d = new Date(lastSet.logged_at.replace(' ', 'T') + 'Z');
+          daysSince = Math.floor((Date.now() - d.getTime()) / 86400000);
+        }
+      } catch {
+        /* ignore */
+      }
+
+      rows.push({
+        name,
+        bestE1RM,
+        bestAt,
+        daysSince,
+        projections: [
+          { label: '1 wk', days: 7 },
+          { label: '2 wk', days: 14 },
+          { label: '1 mo', days: 30 },
+          { label: '2 mo', days: 60 }
+        ]
+      });
+    }
+
+    if (rows.every((r) => r.empty)) {
+      root.innerHTML = `<div class="bw-current__empty">Log a few sessions of the main lifts (bench, squat, deadlift, press) to see this.</div>`;
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:12px">Rough detraining projection from your current best e1RM. Comes back fast when you resume.</div>
+      ${rows
+        .map((r) => {
+          if (r.empty) {
+            return `<div class="break-row break-row--empty"><div class="break-row__name">${r.name}</div><div class="break-row__meta">No data yet</div></div>`;
+          }
+          const cells = r.projections
+            .map((p) => {
+              const loss = projectStrengthLoss(p.days);
+              const projected = r.bestE1RM * (1 - loss);
+              return `
+                <div class="break-cell">
+                  <div class="break-cell__label">${p.label}</div>
+                  <div class="break-cell__val">${Math.round(projected)}</div>
+                  <div class="break-cell__delta">-${Math.round(loss * 100)}%</div>
+                </div>`;
+            })
+            .join('');
+          const daysSinceTxt =
+            r.daysSince == null
+              ? ''
+              : r.daysSince === 0
+                ? 'today'
+                : r.daysSince === 1
+                  ? 'yesterday'
+                  : `${r.daysSince}d ago`;
+          return `
+            <div class="break-row">
+              <div class="break-row__head">
+                <div class="break-row__name">${r.name}</div>
+                <div class="break-row__meta">
+                  <span>Now: <strong>${Math.round(r.bestE1RM)} kg</strong></span>
+                  ${daysSinceTxt ? `<span class="break-row__since">last ${daysSinceTxt}</span>` : ''}
+                </div>
+              </div>
+              <div class="break-cells">${cells}</div>
+            </div>
+          `;
+        })
+        .join('')}
     `;
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`;
@@ -2138,6 +2391,7 @@ async function loadHistoryCardBody(card) {
                     <button class="history-ex__set" data-edit-set="${s.id}">
                       <span class="history-ex__set-n">Set ${s.set_number}</span>
                       <span class="history-ex__set-w">${s.weight}${s.weight_unit} × ${s.reps}</span>
+                      ${s.rpe != null ? `<span class="history-ex__set-rpe">@${s.rpe}</span>` : ''}
                       ${s.notes ? `<span class="history-ex__set-note">${escapeHtml(s.notes)}</span>` : ''}
                     </button>
                   `
@@ -2234,6 +2488,7 @@ async function openEditSetSheet(setId, workoutId) {
       weight: set.weight,
       weight_unit: set.weight_unit,
       reps: set.reps,
+      rpe: set.rpe ?? null,
       notes: set.notes || ''
     };
     renderSetEditSheet();
@@ -2263,6 +2518,7 @@ async function openAddSetSheet(exerciseId, workoutId, nextSetNumber, exName) {
     weight: prior?.weight ?? 0,
     weight_unit: prior?.weight_unit || 'kg',
     reps: prior?.reps ?? 10,
+    rpe: null,
     notes: ''
   };
   renderSetEditSheet();
@@ -2313,6 +2569,17 @@ function renderSetEditSheet() {
           <button class="num-input__btn" data-se-step-reps="1">+</button>
         </div>
 
+        <label class="form-label" style="margin-top:14px">RPE</label>
+        <div class="rpe-group rpe-group--wide" id="se-rpe-group">
+          ${[6, 7, 8, 9, 10]
+            .map(
+              (n) =>
+                `<button class="rpe-btn ${Number(s.rpe) === n ? 'rpe-btn--active' : ''}" data-se-rpe="${n}">${n}</button>`
+            )
+            .join('')}
+          <button class="rpe-btn rpe-btn--clear ${s.rpe == null ? 'rpe-btn--active' : ''}" data-se-rpe="">none</button>
+        </div>
+
         <label class="form-label" style="margin-top:14px">Notes</label>
         <input class="input" id="se-notes" value="${escapeHtml(s.notes)}" placeholder="Optional"/>
 
@@ -2359,6 +2626,18 @@ function renderSetEditSheet() {
       return;
     }
 
+    const rpeBtn = e.target.closest('[data-se-rpe]');
+    if (rpeBtn) {
+      const raw = rpeBtn.dataset.seRpe;
+      s.rpe = raw === '' ? null : Number(raw);
+      sheet.querySelectorAll('[data-se-rpe]').forEach((b) => {
+        const v = b.dataset.seRpe === '' ? null : Number(b.dataset.seRpe);
+        b.classList.toggle('rpe-btn--active', v === s.rpe);
+      });
+      haptic(10);
+      return;
+    }
+
     if (e.target.closest('#se-save')) {
       const weight = parseFloat(document.getElementById('se-weight').value || '0');
       const reps = parseInt(document.getElementById('se-reps').value || '0', 10);
@@ -2368,7 +2647,7 @@ function renderSetEditSheet() {
 
       try {
         if (s.mode === 'edit') {
-          await API.updateSet(s.setId, { weight, weight_unit: unit, reps, notes });
+          await API.updateSet(s.setId, { weight, weight_unit: unit, reps, rpe: s.rpe, notes });
         } else {
           await API.logSet({
             workout_id: s.workoutId,
@@ -2377,6 +2656,7 @@ function renderSetEditSheet() {
             weight,
             weight_unit: unit,
             reps,
+            rpe: s.rpe,
             notes
           });
         }
