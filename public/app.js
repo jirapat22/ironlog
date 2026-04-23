@@ -62,7 +62,9 @@ const API = {
   deleteBodyweight: (id) => api(`/api/bodyweight/${id}`, { method: 'DELETE' }),
   duplicateProgram: (id, data) => api(`/api/programs/${id}/duplicate`, { method: 'POST', body: data }),
   updateProgram: (id, data) => api(`/api/programs/${id}`, { method: 'PATCH', body: data }),
-  deleteProgram: (id) => api(`/api/programs/${id}`, { method: 'DELETE' })
+  deleteProgram: (id) => api(`/api/programs/${id}`, { method: 'DELETE' }),
+  settings: () => api('/api/settings'),
+  updateSettings: (data) => api('/api/settings', { method: 'PUT', body: data })
 };
 
 const REST_SECONDS = 180; // 3 minutes
@@ -719,8 +721,11 @@ function renderEditSheet() {
       (e, i) => `
       <div class="edit-row" data-pde="${e.id}">
         <div class="edit-row__main">
-          <div class="edit-row__name">${escapeHtml(e.name)}</div>
-          <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}</div>
+          <button class="edit-row__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
+          <div class="edit-row__head-text">
+            <div class="edit-row__name">${escapeHtml(e.name)}</div>
+            <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}</div>
+          </div>
         </div>
         <div class="edit-row__controls">
           <div class="edit-stepper">
@@ -754,11 +759,15 @@ function renderEditSheet() {
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body">
-        ${rows || '<div class="empty" style="padding:20px 0">No exercises yet. Add one below.</div>'}
+        <div class="edit-rows" id="edit-rows-container">${rows}</div>
+        ${day.exercises.length ? '' : '<div class="empty" style="padding:20px 0">No exercises yet. Add one below.</div>'}
         <button class="btn btn--primary btn--block" data-open-picker style="margin-top:16px">+ Add exercise</button>
       </div>
     </div>
   `;
+
+  const rowsContainer = sheet.querySelector('#edit-rows-container');
+  if (rowsContainer) enableDragReorder(rowsContainer, persistEditRowOrder);
 
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) {
@@ -828,6 +837,106 @@ function renderEditSheet() {
       }
     }
   };
+}
+
+async function persistEditRowOrder() {
+  const container = document.getElementById('edit-rows-container');
+  if (!container) return;
+  const order = [...container.children].map((r) => Number(r.dataset.pde));
+  // Sort state array to match DOM
+  editDayState.day.exercises.sort(
+    (a, b) => order.indexOf(a.id) - order.indexOf(b.id)
+  );
+  // Persist any order_index changes
+  const updates = [];
+  for (let i = 0; i < editDayState.day.exercises.length; i++) {
+    const ex = editDayState.day.exercises[i];
+    if (ex.order_index !== i) {
+      updates.push(
+        API.updateDayExercise(editDayState.programId, editDayState.dayId, ex.id, {
+          order_index: i
+        }).then(() => {
+          ex.order_index = i;
+        })
+      );
+    }
+  }
+  try {
+    await Promise.all(updates);
+    haptic(15);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function enableDragReorder(container, onDrop) {
+  let drag = null;
+
+  const onDown = (e) => {
+    const handle = e.target.closest('[data-drag-handle]');
+    if (!handle) return;
+    const row = handle.closest('.edit-row');
+    if (!row || !container.contains(row)) return;
+    e.preventDefault();
+    drag = {
+      row,
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      origOrder: [...container.children].map((r) => r.dataset.pde)
+    };
+    row.classList.add('edit-row--dragging');
+    try {
+      row.setPointerCapture(e.pointerId);
+    } catch {}
+    haptic(15);
+  };
+
+  const onMove = (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    const dy = e.clientY - drag.startY;
+    drag.row.style.transform = `translateY(${dy}px)`;
+    drag.row.style.zIndex = '10';
+
+    const siblings = [...container.children].filter((c) => c !== drag.row);
+    for (const sib of siblings) {
+      const rect = sib.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const rowAfterSib =
+        drag.row.compareDocumentPosition(sib) & Node.DOCUMENT_POSITION_PRECEDING;
+      const rowBeforeSib =
+        drag.row.compareDocumentPosition(sib) & Node.DOCUMENT_POSITION_FOLLOWING;
+      if (e.clientY < mid && rowAfterSib) {
+        drag.row.style.transform = '';
+        drag.startY = e.clientY;
+        container.insertBefore(drag.row, sib);
+        return;
+      }
+      if (e.clientY > mid && rowBeforeSib) {
+        drag.row.style.transform = '';
+        drag.startY = e.clientY;
+        container.insertBefore(drag.row, sib.nextSibling);
+        return;
+      }
+    }
+  };
+
+  const onUp = async (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const row = drag.row;
+    row.classList.remove('edit-row--dragging');
+    row.style.transform = '';
+    row.style.zIndex = '';
+    const newOrder = [...container.children].map((r) => r.dataset.pde);
+    const moved = newOrder.some((id, i) => id !== drag.origOrder[i]);
+    drag = null;
+    if (moved) await onDrop();
+  };
+
+  container.addEventListener('pointerdown', onDown);
+  container.addEventListener('pointermove', onMove);
+  container.addEventListener('pointerup', onUp);
+  container.addEventListener('pointercancel', onUp);
 }
 
 // ---------- Exercise picker ----------
@@ -1769,6 +1878,14 @@ async function renderProgress() {
       <div id="break-projection"></div>
     </div>
     <div class="progress-section">
+      <div class="progress-section__title">Readiness (RPE trend)</div>
+      <div id="readiness"></div>
+    </div>
+    <div class="progress-section">
+      <div class="progress-section__title">Personal Records Timeline</div>
+      <div id="pr-timeline"></div>
+    </div>
+    <div class="progress-section">
       <div class="progress-section__title">Strength Curve</div>
       <select class="input" id="strength-ex"></select>
       <div class="chart-wrap" style="margin-top:12px"><canvas id="strength-chart"></canvas></div>
@@ -1829,6 +1946,8 @@ async function renderProgress() {
     renderCalendar(calendarDates);
     renderStrengthStandards();
     renderBreakProjection();
+    renderPrTimeline();
+    renderReadiness(exercises);
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load progress: ${err.message}</div>`;
   }
@@ -2146,6 +2265,191 @@ async function renderBreakProjection() {
     `;
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function renderPrTimeline() {
+  const root = $('#pr-timeline');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+
+  try {
+    const prs = await API.prs();
+    // Flatten to events
+    const events = [];
+    for (const g of prs) {
+      for (const r of g.records) {
+        events.push({
+          exerciseName: g.exercise_name,
+          muscleGroup: g.muscle_group,
+          weight: r.weight,
+          weight_unit: r.weight_unit,
+          reps: r.reps,
+          achievedAt: r.achieved_at,
+          e1rm: e1RM(toKg(r.weight, r.weight_unit), r.reps)
+        });
+      }
+    }
+    if (!events.length) {
+      root.innerHTML = `<div class="bw-current__empty">No PRs yet — hit a new rep-max to see it here.</div>`;
+      return;
+    }
+    events.sort((a, b) => b.achievedAt.localeCompare(a.achievedAt));
+
+    // Group by exercise, preserve date order within
+    const byExercise = new Map();
+    for (const ev of events) {
+      if (!byExercise.has(ev.exerciseName)) byExercise.set(ev.exerciseName, []);
+      byExercise.get(ev.exerciseName).push(ev);
+    }
+
+    const groupOrder = [...byExercise.keys()].sort((a, b) => {
+      const aLatest = byExercise.get(a)[0].achievedAt;
+      const bLatest = byExercise.get(b)[0].achievedAt;
+      return bLatest.localeCompare(aLatest);
+    });
+
+    root.innerHTML = groupOrder
+      .map((name) => {
+        const list = byExercise.get(name);
+        return `
+          <div class="pr-group">
+            <div class="pr-group__name">${escapeHtml(name)}</div>
+            ${list
+              .map(
+                (ev) => `
+                  <div class="pr-event">
+                    <div class="pr-event__date">${formatDateShort(ev.achievedAt)}</div>
+                    <div class="pr-event__body">
+                      <span class="pr-event__main">${ev.weight}${ev.weight_unit} × ${ev.reps}</span>
+                      <span class="pr-event__e1rm">e1RM ${Math.round(ev.e1rm)} kg</span>
+                    </div>
+                  </div>
+                `
+              )
+              .join('')}
+          </div>
+        `;
+      })
+      .join('');
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function renderReadiness(exercises) {
+  const root = $('#readiness');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+
+  const since = Date.now() - 42 * 86400000; // last 6 weeks
+
+  // Fetch per-exercise data in parallel, but only for exercises with likely data.
+  // We piggyback on the strength standards signals to keep it scoped.
+  try {
+    const rows = [];
+    // Limit to exercises that have at least one PR (proxy for "tracked")
+    const prs = await API.prs();
+    const tracked = prs.map((p) => p.exercise_id);
+
+    const datas = await Promise.all(
+      tracked.map((id) => API.progress(id).then((d) => ({ id, d })).catch(() => null))
+    );
+
+    for (const item of datas) {
+      if (!item) continue;
+      const { id, d } = item;
+      const exName = exercises.find((e) => e.id === id)?.name || '?';
+      // Group sets by session (date), only those with rpe logged, within 6 weeks
+      const bySession = new Map();
+      for (const s of d.sets) {
+        if (s.rpe == null) continue;
+        const t = new Date(s.logged_at.replace(' ', 'T') + 'Z').getTime();
+        if (t < since) continue;
+        const day = s.logged_at.slice(0, 10);
+        if (!bySession.has(day)) bySession.set(day, []);
+        bySession.get(day).push(s);
+      }
+      if (bySession.size < 2) continue;
+      const sessionKeys = [...bySession.keys()].sort();
+      const sessionAvgRpe = sessionKeys.map((k) => {
+        const sets = bySession.get(k);
+        const avg = sets.reduce((acc, s) => acc + s.rpe, 0) / sets.length;
+        const maxW = Math.max(...sets.map((s) => toKg(s.weight, s.weight_unit)));
+        return { day: k, avgRpe: avg, maxW };
+      });
+
+      // Compare last 3 to prior 3 (or fewer)
+      const recent = sessionAvgRpe.slice(-3);
+      const prior = sessionAvgRpe.slice(-6, -3);
+      const recentAvg = recent.reduce((a, s) => a + s.avgRpe, 0) / recent.length;
+      const priorAvg = prior.length ? prior.reduce((a, s) => a + s.avgRpe, 0) / prior.length : recentAvg;
+      const delta = recentAvg - priorAvg;
+
+      const recentW = recent[recent.length - 1].maxW;
+      const priorW = prior.length ? prior[prior.length - 1].maxW : recentW;
+      const weightUp = recentW > priorW;
+
+      let label, color;
+      if (delta >= 0.75 && !weightUp) {
+        label = 'Fatigue building';
+        color = '#ff8a8a';
+      } else if (delta >= 0.5 && !weightUp) {
+        label = 'Watch it';
+        color = '#ffb347';
+      } else if (delta <= -0.5 || (delta <= 0.25 && weightUp)) {
+        label = 'Progressing';
+        color = '#9effa8';
+      } else {
+        label = 'Stable';
+        color = '#62d8ff';
+      }
+
+      rows.push({
+        exName,
+        recentAvg,
+        priorAvg,
+        delta,
+        label,
+        color,
+        sessions: sessionAvgRpe,
+        weightUp,
+        recentW
+      });
+    }
+
+    if (!rows.length) {
+      root.innerHTML = `<div class="bw-current__empty">Log RPE on a few sets to see fatigue/readiness trends.</div>`;
+      return;
+    }
+
+    // Fatigue-risk first
+    rows.sort((a, b) => b.delta - a.delta);
+
+    root.innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:10px">Rising RPE at the same weight = fatigue building. Last 3 sessions vs. prior 3.</div>
+      ${rows
+        .map(
+          (r) => `
+            <div class="ready-row">
+              <div class="ready-row__top">
+                <div class="ready-row__name">${escapeHtml(r.exName)}</div>
+                <div class="ready-row__label" style="color:${r.color}">${r.label}</div>
+              </div>
+              <div class="ready-row__meta">
+                Avg RPE ${r.priorAvg.toFixed(1)} → ${r.recentAvg.toFixed(1)}
+                <span style="color:${r.delta > 0 ? '#ff8a8a' : '#9effa8'}">
+                  ${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(1)}
+                </span>
+                · ${Math.round(r.recentW)} kg ${r.weightUp ? '↑' : ''}
+              </div>
+            </div>
+          `
+        )
+        .join('')}
+    `;
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -2870,11 +3174,20 @@ function ensureSettingsSheet() {
   return sheet;
 }
 
-function openSettingsSheet() {
+async function openSettingsSheet() {
   const sheet = ensureSettingsSheet();
   const perm = notifPermission();
   const enabled = localStorage.getItem(LS.notifEnabled) === '1';
   const canNotif = 'Notification' in window && 'serviceWorker' in navigator;
+
+  let serverSettings = {};
+  try {
+    serverSettings = await API.settings();
+  } catch {
+    serverSettings = { nudge_enabled: '1', nudge_threshold_days: '3' };
+  }
+  const nudgeOn = serverSettings.nudge_enabled === '1';
+  const nudgeDays = Number(serverSettings.nudge_threshold_days || 3);
 
   let notifBody = '';
   if (!canNotif) {
@@ -2908,6 +3221,25 @@ function openSettingsSheet() {
         <div class="settings-group">
           <div class="settings-group__title">Notifications</div>
           ${notifBody}
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-group__title">Reminders</div>
+          <label class="settings-row">
+            <span>Missed-training nudge</span>
+            <button class="toggle ${nudgeOn ? 'toggle--on' : ''}" id="toggle-nudge" aria-pressed="${nudgeOn}">
+              <span class="toggle__dot"></span>
+            </button>
+          </label>
+          <div class="settings-row">
+            <span>Nudge after</span>
+            <div class="stepper" id="nudge-days-stepper">
+              <button class="stepper__btn" data-nudge-step="-1">−</button>
+              <span class="stepper__val" id="nudge-days-val">${nudgeDays} day${nudgeDays === 1 ? '' : 's'}</span>
+              <button class="stepper__btn" data-nudge-step="1">+</button>
+            </div>
+          </div>
+          <div class="card__subtitle" style="margin-top:6px">Quiet hours: 10pm–8am. Requires notifications on.</div>
         </div>
 
         <div class="settings-group">
@@ -2976,6 +3308,35 @@ function openSettingsSheet() {
       sessionStorage.removeItem(LS.pinUnlocked);
       hideSheet(sheet);
       setTimeout(() => location.reload(), 200);
+      return;
+    }
+
+    if (e.target.closest('#toggle-nudge')) {
+      const btn = e.target.closest('#toggle-nudge');
+      const on = btn.classList.contains('toggle--on');
+      try {
+        await API.updateSettings({ nudge_enabled: on ? '0' : '1' });
+        haptic(10);
+        openSettingsSheet();
+      } catch (err) {
+        toast(err.message);
+      }
+      return;
+    }
+
+    const nudgeStep = e.target.closest('[data-nudge-step]');
+    if (nudgeStep) {
+      const delta = Number(nudgeStep.dataset.nudgeStep);
+      const current = Number(document.getElementById('nudge-days-val').textContent.match(/\d+/)[0]);
+      const next = Math.max(1, Math.min(14, current + delta));
+      if (next === current) return;
+      try {
+        await API.updateSettings({ nudge_threshold_days: String(next) });
+        document.getElementById('nudge-days-val').textContent = `${next} day${next === 1 ? '' : 's'}`;
+        haptic(10);
+      } catch (err) {
+        toast(err.message);
+      }
     }
   };
 }

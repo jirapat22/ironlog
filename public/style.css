@@ -504,9 +504,40 @@ button {
 .edit-row__main {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.edit-row__drag {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.edit-row__drag:active {
+  cursor: grabbing;
+  background: var(--accent);
+  color: #0c0c0c;
+}
+
+.edit-row__head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.edit-row--dragging {
+  opacity: 0.9;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  background: var(--surface-2);
+  transition: none !important;
 }
 
 .edit-row__name {
@@ -1591,6 +1622,122 @@ button {
     opacity: 1;
     transform: none;
   }
+}
+
+/* Stepper (settings) */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 4px;
+}
+
+.stepper__btn {
+  width: 30px;
+  height: 30px;
+  color: var(--text-dim);
+  font-size: 18px;
+}
+
+.stepper__val {
+  min-width: 62px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* PR Timeline */
+.pr-group {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.pr-group:first-of-type {
+  border-top: none;
+}
+
+.pr-group__name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+
+.pr-event {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.04);
+}
+
+.pr-event:first-of-type {
+  border-top: none;
+}
+
+.pr-event__date {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-event__body {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-event__main {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.pr-event__e1rm {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* Readiness */
+.ready-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.ready-row:first-of-type {
+  border-top: none;
+}
+
+.ready-row__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ready-row__name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ready-row__label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ready-row__meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Summary */

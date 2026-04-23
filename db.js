@@ -111,6 +111,11 @@ function init() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sets_workout ON sets(workout_id);
     CREATE INDEX IF NOT EXISTS idx_sets_exercise ON sets(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workouts_program_day ON workouts(program_day_id);

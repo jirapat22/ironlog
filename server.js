@@ -10,6 +10,8 @@ const setsRouter = require('./routes/sets');
 const progressRouter = require('./routes/progress');
 const bodyweightRouter = require('./routes/bodyweight');
 const pushRouter = require('./routes/push');
+const settingsRouter = require('./routes/settings');
+const nudge = require('./nudge');
 
 init();
 console.log('DB ready');
@@ -19,6 +21,8 @@ try {
 } catch (err) {
   console.warn('Push init failed:', err.message);
 }
+nudge.start();
+console.log('Nudge cron started');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -29,6 +33,7 @@ app.use('/api/workouts', workoutsRouter);
 app.use('/api/sets', setsRouter);
 app.use('/api/bodyweight', bodyweightRouter);
 app.use('/api/push', pushRouter);
+app.use('/api/settings', settingsRouter);
 app.use('/api', progressRouter);
 
 app.get('/health', (req, res) => {
