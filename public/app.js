@@ -62,6 +62,45 @@ const API = {
 
 const REST_SECONDS = 180; // 3 minutes
 
+// ---------- Wake lock (keep screen awake during workout) ----------
+let wakeLockSentinel = null;
+
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => {
+      wakeLockSentinel = null;
+    });
+  } catch {
+    /* user gesture required or not permitted — fail silently */
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && localStorage.getItem(LS.activeWorkoutId)) {
+    acquireWakeLock();
+  }
+});
+
+// ---------- e1RM (Epley) ----------
+function e1RM(weight, reps) {
+  if (!weight || !reps) return 0;
+  if (reps === 1) return weight;
+  return weight * (1 + reps / 30);
+}
+
+function toKg(weight, unit) {
+  return unit === 'lbs' ? weight * 0.45359237 : weight;
+}
+
 // ---------- Global rest countdown ----------
 let restState = null; // { endAt, handle, doneTimeout }
 
@@ -777,6 +816,7 @@ async function renderWorkout() {
 
     renderWorkoutView();
     startStickyTimer();
+    acquireWakeLock();
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load workout: ${err.message}</div>`;
   }
@@ -844,25 +884,26 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const prefillUnit = prevReference?.weight_unit || 'kg';
   const prefillReps = prevReference?.reps ?? ex.target_reps;
 
-  // overload nudge: all last sets hit weight & target reps
-  let overload = false;
-  if (lastSets.length >= target) {
-    const allHit = lastSets.slice(0, target).every(
-      (s) => s.reps >= ex.target_reps && s.weight === prefillReference(lastSets).weight
-    );
-    overload = allHit;
-  }
+  const rec = recommendForNext(ex, lastSets);
 
   const rows = [];
   for (let i = 1; i <= target; i++) {
     const key = `${ex.exercise_id}-${i}`;
     const logged = loggedBySet[key];
     const prevSet = lastSets.find((s) => s.set_number === i) || prevReference;
-    const w = logged?.weight ?? prevSet?.weight ?? prefillWeight;
-    const u = logged?.weight_unit ?? prevSet?.weight_unit ?? prefillUnit;
+    // Prefer recommendation for unlogged sets when we have one
+    const w = logged?.weight ?? (rec?.recWeight ?? prevSet?.weight ?? prefillWeight);
+    const u = logged?.weight_unit ?? (rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit);
     const r = logged?.reps ?? prevSet?.reps ?? prefillReps;
     rows.push(setRowHTML(ex, i, { w, u, r, logged }));
   }
+
+  const hint = rec
+    ? `<div class="exercise-card__hint">
+        ${rec.isProgression ? '&#x2B06;&#xFE0F; ' : ''}<strong>${rec.label}</strong>
+        <span class="exercise-card__hint-meta">Last: ${rec.lastBest} · e1RM ${Math.round(rec.e1rm)}${rec.recUnit}</span>
+      </div>`
+    : '';
 
   return `
     <div class="exercise-card" data-ex="${ex.exercise_id}">
@@ -871,18 +912,67 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <div class="exercise-card__name">${escapeHtml(ex.name)}</div>
           <div class="card__subtitle">${target} × ${ex.target_reps}</div>
         </div>
-        <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}</span>
+        <div class="exercise-card__head-actions">
+          <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
+          <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}</span>
+        </div>
       </div>
-      ${overload ? `<div class="overload-banner">Ready to progress — try +${stepFor(prefillUnit)}${prefillUnit} today</div>` : ''}
+      ${hint}
       <div class="set-rows">
         ${rows.join('')}
       </div>
+      <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}">Done with this exercise</button>
     </div>
   `;
 }
 
-function prefillReference(lastSets) {
-  return lastSets[0] || { weight: 0, weight_unit: 'kg' };
+function recommendForNext(ex, lastSets) {
+  if (!lastSets.length) return null;
+  const target = ex.target_sets;
+  const targetReps = ex.target_reps;
+
+  let bestE1RM = 0;
+  let bestSet = null;
+  for (const s of lastSets) {
+    const e = e1RM(toKg(s.weight, s.weight_unit), s.reps);
+    if (e > bestE1RM) {
+      bestE1RM = e;
+      bestSet = s;
+    }
+  }
+  if (!bestSet) return null;
+
+  const completed = lastSets.slice(0, target);
+  const allHitTargetReps =
+    completed.length >= target &&
+    completed.every((s) => s.reps >= targetReps && s.weight === bestSet.weight);
+
+  const unit = bestSet.weight_unit;
+  const step = stepFor(unit);
+  const e1rmInUnit = unit === 'lbs' ? bestE1RM / 0.45359237 : bestE1RM;
+
+  let recWeight;
+  let label;
+  let isProgression;
+  if (allHitTargetReps) {
+    recWeight = +(bestSet.weight + step).toFixed(2);
+    label = `Try ${recWeight}${unit} × ${targetReps}`;
+    isProgression = true;
+  } else {
+    recWeight = bestSet.weight;
+    label = `Retry ${recWeight}${unit} × ${targetReps}`;
+    isProgression = false;
+  }
+
+  return {
+    recWeight,
+    recUnit: unit,
+    recReps: targetReps,
+    label,
+    e1rm: e1rmInUnit,
+    lastBest: `${bestSet.weight}${unit} × ${bestSet.reps}`,
+    isProgression
+  };
 }
 
 function setRowHTML(ex, setNumber, { w, u, r, logged }) {
@@ -968,6 +1058,23 @@ function wireWorkoutView() {
     const delBtn = e.target.closest('[data-delete]');
     if (delBtn) return deleteLoggedSet(row);
   };
+
+  // Swap / skip handlers (outside row scope — attach on a second handler)
+  root.addEventListener('click', async (e) => {
+    const swapBtn = e.target.closest('[data-swap-ex]');
+    if (swapBtn) {
+      e.stopPropagation();
+      haptic(15);
+      openSwapPicker(Number(swapBtn.dataset.swapEx));
+      return;
+    }
+    const skipBtn = e.target.closest('[data-skip-ex]');
+    if (skipBtn) {
+      e.stopPropagation();
+      haptic(15);
+      skipRemainingForExercise(Number(skipBtn.dataset.skipEx));
+    }
+  });
 
   // Workout-level notes: PATCH on blur if changed
   const notesEl = root.querySelector('[data-workout-notes]');
@@ -1080,6 +1187,166 @@ function toggleRestTimer() {
   else startRestCountdown();
 }
 
+function skipRemainingForExercise(exerciseId) {
+  const card = document.querySelector(`.exercise-card[data-ex="${exerciseId}"]`);
+  if (!card) return;
+  const rows = [...card.querySelectorAll('.set-row')];
+  const unlogged = rows.filter((r) => !r.dataset.setId);
+  if (!unlogged.length) {
+    toast('All sets already logged');
+    return;
+  }
+  unlogged.forEach((r) => r.classList.add('hidden'));
+  card.classList.add('exercise-card--skipped');
+  const skipBtn = card.querySelector('[data-skip-ex]');
+  if (skipBtn) skipBtn.textContent = 'Skipped — tap to undo';
+  skipBtn?.addEventListener(
+    'click',
+    (e) => {
+      if (!card.classList.contains('exercise-card--skipped')) return;
+      e.stopPropagation();
+      card.classList.remove('exercise-card--skipped');
+      unlogged.forEach((r) => r.classList.remove('hidden'));
+      skipBtn.textContent = 'Done with this exercise';
+    },
+    { once: true }
+  );
+  toast(`Skipped ${unlogged.length} remaining set${unlogged.length > 1 ? 's' : ''}`);
+}
+
+async function openSwapPicker(currentExerciseId) {
+  const picker = ensureSwapPicker();
+  picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
+  showSheet(picker);
+
+  let exercises;
+  try {
+    exercises = await API.exercises();
+  } catch (err) {
+    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    return;
+  }
+
+  const currentIdx = workoutState.programDay.exercises.findIndex(
+    (e) => e.exercise_id === currentExerciseId
+  );
+  const currentEx = workoutState.programDay.exercises[currentIdx];
+
+  const groups = {};
+  for (const ex of exercises) {
+    if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
+    groups[ex.muscle_group].push(ex);
+  }
+  const groupOrder = ['chest', 'back', 'shoulders', 'arms', 'legs', 'core'];
+  const keys = [...new Set([...groupOrder, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Swap ${escapeHtml(currentEx?.name || 'exercise')}</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:10px">Pick a replacement. This only affects today's workout.</div>
+        <input class="input" id="swap-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
+        ${keys
+          .map(
+            (g) => `
+          <div class="picker-group" data-group="${g}">
+            <div class="picker-group__title">${escapeHtml(g)}</div>
+            ${groups[g]
+              .map(
+                (ex) => `
+                <button class="picker-row ${ex.id === currentExerciseId ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+                  <span>${escapeHtml(ex.name)}</span>
+                  <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : 'pick'}</span>
+                </button>
+              `
+              )
+              .join('')}
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+
+  const search = document.getElementById('swap-search');
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    picker.querySelectorAll('.picker-row').forEach((r) => {
+      r.classList.toggle('hidden', q && !r.dataset.name.includes(q));
+    });
+    picker.querySelectorAll('.picker-group').forEach((g) => {
+      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
+      g.classList.toggle('hidden', !any);
+    });
+  };
+
+  picker.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
+    const pickBtn = e.target.closest('[data-swap-pick]');
+    if (!pickBtn) return;
+    const newExId = Number(pickBtn.dataset.swapPick);
+    if (newExId === currentExerciseId) {
+      toast('Same exercise — nothing to swap');
+      return;
+    }
+    const newEx = exercises.find((x) => x.id === newExId);
+    if (!newEx) return;
+
+    // Any sets logged against this exercise in the current workout?
+    const logged = workoutState.loggedSets.filter((s) => s.exercise_id === currentExerciseId);
+    if (logged.length) {
+      const msg = `Delete ${logged.length} logged set${logged.length > 1 ? 's' : ''} for ${currentEx.name} and swap?`;
+      if (!confirm(msg)) return;
+      try {
+        await Promise.all(logged.map((s) => API.deleteSet(s.id)));
+        workoutState.loggedSets = workoutState.loggedSets.filter(
+          (s) => s.exercise_id !== currentExerciseId
+        );
+      } catch (err) {
+        toast(err.message);
+        return;
+      }
+    }
+
+    // Swap in workoutState (local only — doesn't modify the program)
+    workoutState.programDay.exercises[currentIdx] = {
+      ...currentEx,
+      exercise_id: newExId,
+      name: newEx.name,
+      muscle_group: newEx.muscle_group
+    };
+
+    // Refetch last-session data for the NEW exercise
+    try {
+      const newLast = await API.lastWorkout(workoutState.programDay.id);
+      workoutState.last = newLast;
+    } catch {
+      /* ignore */
+    }
+
+    hideSheet(picker);
+    haptic(20);
+    toast(`Swapped to ${newEx.name}`);
+    renderWorkoutView();
+  };
+}
+
+function ensureSwapPicker() {
+  let picker = document.getElementById('swap-picker-sheet');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'swap-picker-sheet';
+    picker.className = 'sheet hidden';
+    document.body.appendChild(picker);
+  }
+  return picker;
+}
+
 function startStickyTimer() {
   if (stickyTimerHandle) clearInterval(stickyTimerHandle);
   const tick = () => {
@@ -1096,6 +1363,8 @@ async function cancelWorkout() {
   localStorage.removeItem(LS.activeWorkoutId);
   localStorage.removeItem(LS.activeProgramDayId);
   if (stickyTimerHandle) clearInterval(stickyTimerHandle);
+  releaseWakeLock();
+  cancelRestCountdown();
   setTab('programs');
 }
 
@@ -1105,6 +1374,8 @@ async function finishWorkout() {
   try {
     await API.finishWorkout(id);
     if (stickyTimerHandle) clearInterval(stickyTimerHandle);
+    releaseWakeLock();
+    cancelRestCountdown();
 
     const sets = await API.workoutSets(id);
     const totalVolume = sets.reduce((acc, s) => acc + s.weight * s.reps, 0);
@@ -1194,9 +1465,15 @@ async function renderProgress() {
       <div id="bw-recent" class="bw-recent"></div>
     </div>
     <div class="progress-section">
+      <div class="progress-section__title">Strength Standards (vs. body weight)</div>
+      <div id="strength-standards"></div>
+    </div>
+    <div class="progress-section">
       <div class="progress-section__title">Strength Curve</div>
       <select class="input" id="strength-ex"></select>
       <div class="chart-wrap" style="margin-top:12px"><canvas id="strength-chart"></canvas></div>
+      <div class="progress-section__title" style="margin-top:18px">Weekly volume — same exercise</div>
+      <div class="chart-wrap"><canvas id="ex-volume-chart"></canvas></div>
     </div>
     <div class="progress-section">
       <div class="progress-section__title">Weekly Volume by Muscle Group</div>
@@ -1245,10 +1522,12 @@ async function renderProgress() {
       if (!id) return;
       const data = await API.progress(id);
       renderStrengthChart(data);
+      renderExerciseVolumeChart(data.sets);
     };
 
     renderVolumeChart(weekly);
     renderCalendar(calendarDates);
+    renderStrengthStandards();
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load progress: ${err.message}</div>`;
   }
@@ -1371,6 +1650,142 @@ function renderCalendar(dates) {
   }
 
   root.innerHTML = cells.join('');
+}
+
+// Male strength-standard ratios (multiples of body weight), commonly cited
+// novice / intermediate / advanced / elite thresholds.
+const STRENGTH_STANDARDS = [
+  { name: 'Bench Press', novice: 0.75, inter: 1.25, adv: 1.5, elite: 2.0 },
+  { name: 'Back Squat', novice: 1.25, inter: 1.75, adv: 2.25, elite: 2.75 },
+  { name: 'Deadlift', novice: 1.5, inter: 2.25, adv: 2.75, elite: 3.25 },
+  { name: 'Overhead Press', novice: 0.55, inter: 0.9, adv: 1.15, elite: 1.4 }
+];
+
+function classifyStrength(ratio, std) {
+  if (ratio >= std.elite) return { label: 'Elite', color: '#e8ff47' };
+  if (ratio >= std.adv) return { label: 'Advanced', color: '#9effa8' };
+  if (ratio >= std.inter) return { label: 'Intermediate', color: '#62d8ff' };
+  if (ratio >= std.novice) return { label: 'Novice', color: '#ffb347' };
+  return { label: 'Beginner', color: '#8a8a8a' };
+}
+
+async function renderStrengthStandards() {
+  const root = $('#strength-standards');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+
+  try {
+    const [prs, bw] = await Promise.all([API.prs(), API.bodyweight()]);
+    if (!bw.length) {
+      root.innerHTML = `<div class="bw-current__empty">Log your body weight above to see strength ratios.</div>`;
+      return;
+    }
+    const bwKg = toKg(bw[0].weight, bw[0].weight_unit);
+
+    const rows = STRENGTH_STANDARDS.map((std) => {
+      const group = prs.find((p) => p.exercise_name === std.name);
+      if (!group || !group.records.length) {
+        return `
+          <div class="std-row std-row--empty">
+            <div class="std-row__name">${std.name}</div>
+            <div class="std-row__meta">No data yet</div>
+          </div>
+        `;
+      }
+      // Best e1RM across all PR records for this exercise
+      let bestE1RM = 0;
+      let bestRec = null;
+      for (const r of group.records) {
+        const e = e1RM(toKg(r.weight, r.weight_unit), r.reps);
+        if (e > bestE1RM) {
+          bestE1RM = e;
+          bestRec = r;
+        }
+      }
+      const ratio = bestE1RM / bwKg;
+      const cls = classifyStrength(ratio, std);
+      const pct = Math.min(100, (ratio / std.elite) * 100);
+      return `
+        <div class="std-row">
+          <div class="std-row__top">
+            <div class="std-row__name">${std.name}</div>
+            <div class="std-row__ratio">${ratio.toFixed(2)}× <span style="color:${cls.color}">${cls.label}</span></div>
+          </div>
+          <div class="std-row__bar">
+            <div class="std-row__fill" style="width:${pct}%;background:${cls.color}"></div>
+            <div class="std-row__tick" style="left:${(std.novice / std.elite) * 100}%" title="Novice"></div>
+            <div class="std-row__tick" style="left:${(std.inter / std.elite) * 100}%" title="Intermediate"></div>
+            <div class="std-row__tick" style="left:${(std.adv / std.elite) * 100}%" title="Advanced"></div>
+          </div>
+          <div class="std-row__meta">Est. 1RM ${Math.round(bestE1RM)} kg · best ${bestRec.weight}${bestRec.weight_unit} × ${bestRec.reps}</div>
+        </div>
+      `;
+    }).join('');
+
+    root.innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:10px">Based on your best e1RM ÷ latest body weight (${bw[0].weight} ${bw[0].weight_unit}).</div>
+      ${rows}
+    `;
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderExerciseVolumeChart(sets) {
+  const canvas = document.getElementById('ex-volume-chart');
+  if (!canvas) return;
+  if (chartInstances.exVolume) chartInstances.exVolume.destroy();
+
+  if (!sets.length) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+
+  // Aggregate by ISO week
+  const byWeek = new Map();
+  for (const s of sets) {
+    const d = new Date(s.logged_at.replace(' ', 'T') + 'Z');
+    const week = isoWeekKey(d);
+    const volKg = toKg(s.weight, s.weight_unit) * s.reps;
+    byWeek.set(week, (byWeek.get(week) || 0) + volKg);
+  }
+  const labels = [...byWeek.keys()].sort();
+  const values = labels.map((w) => Math.round(byWeek.get(w)));
+  const d = chartDefaults();
+
+  chartInstances.exVolume = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          data: values,
+          backgroundColor: 'rgba(232,255,71,0.8)',
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y.toLocaleString()} kg volume` } }
+      },
+      scales: { x: d, y: { ...d, beginAtZero: true } }
+    }
+  });
+}
+
+function isoWeekKey(date) {
+  // ISO week (Mon-Sun), year-week
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
 }
 
 async function renderBodyweightSection() {

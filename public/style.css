@@ -1140,6 +1140,141 @@ button {
   padding: 0 10px;
 }
 
+/* Exercise card upgrades — head actions, hint, skip */
+.exercise-card__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn--icon-text {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.btn--icon-text:active {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.exercise-card__hint {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(98, 216, 255, 0.08);
+  border: 1px solid rgba(98, 216, 255, 0.25);
+  color: #c7efff;
+  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.exercise-card__hint-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.exercise-card__skip {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.exercise-card__skip:active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.exercise-card--skipped {
+  opacity: 0.55;
+}
+
+.exercise-card--skipped .exercise-card__skip {
+  border-style: solid;
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Strength standards */
+.std-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.std-row:first-of-type {
+  border-top: none;
+}
+
+.std-row--empty {
+  opacity: 0.5;
+}
+
+.std-row__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.std-row__name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.std-row__ratio {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.std-row__bar {
+  position: relative;
+  height: 8px;
+  margin: 8px 0 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.std-row__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  transition: width 0.3s ease-out;
+}
+
+.std-row__tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.std-row__meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Summary */
 .summary {
   text-align: center;
