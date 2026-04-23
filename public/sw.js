@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v5';
+const VERSION = 'ironlog-v6';
 const SHELL = [
   '/',
   '/index.html',
@@ -53,6 +53,58 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => cached);
       return cached || network;
+    })
+  );
+});
+
+// Allow page to ask SW to show a notification (used for local rest-timer alerts).
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type === 'show-notification') {
+    const title = data.title || 'IronLog';
+    const options = {
+      body: data.body || '',
+      tag: data.tag || 'ironlog',
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      vibrate: data.vibrate || [200, 100, 200, 100, 400],
+      requireInteraction: data.requireInteraction ?? true,
+      renotify: true
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  }
+});
+
+// Server-pushed notifications
+self.addEventListener('push', (event) => {
+  let payload = { title: 'IronLog', body: '' };
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch {
+      payload = { title: 'IronLog', body: event.data.text() };
+    }
+  }
+  const title = payload.title || 'IronLog';
+  const options = {
+    body: payload.body || '',
+    tag: payload.tag || 'ironlog',
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    vibrate: payload.vibrate || [200, 100, 200, 100, 400],
+    renotify: true,
+    data: payload.data || {}
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      const existing = wins.find((w) => w.url.includes(self.location.origin));
+      if (existing) return existing.focus();
+      return self.clients.openWindow('/');
     })
   );
 });

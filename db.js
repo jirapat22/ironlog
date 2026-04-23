@@ -102,6 +102,15 @@ function init() {
       notes TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      user_agent TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sets_workout ON sets(workout_id);
     CREATE INDEX IF NOT EXISTS idx_sets_exercise ON sets(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workouts_program_day ON workouts(program_day_id);

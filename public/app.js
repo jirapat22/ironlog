@@ -8,7 +8,9 @@ const LS = {
   pin: 'ironlog.pin',
   pinUnlocked: 'ironlog.pinUnlocked',
   currentTab: 'ironlog.currentTab',
-  setNotesDraft: 'ironlog.setNotesDraft'
+  setNotesDraft: 'ironlog.setNotesDraft',
+  notifEnabled: 'ironlog.notifEnabled',
+  installHintDismissed: 'ironlog.installHintDismissed'
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -93,6 +95,155 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ---------- Notifications / Web Push / Badge ----------
+function notifPermission() {
+  return 'Notification' in window ? Notification.permission : 'unsupported';
+}
+
+async function ensureNotifPermission() {
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
+  try {
+    const result = await Notification.requestPermission();
+    return result;
+  } catch {
+    return 'denied';
+  }
+}
+
+async function showLocalNotification(title, body, opts = {}) {
+  if (!('serviceWorker' in navigator)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    reg.active?.postMessage({
+      type: 'show-notification',
+      title,
+      body,
+      tag: opts.tag || 'ironlog',
+      vibrate: opts.vibrate,
+      requireInteraction: opts.requireInteraction ?? false
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const output = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
+  return output;
+}
+
+async function subscribeWebPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { publicKey } = await api('/api/push/public-key');
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      });
+    }
+    const json = sub.toJSON();
+    await api('/api/push/subscribe', { method: 'POST', body: json });
+    return sub;
+  } catch (err) {
+    console.warn('Web Push subscribe failed', err);
+    return null;
+  }
+}
+
+async function unsubscribeWebPush() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await api('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } });
+    await sub.unsubscribe();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function scheduleRestPushBackup(seconds) {
+  try {
+    await api('/api/push/rest-timer', { method: 'POST', body: { seconds } });
+  } catch {
+    /* optional — main-thread local notification is primary */
+  }
+}
+
+async function setAppBadge(n) {
+  if ('setAppBadge' in navigator) {
+    try {
+      if (!n) await navigator.clearAppBadge();
+      else await navigator.setAppBadge(n);
+    } catch {
+      /* not supported or blocked */
+    }
+  }
+}
+
+async function refreshBadgeFromCalendar() {
+  try {
+    const dates = await API.calendar();
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - day); // Sunday
+    let count = 0;
+    for (const d of dates) {
+      const when = new Date(d + 'T00:00:00');
+      if (when >= start) count++;
+    }
+    setAppBadge(count);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ---------- iOS install hint ----------
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function isStandalone() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function showInstallHintIfNeeded() {
+  if (!isIOS() || isStandalone()) return;
+  if (localStorage.getItem(LS.installHintDismissed) === '1') return;
+
+  const banner = document.createElement('div');
+  banner.id = 'install-hint';
+  banner.className = 'install-hint';
+  banner.innerHTML = `
+    <div class="install-hint__text">
+      <strong>Install IronLog</strong>
+      <div>Tap <span class="install-hint__share">&#x2B06;</span> <em>Share</em>, then <em>Add to Home Screen</em> for a full-app experience.</div>
+    </div>
+    <button class="install-hint__close" aria-label="Dismiss">&times;</button>
+  `;
+  document.body.appendChild(banner);
+  banner.querySelector('.install-hint__close').onclick = () => {
+    localStorage.setItem(LS.installHintDismissed, '1');
+    banner.remove();
+  };
+}
+
 // ---------- e1RM (Epley) ----------
 function e1RM(weight, reps) {
   if (!weight || !reps) return 0;
@@ -110,7 +261,12 @@ let restState = null; // { endAt, handle, doneTimeout }
 function startRestCountdown(secs = REST_SECONDS) {
   cancelRestCountdown();
   const endAt = Date.now() + secs * 1000;
-  restState = { endAt, handle: null, doneTimeout: null };
+  restState = { endAt, handle: null, doneTimeout: null, notified: false };
+
+  // Ask server to push as a backup in case the tab gets suspended / OS throttles
+  if (localStorage.getItem(LS.notifEnabled) === '1') {
+    scheduleRestPushBackup(secs);
+  }
 
   const tick = () => {
     const node = $('#rest-sticky');
@@ -124,6 +280,14 @@ function startRestCountdown(secs = REST_SECONDS) {
         restState.handle = null;
       }
       haptic([250, 120, 250, 120, 400]);
+      if (restState && !restState.notified) {
+        restState.notified = true;
+        showLocalNotification('Rest done', 'Time for your next set', {
+          tag: 'ironlog-rest',
+          vibrate: [250, 120, 250, 120, 400],
+          requireInteraction: false
+        });
+      }
       if (restState) {
         restState.doneTimeout = setTimeout(cancelRestCountdown, 10000);
       }
@@ -1534,6 +1698,7 @@ async function finishWorkout() {
     localStorage.removeItem(LS.activeProgramDayId);
     localStorage.removeItem(LS.activeWorkoutStart);
     workoutState = null;
+    refreshBadgeFromCalendar();
   } catch (err) {
     toast(err.message);
   }
@@ -2693,6 +2858,128 @@ function escapeHtml(s) {
     .replaceAll("'", '&#39;');
 }
 
+// ---------- Settings sheet ----------
+function ensureSettingsSheet() {
+  let sheet = document.getElementById('settings-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'settings-sheet';
+    sheet.className = 'sheet hidden';
+    document.body.appendChild(sheet);
+  }
+  return sheet;
+}
+
+function openSettingsSheet() {
+  const sheet = ensureSettingsSheet();
+  const perm = notifPermission();
+  const enabled = localStorage.getItem(LS.notifEnabled) === '1';
+  const canNotif = 'Notification' in window && 'serviceWorker' in navigator;
+
+  let notifBody = '';
+  if (!canNotif) {
+    notifBody = `<div class="card__subtitle">Not supported in this browser.</div>`;
+  } else if (perm === 'denied') {
+    notifBody = `<div class="card__subtitle" style="color:var(--danger)">Blocked in browser settings. Re-enable for this site to receive rest-timer alerts.</div>`;
+  } else {
+    notifBody = `
+      <label class="settings-row">
+        <span>Rest-timer alerts${enabled ? '' : ' (off)'}</span>
+        <button class="toggle ${enabled && perm === 'granted' ? 'toggle--on' : ''}" id="toggle-notif" aria-pressed="${enabled && perm === 'granted'}">
+          <span class="toggle__dot"></span>
+        </button>
+      </label>
+      <button class="btn btn--ghost btn--block" id="test-notif" style="margin-top:10px" ${enabled ? '' : 'disabled'}>Send test notification</button>
+      <div class="card__subtitle" style="margin-top:8px">On iOS, notifications require adding the app to the Home Screen first.</div>
+    `;
+  }
+
+  const pinSet = !!localStorage.getItem(LS.pin);
+  const standalone = isStandalone();
+
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Settings</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="settings-group">
+          <div class="settings-group__title">Notifications</div>
+          ${notifBody}
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-group__title">App</div>
+          <div class="settings-row">
+            <span>Installed as PWA</span>
+            <span class="settings-row__val">${standalone ? 'Yes' : 'No'}</span>
+          </div>
+          <div class="settings-row">
+            <span>PIN lock</span>
+            <button class="btn btn--ghost btn--sm" id="reset-pin">${pinSet ? 'Change / reset PIN' : 'Set PIN'}</button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-group__title">About</div>
+          <div class="card__subtitle">IronLog · open-source PWA gym tracker</div>
+        </div>
+      </div>
+    </div>
+  `;
+  showSheet(sheet);
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+
+    if (e.target.closest('#toggle-notif')) {
+      const btn = e.target.closest('#toggle-notif');
+      const currentlyOn = btn.classList.contains('toggle--on');
+      if (currentlyOn) {
+        localStorage.setItem(LS.notifEnabled, '0');
+        await unsubscribeWebPush();
+        toast('Notifications off');
+      } else {
+        const result = await ensureNotifPermission();
+        if (result !== 'granted') {
+          toast(result === 'denied' ? 'Permission denied' : 'Could not enable');
+          return;
+        }
+        const sub = await subscribeWebPush();
+        localStorage.setItem(LS.notifEnabled, '1');
+        toast(sub ? 'Notifications on' : 'On (local only)');
+      }
+      openSettingsSheet(); // re-render
+      return;
+    }
+
+    if (e.target.closest('#test-notif')) {
+      try {
+        const res = await api('/api/push/test', {
+          method: 'POST',
+          body: { title: 'IronLog', body: 'Push test — you should see this!' }
+        });
+        toast(`Sent to ${res.sent} device${res.sent === 1 ? '' : 's'}`);
+      } catch (err) {
+        // Fallback to local SW notification
+        await showLocalNotification('IronLog', 'Local test notification', { tag: 'ironlog-test' });
+        toast('Sent locally');
+      }
+      return;
+    }
+
+    if (e.target.closest('#reset-pin')) {
+      if (!confirm('Clear saved PIN? You will be prompted to set a new one.')) return;
+      localStorage.removeItem(LS.pin);
+      sessionStorage.removeItem(LS.pinUnlocked);
+      hideSheet(sheet);
+      setTimeout(() => location.reload(), 200);
+    }
+  };
+}
+
 // ---------- Boot ----------
 function boot() {
   // Wire nav
@@ -2702,6 +2989,10 @@ function boot() {
       setTab(b.dataset.tab);
     };
   });
+
+  // Wire settings gear
+  const settingsBtn = $('#settings-btn');
+  if (settingsBtn) settingsBtn.onclick = () => openSettingsSheet();
 
   // Decide initial tab
   const activeId = localStorage.getItem(LS.activeWorkoutId);
@@ -2713,6 +3004,10 @@ function boot() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
+
+  // Refresh badge + show iOS install hint
+  refreshBadgeFromCalendar();
+  showInstallHintIfNeeded();
 }
 
 // PIN gate first
