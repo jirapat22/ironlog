@@ -29,7 +29,7 @@ router.get('/volume/weekly', (req, res) => {
       `SELECT
          strftime('%Y-%W', s.logged_at) as week,
          e.muscle_group,
-         SUM(s.weight * s.reps) as volume
+         SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps) as volume
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.logged_at >= datetime('now', '-8 weeks')

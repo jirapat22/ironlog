@@ -1,5 +1,6 @@
 const express = require('express');
 const { db } = require('../db');
+const { recomputePrsForExercise } = require('../pr');
 
 const router = express.Router();
 
@@ -87,14 +88,19 @@ router.patch('/:id', (req, res) => {
   db.prepare(`UPDATE sets SET ${updates.join(', ')} WHERE id = ?`).run(...values);
   const row = db.prepare('SELECT * FROM sets WHERE id = ?').get(id);
 
-  checkAndUpdatePR(row.exercise_id, row.weight, row.weight_unit, row.reps);
+  // A PATCH may lower weight or reps, so a fresh recompute is the only way
+  // to keep PRs honest. Covers the rare case where the edited set used to
+  // be the PR for some rep count.
+  recomputePrsForExercise(row.exercise_id);
   res.json(row);
 });
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const result = db.prepare('DELETE FROM sets WHERE id = ?').run(id);
-  if (result.changes === 0) return res.status(404).json({ error: 'set not found' });
+  const existing = db.prepare('SELECT exercise_id FROM sets WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'set not found' });
+  db.prepare('DELETE FROM sets WHERE id = ?').run(id);
+  recomputePrsForExercise(existing.exercise_id);
   res.json({ deleted: true });
 });
 

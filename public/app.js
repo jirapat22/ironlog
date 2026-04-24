@@ -18,16 +18,27 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 // ---------- API ----------
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  const controller = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 30000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Request timed out');
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 const API = {
@@ -91,9 +102,43 @@ function releaseWakeLock() {
   }
 }
 
+async function flushPendingNotes() {
+  // Active workout notes
+  const workoutNotesEl = document.querySelector('[data-workout-notes]');
+  if (workoutNotesEl && workoutState?.workout) {
+    const value = workoutNotesEl.value.trim() || null;
+    const current = workoutState.workout.notes || null;
+    if (value !== current) {
+      try {
+        await API.updateWorkout(workoutState.workout.id, { notes: value });
+        workoutState.workout.notes = value;
+      } catch {
+        /* ignore — best-effort */
+      }
+    }
+  }
+  // History notes (one per expanded card)
+  for (const el of document.querySelectorAll('[data-history-notes]')) {
+    const card = el.closest('.history-card');
+    if (!card) continue;
+    const prev = el.dataset.prev || null;
+    const value = el.value.trim() || null;
+    if (value === prev) continue;
+    try {
+      await API.updateWorkout(Number(card.dataset.id), { notes: value });
+      el.dataset.prev = value ?? '';
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && localStorage.getItem(LS.activeWorkoutId)) {
     acquireWakeLock();
+  }
+  if (document.visibilityState === 'hidden') {
+    flushPendingNotes();
   }
 });
 
@@ -1484,6 +1529,9 @@ function wireWorkoutView() {
 }
 
 async function confirmSet(row) {
+  const checkBtn = row.querySelector('[data-confirm]');
+  if (checkBtn?.disabled) return;
+
   const exId = Number(row.dataset.ex);
   const setNumber = Number(row.dataset.set);
   const unit = row.querySelector('[data-unit]').textContent.trim();
@@ -1503,6 +1551,7 @@ async function confirmSet(row) {
     return;
   }
 
+  if (checkBtn) checkBtn.disabled = true;
   try {
     if (row.dataset.setId) {
       await API.updateSet(Number(row.dataset.setId), {
@@ -1535,6 +1584,8 @@ async function confirmSet(row) {
     updateRpeBadge(row);
   } catch (err) {
     toast(err.message);
+  } finally {
+    if (checkBtn) checkBtn.disabled = false;
   }
 }
 
@@ -1717,21 +1768,16 @@ async function openSwapPicker(currentExerciseId) {
       }
     }
 
-    // Swap in workoutState (local only — doesn't modify the program)
+    // Swap in workoutState (local only — doesn't modify the program).
+    // `workoutState.last` is keyed by programDay, not exercise, so it doesn't
+    // need to be refetched — the old exercise's "last session" data just won't
+    // match anything in the new card, which is the correct behavior.
     workoutState.programDay.exercises[currentIdx] = {
       ...currentEx,
       exercise_id: newExId,
       name: newEx.name,
       muscle_group: newEx.muscle_group
     };
-
-    // Refetch last-session data for the NEW exercise
-    try {
-      const newLast = await API.lastWorkout(workoutState.programDay.id);
-      workoutState.last = newLast;
-    } catch {
-      /* ignore */
-    }
 
     hideSheet(picker);
     haptic(20);
@@ -1882,7 +1928,7 @@ async function renderProgress() {
       <div id="readiness"></div>
     </div>
     <div class="progress-section">
-      <div class="progress-section__title">Personal Records Timeline</div>
+      <div class="progress-section__title">Personal Records (best per rep count)</div>
       <div id="pr-timeline"></div>
     </div>
     <div class="progress-section">
@@ -2291,10 +2337,13 @@ async function renderPrTimeline() {
       }
     }
     if (!events.length) {
-      root.innerHTML = `<div class="bw-current__empty">No PRs yet — hit a new rep-max to see it here.</div>`;
+      root.innerHTML = `<div class="bw-current__empty">No PRs yet — log some sets to build this up.</div>`;
       return;
     }
     events.sort((a, b) => b.achievedAt.localeCompare(a.achievedAt));
+
+    // Header explaining what this section actually is (current bests, not event history)
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Your current best weight at each rep count, per lift. Recomputes when you edit or delete sets.</div>`;
 
     // Group by exercise, preserve date order within
     const byExercise = new Map();
@@ -2309,29 +2358,32 @@ async function renderPrTimeline() {
       return bLatest.localeCompare(aLatest);
     });
 
-    root.innerHTML = groupOrder
-      .map((name) => {
-        const list = byExercise.get(name);
-        return `
-          <div class="pr-group">
-            <div class="pr-group__name">${escapeHtml(name)}</div>
-            ${list
-              .map(
-                (ev) => `
-                  <div class="pr-event">
-                    <div class="pr-event__date">${formatDateShort(ev.achievedAt)}</div>
-                    <div class="pr-event__body">
-                      <span class="pr-event__main">${ev.weight}${ev.weight_unit} × ${ev.reps}</span>
-                      <span class="pr-event__e1rm">e1RM ${Math.round(ev.e1rm)} kg</span>
+    root.innerHTML =
+      subtitle +
+      groupOrder
+        .map((name) => {
+          const list = byExercise.get(name);
+          list.sort((a, b) => a.reps - b.reps);
+          return `
+            <div class="pr-group">
+              <div class="pr-group__name">${escapeHtml(name)}</div>
+              ${list
+                .map(
+                  (ev) => `
+                    <div class="pr-event">
+                      <div class="pr-event__date">${ev.reps}-rep max</div>
+                      <div class="pr-event__body">
+                        <span class="pr-event__main">${ev.weight}${ev.weight_unit} × ${ev.reps}</span>
+                        <span class="pr-event__e1rm">${formatDateShort(ev.achievedAt)} · e1RM ${Math.round(ev.e1rm)} kg</span>
+                      </div>
                     </div>
-                  </div>
-                `
-              )
-              .join('')}
-          </div>
-        `;
-      })
-      .join('');
+                  `
+                )
+                .join('')}
+            </div>
+          `;
+        })
+        .join('');
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
   }

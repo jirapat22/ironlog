@@ -1,5 +1,6 @@
 const express = require('express');
 const { db } = require('../db');
+const { recomputePrsForExercise } = require('../pr');
 
 const router = express.Router();
 
@@ -24,7 +25,7 @@ router.get('/history', (req, res) => {
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
-              COALESCE(SUM(s.weight * s.reps), 0) as total_volume
+              COALESCE(SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps), 0) as total_volume
        FROM workouts w
        LEFT JOIN program_days pd ON pd.id = w.program_day_id
        LEFT JOIN programs p ON p.id = pd.program_id
@@ -87,8 +88,13 @@ router.patch('/:id', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
+  // Gather affected exercises BEFORE the cascade deletes their sets
+  const exercises = db
+    .prepare('SELECT DISTINCT exercise_id FROM sets WHERE workout_id = ?')
+    .all(id);
   const result = db.prepare('DELETE FROM workouts WHERE id = ?').run(id);
   if (result.changes === 0) return res.status(404).json({ error: 'workout not found' });
+  for (const { exercise_id } of exercises) recomputePrsForExercise(exercise_id);
   res.json({ deleted: true });
 });
 
