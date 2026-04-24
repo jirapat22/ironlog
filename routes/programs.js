@@ -92,7 +92,7 @@ router.get('/:id', (req, res) => {
 
   const dayExStmt = db.prepare(`
     SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index,
-           e.id as exercise_id, e.name, e.muscle_group, e.notes
+           e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight
     FROM program_day_exercises pde
     JOIN exercises e ON e.id = pde.exercise_id
     WHERE pde.program_day_id = ?
@@ -131,7 +131,7 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
   const row = db
     .prepare(
       `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index,
-              e.id as exercise_id, e.name, e.muscle_group, e.notes
+              e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id
        WHERE pde.id = ?`
@@ -163,7 +163,7 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   const row = db
     .prepare(
       `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index,
-              e.id as exercise_id, e.name, e.muscle_group, e.notes
+              e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id
        WHERE pde.id = ?`

@@ -31,7 +31,8 @@ function init() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       muscle_group TEXT NOT NULL,
-      notes TEXT
+      notes TEXT,
+      is_bodyweight INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS programs (
@@ -123,8 +124,26 @@ function init() {
     CREATE INDEX IF NOT EXISTS idx_bodyweights_logged ON bodyweights(logged_at DESC);
   `);
 
+  // Non-destructive migration: add the column to older DBs that were created
+  // before it existed. SQLite throws if the column is already there, so we
+  // swallow the specific duplicate-column error.
+  try {
+    db.exec('ALTER TABLE exercises ADD COLUMN is_bodyweight INTEGER NOT NULL DEFAULT 0');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
   seed();
 }
+
+const BODYWEIGHT_EXERCISES = [
+  'Pull-Up',
+  'Chin-Up',
+  'Push-Up',
+  'Chest Dip',
+  'Tricep Dip',
+  'Hanging Leg Raise'
+];
 
 const CANONICAL_EXERCISES = [
   // Chest
@@ -216,8 +235,12 @@ function seed() {
   const insertExercise = db.prepare(
     'INSERT OR IGNORE INTO exercises (name, muscle_group, notes) VALUES (?, ?, ?)'
   );
+  const markBodyweight = db.prepare(
+    'UPDATE exercises SET is_bodyweight = 1 WHERE name = ? AND is_bodyweight != 1'
+  );
   tx(() => {
     for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
+    for (const name of BODYWEIGHT_EXERCISES) markBodyweight.run(name);
   });
 
   seedPrograms();

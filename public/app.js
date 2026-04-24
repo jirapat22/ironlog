@@ -228,6 +228,14 @@ async function scheduleRestPushBackup(seconds) {
   }
 }
 
+async function cancelRestPushBackup() {
+  try {
+    await api('/api/push/rest-timer/cancel', { method: 'POST', body: {} });
+  } catch {
+    /* ignore — server may not have pending timer */
+  }
+}
+
 async function setAppBadge(n) {
   if ('setAppBadge' in navigator) {
     try {
@@ -302,6 +310,30 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
+// Cached latest body weight (kg). Set from renderBodyweightSection + syncBw().
+let userBwKg = 0;
+
+async function syncUserBodyweight() {
+  try {
+    const rows = await API.bodyweight();
+    if (rows.length) userBwKg = toKg(rows[0].weight, rows[0].weight_unit);
+  } catch {
+    /* ignore */
+  }
+}
+
+// Total load lifted for a set (kg), accounting for bodyweight-driven movements
+// where the logged "weight" is external load added to body weight.
+function loadKg(set, exercise) {
+  const base = toKg(set.weight, set.weight_unit);
+  if (exercise?.is_bodyweight && userBwKg) return base + userBwKg;
+  return base;
+}
+
+function e1RMForSet(set, exercise) {
+  return e1RM(loadKg(set, exercise), set.reps);
+}
+
 // ---------- Global rest countdown ----------
 let restState = null; // { endAt, handle, doneTimeout }
 
@@ -350,6 +382,7 @@ function startRestCountdown(secs = REST_SECONDS) {
 }
 
 function cancelRestCountdown() {
+  const hadActiveTimer = !!restState?.handle;
   if (restState?.handle) clearInterval(restState.handle);
   if (restState?.doneTimeout) clearTimeout(restState.doneTimeout);
   restState = null;
@@ -358,6 +391,11 @@ function cancelRestCountdown() {
     el.classList.add('hidden');
     el.classList.remove('done');
     el.innerHTML = '';
+  }
+  // Tell the server to drop its pending backup push so it doesn't fire
+  // after the user has already moved on.
+  if (hadActiveTimer && localStorage.getItem(LS.notifEnabled) === '1') {
+    cancelRestPushBackup();
   }
 }
 
@@ -1177,9 +1215,12 @@ async function renderWorkout() {
       return;
     }
 
-    // Get program + day details
-    const days = await fetchDayDetails(programDayId);
-    const last = await API.lastWorkout(programDayId).catch(() => null);
+    // Get program + day details (and latest bodyweight for BW-relative e1RM)
+    const [days, last] = await Promise.all([
+      fetchDayDetails(programDayId),
+      API.lastWorkout(programDayId).catch(() => null)
+    ]);
+    await syncUserBodyweight();
 
     workoutState = {
       workout,
@@ -1287,8 +1328,8 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     <div class="exercise-card" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
         <div>
-          <div class="exercise-card__name">${escapeHtml(ex.name)}</div>
-          <div class="card__subtitle">${target} × ${ex.target_reps}</div>
+          <div class="exercise-card__name">${escapeHtml(ex.name)}${ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}</div>
+          <div class="card__subtitle">${target} × ${ex.target_reps}${ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}</div>
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
@@ -1312,7 +1353,7 @@ function recommendForNext(ex, lastSets) {
   let bestE1RM = 0;
   let bestSet = null;
   for (const s of lastSets) {
-    const e = e1RM(toKg(s.weight, s.weight_unit), s.reps);
+    const e = e1RMForSet(s, ex);
     if (e > bestE1RM) {
       bestE1RM = e;
       bestSet = s;
@@ -1334,13 +1375,21 @@ function recommendForNext(ex, lastSets) {
   let isProgression;
   if (allHitTargetReps) {
     recWeight = +(bestSet.weight + step).toFixed(2);
-    label = `Try ${recWeight}${unit} × ${targetReps}`;
+    label = ex.is_bodyweight
+      ? `Try +${recWeight}${unit} × ${targetReps}`
+      : `Try ${recWeight}${unit} × ${targetReps}`;
     isProgression = true;
   } else {
     recWeight = bestSet.weight;
-    label = `Retry ${recWeight}${unit} × ${targetReps}`;
+    label = ex.is_bodyweight
+      ? `Retry +${recWeight}${unit} × ${targetReps}`
+      : `Retry ${recWeight}${unit} × ${targetReps}`;
     isProgression = false;
   }
+
+  const lastBest = ex.is_bodyweight
+    ? `+${bestSet.weight}${unit} × ${bestSet.reps}`
+    : `${bestSet.weight}${unit} × ${bestSet.reps}`;
 
   return {
     recWeight,
@@ -1348,8 +1397,9 @@ function recommendForNext(ex, lastSets) {
     recReps: targetReps,
     label,
     e1rm: e1rmInUnit,
-    lastBest: `${bestSet.weight}${unit} × ${bestSet.reps}`,
-    isProgression
+    lastBest,
+    isProgression,
+    isBodyweight: !!ex.is_bodyweight
   };
 }
 
@@ -1828,7 +1878,7 @@ async function finishWorkout() {
     cancelRestCountdown();
 
     const sets = await API.workoutSets(id);
-    const totalVolume = sets.reduce((acc, s) => acc + s.weight * s.reps, 0);
+    const totalVolume = sets.reduce((acc, s) => acc + toKg(s.weight, s.weight_unit) * s.reps, 0);
 
     const prs = await API.prs();
     const newPRs = prs.flatMap((g) =>
@@ -1871,7 +1921,7 @@ function renderSummary({ sets, volume, duration, newPRs, dayLabel }) {
           <div class="summary__tile-value">${sets}</div>
         </div>
         <div class="summary__tile">
-          <div class="summary__tile-label">Volume</div>
+          <div class="summary__tile-label">Volume (kg)</div>
           <div class="summary__tile-value">${Math.round(volume).toLocaleString()}</div>
         </div>
         <div class="summary__tile">
@@ -2118,14 +2168,22 @@ function renderCalendar(dates) {
   root.innerHTML = cells.join('');
 }
 
-// Male strength-standard ratios (multiples of body weight), commonly cited
-// novice / intermediate / advanced / elite thresholds.
-const STRENGTH_STANDARDS = [
-  { name: 'Bench Press', novice: 0.75, inter: 1.25, adv: 1.5, elite: 2.0 },
-  { name: 'Back Squat', novice: 1.25, inter: 1.75, adv: 2.25, elite: 2.75 },
-  { name: 'Deadlift', novice: 1.5, inter: 2.25, adv: 2.75, elite: 3.25 },
-  { name: 'Overhead Press', novice: 0.55, inter: 0.9, adv: 1.15, elite: 1.4 }
-];
+// Strength standard ratios (multiples of body weight) for novice/intermediate/
+// advanced/elite. Values are rough — derived from commonly-cited lifter charts.
+const STRENGTH_STANDARDS = {
+  male: [
+    { name: 'Bench Press', novice: 0.75, inter: 1.25, adv: 1.5, elite: 2.0 },
+    { name: 'Back Squat', novice: 1.25, inter: 1.75, adv: 2.25, elite: 2.75 },
+    { name: 'Deadlift', novice: 1.5, inter: 2.25, adv: 2.75, elite: 3.25 },
+    { name: 'Overhead Press', novice: 0.55, inter: 0.9, adv: 1.15, elite: 1.4 }
+  ],
+  female: [
+    { name: 'Bench Press', novice: 0.5, inter: 0.8, adv: 1.0, elite: 1.3 },
+    { name: 'Back Squat', novice: 0.9, inter: 1.25, adv: 1.6, elite: 2.0 },
+    { name: 'Deadlift', novice: 1.0, inter: 1.5, adv: 2.0, elite: 2.5 },
+    { name: 'Overhead Press', novice: 0.35, inter: 0.55, adv: 0.75, elite: 1.0 }
+  ]
+};
 
 function classifyStrength(ratio, std) {
   if (ratio >= std.elite) return { label: 'Elite', color: '#e8ff47' };
@@ -2141,14 +2199,20 @@ async function renderStrengthStandards() {
   root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
 
   try {
-    const [prs, bw] = await Promise.all([API.prs(), API.bodyweight()]);
+    const [prs, bw, settings] = await Promise.all([
+      API.prs(),
+      API.bodyweight(),
+      API.settings().catch(() => ({ strength_standard_gender: 'male' }))
+    ]);
     if (!bw.length) {
       root.innerHTML = `<div class="bw-current__empty">Log your body weight above to see strength ratios.</div>`;
       return;
     }
     const bwKg = toKg(bw[0].weight, bw[0].weight_unit);
+    const gender = settings.strength_standard_gender === 'female' ? 'female' : 'male';
+    const standards = STRENGTH_STANDARDS[gender];
 
-    const rows = STRENGTH_STANDARDS.map((std) => {
+    const rows = standards.map((std) => {
       const group = prs.find((p) => p.exercise_name === std.name);
       if (!group || !group.records.length) {
         return `
@@ -2189,9 +2253,29 @@ async function renderStrengthStandards() {
     }).join('');
 
     root.innerHTML = `
-      <div class="card__subtitle" style="margin-bottom:10px">Based on your best e1RM ÷ latest body weight (${bw[0].weight} ${bw[0].weight_unit}).</div>
+      <div class="std-header">
+        <div class="card__subtitle">Based on best e1RM ÷ body weight (${bw[0].weight} ${bw[0].weight_unit}) · ${gender} standards</div>
+        <div class="std-header__toggle">
+          <button class="std-tab ${gender === 'male' ? 'std-tab--active' : ''}" data-std-gender="male">Male</button>
+          <button class="std-tab ${gender === 'female' ? 'std-tab--active' : ''}" data-std-gender="female">Female</button>
+        </div>
+      </div>
       ${rows}
     `;
+
+    root.querySelectorAll('[data-std-gender]').forEach((btn) => {
+      btn.onclick = async () => {
+        const next = btn.dataset.stdGender;
+        if (next === gender) return;
+        try {
+          await API.updateSettings({ strength_standard_gender: next });
+          haptic(10);
+          renderStrengthStandards();
+        } catch (err) {
+          toast(err.message);
+        }
+      };
+    });
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`;
   }
@@ -2320,10 +2404,13 @@ async function renderPrTimeline() {
   root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
 
   try {
-    const prs = await API.prs();
+    const [prs, allExercises] = await Promise.all([API.prs(), API.exercises()]);
+    await syncUserBodyweight();
+    const exById = new Map(allExercises.map((e) => [e.id, e]));
     // Flatten to events
     const events = [];
     for (const g of prs) {
+      const ex = exById.get(g.exercise_id);
       for (const r of g.records) {
         events.push({
           exerciseName: g.exercise_name,
@@ -2332,7 +2419,8 @@ async function renderPrTimeline() {
           weight_unit: r.weight_unit,
           reps: r.reps,
           achievedAt: r.achieved_at,
-          e1rm: e1RM(toKg(r.weight, r.weight_unit), r.reps)
+          isBodyweight: !!ex?.is_bodyweight,
+          e1rm: e1RMForSet(r, ex)
         });
       }
     }
@@ -2373,7 +2461,7 @@ async function renderPrTimeline() {
                     <div class="pr-event">
                       <div class="pr-event__date">${ev.reps}-rep max</div>
                       <div class="pr-event__body">
-                        <span class="pr-event__main">${ev.weight}${ev.weight_unit} × ${ev.reps}</span>
+                        <span class="pr-event__main">${ev.isBodyweight ? '+' : ''}${ev.weight}${ev.weight_unit} × ${ev.reps}</span>
                         <span class="pr-event__e1rm">${formatDateShort(ev.achievedAt)} · e1RM ${Math.round(ev.e1rm)} kg</span>
                       </div>
                     </div>
@@ -2588,6 +2676,7 @@ async function renderBodyweightSection() {
   }
 
   const latest = rows[0];
+  userBwKg = toKg(latest.weight, latest.weight_unit);
   let trend = '';
   if (rows.length > 1) {
     const prev = rows[1];
@@ -3421,6 +3510,19 @@ function boot() {
   // Refresh badge + show iOS install hint
   refreshBadgeFromCalendar();
   showInstallHintIfNeeded();
+  syncTimezoneOffset();
+}
+
+async function syncTimezoneOffset() {
+  try {
+    const current = String(new Date().getTimezoneOffset());
+    const settings = await API.settings();
+    if (settings.nudge_tz_offset_minutes !== current) {
+      await API.updateSettings({ nudge_tz_offset_minutes: current });
+    }
+  } catch {
+    /* non-critical */
+  }
 }
 
 // PIN gate first

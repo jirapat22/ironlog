@@ -5,11 +5,16 @@ const settingsRouter = require('./routes/settings');
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const MIN_NUDGE_GAP_HOURS = 20; // don't send more than ~once per day
 
-function inQuietHours(now, startHour, endHour) {
-  const h = now.getHours();
-  // Quiet window can wrap past midnight
-  if (startHour <= endHour) return h >= startHour && h < endHour;
-  return h >= startHour || h < endHour;
+function userLocalHour(tzOffsetMin) {
+  // tzOffsetMin matches JS Date.getTimezoneOffset() — minutes to ADD to local to get UTC.
+  // Example: Bangkok UTC+7 returns -420. Local time = UTC - offset.
+  const shifted = new Date(Date.now() - tzOffsetMin * 60_000);
+  return shifted.getUTCHours();
+}
+
+function inQuietHours(hourOfDay, startHour, endHour) {
+  if (startHour <= endHour) return hourOfDay >= startHour && hourOfDay < endHour;
+  return hourOfDay >= startHour || hourOfDay < endHour;
 }
 
 function hoursBetween(aIso, bIso) {
@@ -26,9 +31,10 @@ async function runNudgeCheck() {
     const threshold = Number(settings.nudge_threshold_days || 3);
     const qStart = Number(settings.nudge_quiet_start || 22);
     const qEnd = Number(settings.nudge_quiet_end || 8);
+    const tzOffset = Number(settings.nudge_tz_offset_minutes || 0);
 
-    const now = new Date();
-    if (inQuietHours(now, qStart, qEnd)) return;
+    const hour = userLocalHour(tzOffset);
+    if (inQuietHours(hour, qStart, qEnd)) return;
 
     const last = db
       .prepare(

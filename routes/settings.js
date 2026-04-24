@@ -6,8 +6,10 @@ const router = express.Router();
 const DEFAULTS = {
   nudge_enabled: '1',
   nudge_threshold_days: '3',
-  nudge_quiet_start: '22', // 22:00
-  nudge_quiet_end: '8' // 08:00
+  nudge_quiet_start: '22', // 22:00 local
+  nudge_quiet_end: '8', // 08:00 local
+  nudge_tz_offset_minutes: '0', // minutes *west* of UTC per Date.getTimezoneOffset()
+  strength_standard_gender: 'male' // 'male' | 'female'
 };
 
 function getAll() {

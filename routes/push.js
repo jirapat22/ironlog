@@ -57,13 +57,26 @@ router.post('/test', async (req, res) => {
 
 // Schedule a rest-timer push to fire server-side N seconds from now.
 // Used as backup when the main-thread setTimeout can't run (tab closed, OS throttled).
+// Single-process design: one pending timer at a time — starting a new rest
+// cancels any existing one, and /rest-timer/cancel clears it outright.
+let pendingRestTimer = null;
+
+function cancelRestTimer() {
+  if (pendingRestTimer) {
+    clearTimeout(pendingRestTimer);
+    pendingRestTimer = null;
+  }
+}
+
 router.post('/rest-timer', (req, res) => {
   const { seconds = 180 } = req.body || {};
   const delayMs = Math.max(5, Math.min(600, Number(seconds))) * 1000;
   const rows = db.prepare('SELECT * FROM push_subscriptions').all();
   if (!rows.length) return res.status(404).json({ error: 'no subscriptions' });
 
-  setTimeout(async () => {
+  cancelRestTimer();
+  pendingRestTimer = setTimeout(async () => {
+    pendingRestTimer = null;
     const payload = { title: 'Rest done', body: 'Time for your next set', tag: 'ironlog-rest' };
     const fresh = db.prepare('SELECT * FROM push_subscriptions').all();
     await Promise.allSettled(
@@ -83,6 +96,12 @@ router.post('/rest-timer', (req, res) => {
   }, delayMs);
 
   res.json({ scheduled: true, delayMs });
+});
+
+router.post('/rest-timer/cancel', (req, res) => {
+  const wasPending = !!pendingRestTimer;
+  cancelRestTimer();
+  res.json({ cancelled: wasPending });
 });
 
 module.exports = router;

@@ -5,7 +5,7 @@ const router = express.Router();
 
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, name, muscle_group, notes FROM exercises ORDER BY muscle_group, name')
+    .prepare('SELECT id, name, muscle_group, notes, is_bodyweight FROM exercises ORDER BY muscle_group, name')
     .all();
   res.json(rows);
 });
