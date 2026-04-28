@@ -334,6 +334,12 @@ function e1RMForSet(set, exercise) {
   return e1RM(loadKg(set, exercise), set.reps);
 }
 
+// Used by every exercise picker so the order is consistent. `arms` is
+// kept for any custom user exercises still on the legacy group.
+const PICKER_GROUP_ORDER = [
+  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'arms', 'legs', 'core'
+];
+
 // ---------- Global rest countdown ----------
 let restState = null; // { endAt, handle, doneTimeout }
 
@@ -1034,8 +1040,7 @@ async function openPicker() {
 
   const currentIds = new Set(editDayState.day.exercises.map((e) => e.exercise_id));
 
-  const groupOrder = ['chest', 'back', 'shoulders', 'arms', 'legs', 'core'];
-  const keys = [...new Set([...groupOrder, ...Object.keys(groups)])].filter((k) => groups[k]);
+  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
 
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -1138,7 +1143,8 @@ function openNewExerciseForm(picker) {
           <option value="chest">chest</option>
           <option value="back">back</option>
           <option value="shoulders">shoulders</option>
-          <option value="arms">arms</option>
+          <option value="biceps">biceps</option>
+          <option value="triceps">triceps</option>
           <option value="legs">legs</option>
           <option value="core">core</option>
         </select>
@@ -1283,6 +1289,7 @@ function renderWorkoutView() {
     </div>
     <div id="rest-sticky" class="rest-sticky hidden"></div>
     ${bodyHTML}
+    <button class="btn btn--ghost btn--block" data-add-workout-ex style="margin-top:12px">+ Add exercise to this workout</button>
     <div class="workout-notes-wrap">
       <label class="form-label">Workout notes</label>
       <textarea class="input workout-notes" data-workout-notes rows="2" placeholder="How did it feel? Energy, form cues…">${escapeHtml(workout.notes || '')}</textarea>
@@ -1524,7 +1531,7 @@ function wireWorkoutView() {
     if (delBtn) return deleteLoggedSet(row);
   };
 
-  // Swap / skip handlers (outside row scope — attach on a second handler)
+  // Swap / skip / add-exercise handlers (outside row scope — attach on a second handler)
   root.addEventListener('click', async (e) => {
     const swapBtn = e.target.closest('[data-swap-ex]');
     if (swapBtn) {
@@ -1538,6 +1545,11 @@ function wireWorkoutView() {
       e.stopPropagation();
       haptic(15);
       skipRemainingForExercise(Number(skipBtn.dataset.skipEx));
+      return;
+    }
+    if (e.target.closest('[data-add-workout-ex]')) {
+      haptic(15);
+      openWorkoutAddExercisePicker();
     }
   });
 
@@ -1742,8 +1754,7 @@ async function openSwapPicker(currentExerciseId) {
     if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
     groups[ex.muscle_group].push(ex);
   }
-  const groupOrder = ['chest', 'back', 'shoulders', 'arms', 'legs', 'core'];
-  const keys = [...new Set([...groupOrder, ...Object.keys(groups)])].filter((k) => groups[k]);
+  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
 
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -1845,6 +1856,176 @@ function ensureSwapPicker() {
     document.body.appendChild(picker);
   }
   return picker;
+}
+
+async function openHistoryAddExercisePicker(workoutId) {
+  const picker = ensureSwapPicker();
+  picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
+  showSheet(picker);
+
+  let exercises;
+  try {
+    exercises = await API.exercises();
+  } catch (err) {
+    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    return;
+  }
+
+  const groups = {};
+  for (const ex of exercises) (groups[ex.muscle_group] ||= []).push(ex);
+  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Add exercise to this workout</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <input class="input" id="histadd-search" placeholder="Search…" style="margin-bottom:12px"/>
+        ${keys
+          .map(
+            (g) => `
+          <div class="picker-group" data-group="${g}">
+            <div class="picker-group__title">${escapeHtml(g)}</div>
+            ${groups[g]
+              .map(
+                (ex) => `
+                <button class="picker-row" data-histadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}" data-ex-name="${escapeHtml(ex.name)}">
+                  <span>${escapeHtml(ex.name)}</span>
+                  <span class="picker-row__state">+</span>
+                </button>
+              `
+              )
+              .join('')}
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+
+  const search = document.getElementById('histadd-search');
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    picker.querySelectorAll('.picker-row').forEach((r) => {
+      r.classList.toggle('hidden', q && !r.dataset.name.includes(q));
+    });
+    picker.querySelectorAll('.picker-group').forEach((g) => {
+      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
+      g.classList.toggle('hidden', !any);
+    });
+  };
+
+  picker.onclick = (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
+    const pickBtn = e.target.closest('[data-histadd]');
+    if (!pickBtn) return;
+    const exId = Number(pickBtn.dataset.histadd);
+    const exName = pickBtn.dataset.exName;
+    hideSheet(picker);
+    // Open the add-set sheet for the new exercise; refreshHistoryCard will
+    // make the new exercise group appear after save.
+    openAddSetSheet(exId, workoutId, 1, exName);
+  };
+}
+
+async function openWorkoutAddExercisePicker() {
+  const picker = ensureSwapPicker();
+  picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
+  showSheet(picker);
+
+  let exercises;
+  try {
+    exercises = await API.exercises();
+  } catch (err) {
+    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    return;
+  }
+
+  const inWorkout = new Set(workoutState.programDay.exercises.map((e) => e.exercise_id));
+  const groups = {};
+  for (const ex of exercises) {
+    (groups[ex.muscle_group] ||= []).push(ex);
+  }
+  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Add exercise to workout</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:10px">This only adds it to today's session — your program template stays unchanged.</div>
+        <input class="input" id="wkadd-search" placeholder="Search…" style="margin-bottom:12px"/>
+        ${keys
+          .map(
+            (g) => `
+          <div class="picker-group" data-group="${g}">
+            <div class="picker-group__title">${escapeHtml(g)}</div>
+            ${groups[g]
+              .map(
+                (ex) => `
+                <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+                  <span>${escapeHtml(ex.name)}</span>
+                  <span class="picker-row__state">${inWorkout.has(ex.id) ? 'in workout' : '+'}</span>
+                </button>
+              `
+              )
+              .join('')}
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+
+  const search = document.getElementById('wkadd-search');
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    picker.querySelectorAll('.picker-row').forEach((r) => {
+      r.classList.toggle('hidden', q && !r.dataset.name.includes(q));
+    });
+    picker.querySelectorAll('.picker-group').forEach((g) => {
+      const any = [...g.querySelectorAll('.picker-row')].some(
+        (r) => !r.classList.contains('hidden')
+      );
+      g.classList.toggle('hidden', !any);
+    });
+  };
+
+  picker.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
+    const pickBtn = e.target.closest('[data-wkadd]');
+    if (!pickBtn) return;
+    const exId = Number(pickBtn.dataset.wkadd);
+    const newEx = exercises.find((x) => x.id === exId);
+    if (!newEx) return;
+    if (inWorkout.has(exId)) {
+      toast('Already in this workout');
+      return;
+    }
+    workoutState.programDay.exercises.push({
+      id: null, // virtual — not in the program template
+      exercise_id: exId,
+      name: newEx.name,
+      muscle_group: newEx.muscle_group,
+      notes: newEx.notes,
+      is_bodyweight: !!newEx.is_bodyweight,
+      target_sets: 3,
+      target_reps: 10,
+      order_index: workoutState.programDay.exercises.length
+    });
+    hideSheet(picker);
+    haptic(20);
+    toast(`Added ${newEx.name}`);
+    renderWorkoutView();
+  };
 }
 
 function startStickyTimer() {
@@ -2116,8 +2297,11 @@ function renderVolumeChart(rows) {
     chest: '#e8ff47',
     back: '#62d8ff',
     shoulders: '#ffb347',
+    biceps: '#c6a1ff',
+    triceps: '#ff8ad1',
     arms: '#c6a1ff',
-    legs: '#9effa8'
+    legs: '#9effa8',
+    core: '#ffe066'
   };
   const defaults = chartDefaults();
 
@@ -2916,6 +3100,15 @@ async function renderHistory() {
         return;
       }
 
+      // Add an entirely new exercise to a finished workout
+      const addExBtn = e.target.closest('[data-add-history-ex]');
+      if (addExBtn) {
+        e.stopPropagation();
+        const card = addExBtn.closest('.history-card');
+        openHistoryAddExercisePicker(Number(card.dataset.id));
+        return;
+      }
+
       // Delete whole workout
       const delWorkoutBtn = e.target.closest('[data-delete-workout]');
       if (delWorkoutBtn) {
@@ -3017,6 +3210,7 @@ async function loadHistoryCardBody(card) {
     const notes = workout.notes || '';
     body.innerHTML = `
       ${exHTML || '<div class="empty">No sets logged</div>'}
+      <button class="btn btn--ghost btn--block" data-add-history-ex style="margin-top:10px">+ Add exercise</button>
       <div class="history-card__body-actions">
         <label class="form-label">Workout notes</label>
         <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(notes)}" placeholder="How did it go?">${escapeHtml(notes)}</textarea>
@@ -3060,12 +3254,20 @@ function historyCardHTML(w) {
   const durMs = finished ? finished - started : 0;
   const durMin = Math.floor(durMs / 60000);
   const dur = durMin >= 60 ? `${Math.floor(durMin / 60)}h ${durMin % 60}m` : `${durMin}m`;
+  const groups = (w.muscle_groups || '')
+    .split(',')
+    .map((g) => g.trim())
+    .filter(Boolean);
+  const groupBadges = groups
+    .map((g) => `<span class="badge badge--group badge--g-${g}">${escapeHtml(g)}</span>`)
+    .join('');
   return `
     <div class="history-card" data-id="${w.id}">
       <button class="history-card__head">
         <div>
           <div class="history-card__title">${escapeHtml(w.day_label || 'Workout')}</div>
           <div class="history-card__meta">${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${dur}</div>
+          ${groupBadges ? `<div class="history-card__groups">${groupBadges}</div>` : ''}
         </div>
         <div class="history-card__stats">
           ${w.total_sets} sets<br/>

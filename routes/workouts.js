@@ -25,7 +25,13 @@ router.get('/history', (req, res) => {
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
-              COALESCE(SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps), 0) as total_volume
+              COALESCE(SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps), 0) as total_volume,
+              (SELECT GROUP_CONCAT(g, ',') FROM (
+                 SELECT DISTINCT e.muscle_group as g
+                 FROM sets s2
+                 JOIN exercises e ON e.id = s2.exercise_id
+                 WHERE s2.workout_id = w.id
+              )) as muscle_groups
        FROM workouts w
        LEFT JOIN program_days pd ON pd.id = w.program_day_id
        LEFT JOIN programs p ON p.id = pd.program_id

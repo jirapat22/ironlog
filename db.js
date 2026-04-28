@@ -188,21 +188,25 @@ const CANONICAL_EXERCISES = [
   ['Reverse Pec Deck', 'shoulders', 'Machine rear delts'],
   ['Upright Row', 'shoulders', 'Barbell or cable'],
 
-  // Arms — biceps
-  ['Barbell Curl', 'arms', 'Straight or EZ bar'],
-  ['Dumbbell Curl', 'arms', 'Alternating or simultaneous'],
-  ['Hammer Curl', 'arms', 'Neutral grip dumbbell'],
-  ['Preacher Curl', 'arms', 'EZ bar or machine'],
-  ['Incline Dumbbell Curl', 'arms', 'Incline bench'],
-  ['Cable Curl', 'arms', 'Low cable, bar or rope'],
+  // Biceps
+  ['Barbell Curl', 'biceps', 'Straight or EZ bar'],
+  ['Dumbbell Curl', 'biceps', 'Alternating or simultaneous'],
+  ['Hammer Curl', 'biceps', 'Neutral grip dumbbell'],
+  ['Preacher Curl', 'biceps', 'EZ bar or machine'],
+  ['Incline Dumbbell Curl', 'biceps', 'Incline bench'],
+  ['Cable Curl', 'biceps', 'Low cable, bar or rope'],
+  ['Concentration Curl', 'biceps', 'Seated, dumbbell'],
+  ['Spider Curl', 'biceps', 'Lying chest-down on incline'],
 
-  // Arms — triceps
-  ['Tricep Pushdown', 'arms', 'Cable, straight bar'],
-  ['Rope Pushdown', 'arms', 'Cable, rope attachment'],
-  ['Overhead Tricep Extension', 'arms', 'Dumbbell or rope'],
-  ['Skull Crusher', 'arms', 'EZ bar, lying'],
-  ['Close-Grip Bench Press', 'arms', 'Shoulder-width grip'],
-  ['Tricep Dip', 'arms', 'Parallel bars, upright'],
+  // Triceps
+  ['Tricep Pushdown', 'triceps', 'Cable, straight bar'],
+  ['Rope Pushdown', 'triceps', 'Cable, rope attachment'],
+  ['Overhead Tricep Extension', 'triceps', 'Dumbbell or rope'],
+  ['Skull Crusher', 'triceps', 'EZ bar, lying'],
+  ['Close-Grip Bench Press', 'triceps', 'Shoulder-width grip'],
+  ['Tricep Dip', 'triceps', 'Parallel bars, upright'],
+  ['Tricep Kickback', 'triceps', 'Dumbbell, bent over'],
+  ['Diamond Push-Up', 'triceps', 'Bodyweight, narrow hands'],
 
   // Legs
   ['Back Squat', 'legs', 'High or low bar'],
@@ -222,13 +226,34 @@ const CANONICAL_EXERCISES = [
   ['Hip Thrust', 'legs', 'Barbell, bench-supported'],
   ['Glute Bridge', 'legs', 'Barbell or bodyweight'],
 
-  // Core
+  // Core / Abs
   ['Hanging Leg Raise', 'core', 'From pull-up bar'],
   ['Cable Crunch', 'core', 'Kneeling, rope attachment'],
   ['Ab Wheel Rollout', 'core', 'From knees or toes'],
   ['Plank', 'core', 'Timed hold — log seconds in reps'],
-  ['Russian Twist', 'core', 'Weighted, seated']
+  ['Side Plank', 'core', 'Timed hold each side'],
+  ['Russian Twist', 'core', 'Weighted, seated'],
+  ['Crunch', 'core', 'Floor, bodyweight'],
+  ['Bicycle Crunch', 'core', 'Floor, alternating'],
+  ['Sit-Up', 'core', 'Full range floor'],
+  ['Dead Bug', 'core', 'Floor, opposite arm/leg'],
+  ['Mountain Climber', 'core', 'Plank position, timed'],
+  ['Leg Raise', 'core', 'Lying floor or bench']
 ];
+
+// Maps old/legacy muscle_group values → current canonical name. Run on every
+// boot so existing user databases pick up the split (arms → biceps/triceps).
+const GROUP_MIGRATION_BY_NAME = {
+  biceps: [
+    'Barbell Curl', 'Dumbbell Curl', 'Hammer Curl', 'Preacher Curl',
+    'Incline Dumbbell Curl', 'Cable Curl', 'Concentration Curl', 'Spider Curl'
+  ],
+  triceps: [
+    'Tricep Pushdown', 'Rope Pushdown', 'Overhead Tricep Extension',
+    'Skull Crusher', 'Close-Grip Bench Press', 'Tricep Dip',
+    'Tricep Kickback', 'Diamond Push-Up'
+  ]
+};
 
 function seed() {
   // Additive: add any missing canonical exercises on every startup
@@ -238,9 +263,16 @@ function seed() {
   const markBodyweight = db.prepare(
     'UPDATE exercises SET is_bodyweight = 1 WHERE name = ? AND is_bodyweight != 1'
   );
+  const updateGroup = db.prepare(
+    'UPDATE exercises SET muscle_group = ? WHERE name = ? AND muscle_group != ?'
+  );
   tx(() => {
     for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
     for (const name of BODYWEIGHT_EXERCISES) markBodyweight.run(name);
+    // Migrate legacy `arms` rows into biceps / triceps
+    for (const [group, names] of Object.entries(GROUP_MIGRATION_BY_NAME)) {
+      for (const name of names) updateGroup.run(group, name, group);
+    }
   });
 
   seedPrograms();
