@@ -1239,6 +1239,37 @@ button {
   white-space: nowrap;
 }
 
+.prog-hint {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.prog-hint--up {
+  background: rgba(232, 255, 71, 0.08);
+  border: 1px solid rgba(232, 255, 71, 0.25);
+  color: var(--accent);
+}
+
+.prog-hint--same {
+  background: rgba(98, 216, 255, 0.08);
+  border: 1px solid rgba(98, 216, 255, 0.2);
+  color: #c7efff;
+}
+
+.prog-hint__main {
+  font-weight: 600;
+}
+
+.prog-hint__sub {
+  font-size: 11px;
+  margin-top: 3px;
+  opacity: 0.75;
+  font-weight: 400;
+}
+
 .exercise-card__skip {
   display: block;
   width: 100%;

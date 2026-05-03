@@ -1324,12 +1324,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     rows.push(setRowHTML(ex, i, { w, u, r, logged }));
   }
 
-  const hint = rec
-    ? `<div class="exercise-card__hint">
-        ${rec.isProgression ? '&#x2B06;&#xFE0F; ' : ''}<strong>${rec.label}</strong>
-        <span class="exercise-card__hint-meta">Last: ${rec.lastBest} · e1RM ${Math.round(rec.e1rm)}${rec.recUnit}</span>
-      </div>`
-    : '';
+  const hint = rec ? buildProgressionHint(rec) : '';
 
   return `
     <div class="exercise-card" data-ex="${ex.exercise_id}">
@@ -1350,6 +1345,22 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
       <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}">Done with this exercise</button>
     </div>
   `;
+}
+
+function buildProgressionHint(rec) {
+  if (rec.isProgression) {
+    return `
+      <div class="prog-hint prog-hint--up">
+        <div class="prog-hint__main">&#x1F4AA; Add weight today &rarr; <strong>${rec.label.replace('Try ', '')}</strong></div>
+        <div class="prog-hint__sub">Last session: ${rec.lastBest} — all reps completed</div>
+      </div>`;
+  } else {
+    return `
+      <div class="prog-hint prog-hint--same">
+        <div class="prog-hint__main">&#x1F3AF; Same weight — chase the reps &rarr; <strong>${rec.label.replace('Retry ', '')}</strong></div>
+        <div class="prog-hint__sub">Last session: ${rec.lastBest} — reps not all completed yet</div>
+      </div>`;
+  }
 }
 
 function recommendForNext(ex, lastSets) {
@@ -1477,17 +1488,7 @@ function wireWorkoutView() {
 
     const stepBtn = e.target.closest('.num-input__btn');
     if (stepBtn) {
-      const wrap = stepBtn.closest('.num-input');
-      const input = wrap.querySelector('.num-input__field');
-      const field = wrap.dataset.field;
-      let v = parseFloat(input.value || '0');
-      if (Number.isNaN(v)) v = 0;
-      const unit = row.querySelector('[data-unit]').textContent.trim();
-      const step = Number(stepBtn.dataset.step) * (field === 'weight' ? stepFor(unit) : 1);
-      let next = v + step;
-      if (next < 0) next = 0;
-      input.value = field === 'weight' ? String(+next.toFixed(2)) : String(Math.floor(next));
-      haptic(10);
+      fireStep(stepBtn, row);
       return;
     }
 
@@ -1588,6 +1589,65 @@ function wireWorkoutView() {
     touchStartX = null;
     currentRow = null;
   };
+
+  // Hold-to-repeat on +/− buttons: fires faster the longer you hold
+  attachHoldRepeat(root);
+}
+
+// Shared step handler — used by both click and hold-repeat
+function fireStep(btn, rowCtx) {
+  const wrap = btn.closest('.num-input');
+  if (!wrap) return;
+  const input = wrap.querySelector('.num-input__field');
+  const field = wrap.dataset.field;
+  let v = parseFloat(input.value || '0');
+  if (Number.isNaN(v)) v = 0;
+  const row = rowCtx || btn.closest('.set-row');
+  const unit = row?.querySelector('[data-unit]')?.textContent?.trim() || 'kg';
+  const step = Number(btn.dataset.step) * (field === 'weight' ? stepFor(unit) : 1);
+  let next = v + step;
+  if (next < 0) next = 0;
+  input.value = field === 'weight' ? String(+next.toFixed(2)) : String(Math.floor(next));
+  haptic(8);
+}
+
+function attachHoldRepeat(container) {
+  let holdTimer = null;
+  let holdInterval = null;
+  let activeBtn = null;
+
+  const stop = () => {
+    clearTimeout(holdTimer);
+    clearInterval(holdInterval);
+    holdTimer = null;
+    holdInterval = null;
+    activeBtn = null;
+  };
+
+  container.addEventListener('pointerdown', (e) => {
+    const btn = e.target.closest('.num-input__btn');
+    if (!btn) return;
+    activeBtn = btn;
+    // Wait 400ms then start repeating
+    holdTimer = setTimeout(() => {
+      let delay = 120;
+      holdInterval = setInterval(() => {
+        if (!activeBtn) return stop();
+        fireStep(activeBtn, activeBtn.closest('.set-row'));
+        // Accelerate: every 5 ticks halve the delay (floor 40ms)
+        delay = Math.max(40, delay - 10);
+      }, delay);
+    }, 400);
+  });
+
+  container.addEventListener('pointerup', stop);
+  container.addEventListener('pointercancel', stop);
+  // Finger dragged away from button
+  container.addEventListener('pointermove', (e) => {
+    if (!activeBtn) return;
+    const over = document.elementFromPoint(e.clientX, e.clientY);
+    if (!over || !activeBtn.contains(over) && over !== activeBtn) stop();
+  });
 }
 
 async function confirmSet(row) {
