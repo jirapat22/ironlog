@@ -62,11 +62,12 @@ const API = {
   updateSet: (id, data) => api(`/api/sets/${id}`, { method: 'PATCH', body: data }),
   deleteSet: (id) => api(`/api/sets/${id}`, { method: 'DELETE' }),
   progress: (exerciseId) => api(`/api/progress/${exerciseId}`),
-  weeklyVolume: () => api('/api/volume/weekly'),
+  weeklyVolume: (weeks = 8) => api(`/api/volume/weekly${weeks > 0 ? `?weeks=${weeks}` : ''}`),
   calendar: () => api('/api/calendar'),
   prs: () => api('/api/prs'),
   history: () => api('/api/workouts/history'),
   updateWorkout: (id, data) => api(`/api/workouts/${id}`, { method: 'PATCH', body: data }),
+  updateFeel: (id, rating) => api(`/api/workouts/${id}`, { method: 'PATCH', body: { feel_rating: rating } }),
   deleteWorkout: (id) => api(`/api/workouts/${id}`, { method: 'DELETE' }),
   bodyweight: () => api('/api/bodyweight'),
   addBodyweight: (data) => api('/api/bodyweight', { method: 'POST', body: data }),
@@ -2171,6 +2172,7 @@ async function finishWorkout() {
     );
 
     renderSummary({
+      workoutId: id,
       sets: sets.length,
       volume: totalVolume,
       duration: fmtDuration(workoutState.startedAt, new Date().toISOString()),
@@ -2188,7 +2190,19 @@ async function finishWorkout() {
   }
 }
 
-function renderSummary({ sets, volume, duration, newPRs, dayLabel }) {
+const FEEL_OPTIONS = [
+  { v: 1, emoji: '😴', label: 'Dead' },
+  { v: 2, emoji: '😐', label: 'Tired' },
+  { v: 3, emoji: '🙂', label: 'OK' },
+  { v: 4, emoji: '💪', label: 'Strong' },
+  { v: 5, emoji: '🔥', label: 'Beast' }
+];
+
+function feelEmoji(rating) {
+  return FEEL_OPTIONS.find((o) => o.v === rating)?.emoji || '';
+}
+
+function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel }) {
   const root = $('#view-workout');
   root.innerHTML = `
     <div class="summary">
@@ -2208,24 +2222,40 @@ function renderSummary({ sets, volume, duration, newPRs, dayLabel }) {
           <div class="summary__tile-value">${duration}</div>
         </div>
       </div>
-      ${
-        newPRs.length
-          ? `<div class="card" style="text-align:left">
-              <div class="card__title">New PRs &#x1F3C6;</div>
-              ${newPRs
-                .map(
-                  (pr) =>
-                    `<div class="card__subtitle" style="margin-top:6px"><strong style="color:var(--accent)">${escapeHtml(pr.name)}</strong> — ${pr.weight}${pr.weight_unit} × ${pr.reps}</div>`
-                )
-                .join('')}
-            </div>`
-          : ''
-      }
+      ${newPRs.length
+        ? `<div class="card" style="text-align:left">
+            <div class="card__title">New PRs &#x1F3C6;</div>
+            ${newPRs.map((pr) =>
+              `<div class="card__subtitle" style="margin-top:6px"><strong style="color:var(--accent)">${escapeHtml(pr.name)}</strong> — ${pr.weight}${pr.weight_unit} × ${pr.reps}</div>`
+            ).join('')}
+          </div>`
+        : ''}
+      <div class="feel-prompt">
+        <div class="feel-prompt__label">How did it feel?</div>
+        <div class="feel-prompt__options">
+          ${FEEL_OPTIONS.map((o) => `
+            <button class="feel-btn" data-feel="${o.v}" title="${o.label}">
+              <span class="feel-btn__emoji">${o.emoji}</span>
+              <span class="feel-btn__label">${o.label}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
       <button class="btn btn--primary btn--block" data-go-programs>Done</button>
     </div>
   `;
-  root.onclick = (e) => {
-    if (e.target.closest('[data-go-programs]')) setTab('programs');
+
+  root.onclick = async (e) => {
+    if (e.target.closest('[data-go-programs]')) return setTab('programs');
+    const feelBtn = e.target.closest('[data-feel]');
+    if (feelBtn && workoutId) {
+      const rating = Number(feelBtn.dataset.feel);
+      root.querySelectorAll('.feel-btn').forEach((b) =>
+        b.classList.toggle('feel-btn--active', Number(b.dataset.feel) === rating)
+      );
+      haptic(20);
+      try { await API.updateFeel(workoutId, rating); } catch { /* non-critical */ }
+    }
   };
 }
 
@@ -2268,8 +2298,18 @@ async function renderProgress() {
       <div class="chart-wrap"><canvas id="ex-volume-chart"></canvas></div>
     </div>
     <div class="progress-section">
-      <div class="progress-section__title">Weekly Volume by Muscle Group</div>
-      <div class="chart-wrap"><canvas id="volume-chart"></canvas></div>
+      <div class="progress-section__head">
+        <div class="progress-section__title" style="margin:0">Weekly Volume by Muscle Group</div>
+        <select class="input" id="volume-range" style="width:auto;min-height:34px;padding:0 10px;font-size:13px">
+          <option value="4">4 weeks</option>
+          <option value="8" selected>8 weeks</option>
+          <option value="13">3 months</option>
+          <option value="26">6 months</option>
+          <option value="52">1 year</option>
+          <option value="0">All time</option>
+        </select>
+      </div>
+      <div class="chart-wrap" style="margin-top:12px"><canvas id="volume-chart"></canvas></div>
     </div>
     <div class="progress-section">
       <div class="progress-section__title">Consistency (6 months)</div>
@@ -2314,11 +2354,17 @@ async function renderProgress() {
       if (!id) return;
       const data = await API.progress(id);
       renderStrengthChart(data);
-      renderExerciseVolumeChart(data.sets);
+      renderExerciseVolumeChart(data.sets, data.exercise);
     };
 
     renderVolumeChart(weekly);
     renderCalendar(calendarDates);
+
+    document.getElementById('volume-range').onchange = async (e) => {
+      const weeks = Number(e.target.value);
+      const data = await API.weeklyVolume(weeks);
+      renderVolumeChart(data);
+    };
     renderStrengthStandards();
     renderBreakProjection();
     renderPrTimeline();
@@ -2336,18 +2382,22 @@ function chartDefaults() {
   };
 }
 
-function renderStrengthChart({ sets, prs }) {
+function renderStrengthChart({ sets, prs, exercise }) {
   const canvas = document.getElementById('strength-chart');
   if (!canvas) return;
   if (chartInstances.strength) chartInstances.strength.destroy();
 
-  // Max weight per day
+  const isBw = !!exercise?.is_bodyweight;
+
+  // Max effective load per day (adds userBwKg for bodyweight exercises)
   const byDay = new Map();
   for (const s of sets) {
     const day = s.logged_at.slice(0, 10);
-    const weightKg = s.weight_unit === 'lbs' ? s.weight * 0.45359237 : s.weight;
+    const kg = isBw
+      ? toKg(s.weight, s.weight_unit) + (userBwKg || 0)
+      : toKg(s.weight, s.weight_unit);
     const prev = byDay.get(day) || 0;
-    if (weightKg > prev) byDay.set(day, weightKg);
+    if (kg > prev) byDay.set(day, kg);
   }
   const labels = [...byDay.keys()].sort();
   const values = labels.map((l) => Number(byDay.get(l).toFixed(1)));
@@ -2378,7 +2428,7 @@ function renderStrengthChart({ sets, prs }) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} kg` } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} kg${isBw ? ' (incl. BW)' : ''}` } } },
       scales: { x: d, y: { ...d, beginAtZero: true } }
     }
   });
@@ -2743,7 +2793,7 @@ async function renderPrTimeline() {
                     <div class="pr-event">
                       <div class="pr-event__date">${ev.reps}-rep max</div>
                       <div class="pr-event__body">
-                        <span class="pr-event__main">${ev.isBodyweight ? '+' : ''}${ev.weight}${ev.weight_unit} × ${ev.reps}</span>
+                        <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight)} × ${ev.reps}</span>
                         <span class="pr-event__e1rm">${formatDateShort(ev.achievedAt)} · e1RM ${Math.round(ev.e1rm)} kg</span>
                       </div>
                     </div>
@@ -3389,7 +3439,7 @@ function historyCardHTML(w) {
       <button class="history-card__head">
         <div>
           <div class="history-card__title">${escapeHtml(w.day_label || 'Workout')}</div>
-          <div class="history-card__meta">${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${dur}</div>
+          <div class="history-card__meta">${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${dur}${w.feel_rating ? ' · ' + feelEmoji(w.feel_rating) : ''}</div>
           ${groupBadges ? `<div class="history-card__groups">${groupBadges}</div>` : ''}
         </div>
         <div class="history-card__stats">
@@ -3726,7 +3776,14 @@ async function openSettingsSheet() {
             <span>Export everything to JSON</span>
             <a class="btn btn--ghost btn--sm" href="/api/export" download>Download</a>
           </div>
-          <div class="card__subtitle" style="margin-top:4px">Includes all workouts, sets, body weight, PRs and programs. Keep it somewhere safe.</div>
+          <div class="settings-row">
+            <span>Restore from backup</span>
+            <label class="btn btn--ghost btn--sm" style="cursor:pointer">
+              Import
+              <input type="file" accept=".json" id="import-file-input" style="display:none"/>
+            </label>
+          </div>
+          <div class="card__subtitle" style="margin-top:4px">Export includes all workouts, sets, body weight, PRs and programs. Import merges — duplicate records are skipped safely.</div>
         </div>
 
         <div class="settings-group">
@@ -3814,6 +3871,25 @@ async function openSettingsSheet() {
       }
     }
   };
+
+  // File input for import (needs change event, not click)
+  const fileInput = sheet.querySelector('#import-file-input');
+  if (fileInput) {
+    fileInput.onchange = async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        if (!confirm(`Import ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Existing records are preserved.`)) return;
+        const result = await api('/api/import', { method: 'POST', body: json, timeoutMs: 60000 });
+        toast(`Imported: ${result.imported_workouts} workouts, ${result.imported_sets} sets, ${result.imported_bodyweights} BW entries`);
+        fileInput.value = '';
+      } catch (err) {
+        toast(`Import failed: ${err.message}`);
+      }
+    };
+  }
 }
 
 // ---------- Boot ----------

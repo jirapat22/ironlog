@@ -5,6 +5,10 @@ const router = express.Router();
 
 router.get('/progress/:exerciseId', (req, res) => {
   const exerciseId = Number(req.params.exerciseId);
+  const exercise = db
+    .prepare('SELECT id, name, muscle_group, is_bodyweight FROM exercises WHERE id = ?')
+    .get(exerciseId);
+
   const rows = db
     .prepare(
       `SELECT s.id, s.weight, s.weight_unit, s.reps, s.rpe, s.logged_at,
@@ -20,10 +24,13 @@ router.get('/progress/:exerciseId', (req, res) => {
     .prepare('SELECT weight, weight_unit, reps, achieved_at FROM personal_records WHERE exercise_id = ?')
     .all(exerciseId);
 
-  res.json({ sets: rows, prs });
+  res.json({ sets: rows, prs, exercise });
 });
 
 router.get('/volume/weekly', (req, res) => {
+  const weeks = Number(req.query.weeks);
+  const whereClause =
+    weeks > 0 ? `WHERE s.logged_at >= datetime('now', '-${weeks} weeks')` : '';
   const rows = db
     .prepare(
       `SELECT
@@ -32,7 +39,7 @@ router.get('/volume/weekly', (req, res) => {
          SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps) as volume
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
-       WHERE s.logged_at >= datetime('now', '-8 weeks')
+       ${whereClause}
        GROUP BY week, e.muscle_group
        ORDER BY week ASC`
     )

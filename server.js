@@ -12,6 +12,7 @@ const bodyweightRouter = require('./routes/bodyweight');
 const pushRouter = require('./routes/push');
 const settingsRouter = require('./routes/settings');
 const exportRouter = require('./routes/export');
+const importRouter = require('./routes/import');
 const nudge = require('./nudge');
 
 init();
@@ -36,6 +37,7 @@ app.use('/api/bodyweight', bodyweightRouter);
 app.use('/api/push', pushRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/export', exportRouter);
+app.use('/api/import', importRouter);
 app.use('/api', progressRouter);
 
 app.get('/health', (req, res) => {

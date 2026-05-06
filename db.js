@@ -133,6 +133,12 @@ function init() {
     if (!/duplicate column/i.test(err.message)) throw err;
   }
 
+  try {
+    db.exec('ALTER TABLE workouts ADD COLUMN feel_rating INTEGER');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
   seed();
 }
 

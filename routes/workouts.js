@@ -21,7 +21,7 @@ router.post('/', (req, res) => {
 router.get('/history', (req, res) => {
   const rows = db
     .prepare(
-      `SELECT w.id, w.started_at, w.finished_at, w.notes,
+      `SELECT w.id, w.started_at, w.finished_at, w.notes, w.feel_rating,
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
@@ -76,7 +76,7 @@ router.patch('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'workout not found' });
 
-  const fields = ['notes', 'started_at', 'finished_at'];
+  const fields = ['notes', 'started_at', 'finished_at', 'feel_rating'];
   const updates = [];
   const values = [];
   for (const f of fields) {

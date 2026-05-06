@@ -1767,6 +1767,58 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* Feel rating */
+.feel-prompt {
+  margin: 18px 0 14px;
+}
+
+.feel-prompt__label {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.feel-prompt__options {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.feel-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  max-width: 60px;
+  padding: 10px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 2px solid transparent;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.feel-btn:active {
+  background: var(--surface);
+}
+
+.feel-btn--active {
+  border-color: var(--accent);
+  background: rgba(232, 255, 71, 0.1);
+}
+
+.feel-btn__emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.feel-btn__label {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
 /* PR Timeline */
 .pr-group {
   padding: 10px 0;
