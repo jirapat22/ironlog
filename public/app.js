@@ -1348,76 +1348,70 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 }
 
 function buildProgressionHint(rec) {
+  const target = `${rec.bwPrefix}${rec.recWeight}${rec.recUnit} × ${rec.recReps}`;
   if (rec.isProgression) {
     return `
       <div class="prog-hint prog-hint--up">
-        <div class="prog-hint__main">&#x1F4AA; Add weight today &rarr; <strong>${rec.label.replace('Try ', '')}</strong></div>
-        <div class="prog-hint__sub">Last session: ${rec.lastBest} — all reps completed</div>
+        <div class="prog-hint__main">&#x1F4AA; Add weight &rarr; <strong>${target}</strong></div>
+        <div class="prog-hint__sub">Last: ${rec.lastWeight} × ${rec.repsList} (${rec.setsLabel}) &mdash; all reps hit &#x2713;</div>
       </div>`;
   } else {
     return `
       <div class="prog-hint prog-hint--same">
-        <div class="prog-hint__main">&#x1F3AF; Same weight — chase the reps &rarr; <strong>${rec.label.replace('Retry ', '')}</strong></div>
-        <div class="prog-hint__sub">Last session: ${rec.lastBest} — reps not all completed yet</div>
+        <div class="prog-hint__main">&#x1F3AF; Same weight, more reps &rarr; <strong>${rec.bwPrefix}${rec.recWeight}${rec.recUnit} &times; ${rec.recReps}</strong></div>
+        <div class="prog-hint__sub">Last: ${rec.lastWeight} &times; ${rec.repsList} (${rec.setsLabel}) &mdash; hit ${rec.recReps} to progress</div>
       </div>`;
   }
 }
 
 function recommendForNext(ex, lastSets) {
   if (!lastSets.length) return null;
-  const target = ex.target_sets;
   const targetReps = ex.target_reps;
 
-  let bestE1RM = 0;
+  // Find the top working weight (kg-normalised for comparison, original unit for display)
+  let bestKg = 0;
   let bestSet = null;
   for (const s of lastSets) {
-    const e = e1RMForSet(s, ex);
-    if (e > bestE1RM) {
-      bestE1RM = e;
-      bestSet = s;
-    }
+    const kg = loadKg(s, ex);
+    if (kg > bestKg) { bestKg = kg; bestSet = s; }
   }
   if (!bestSet) return null;
 
-  const completed = lastSets.slice(0, target);
-  const allHitTargetReps =
-    completed.length >= target &&
-    completed.every((s) => s.reps >= targetReps && s.weight === bestSet.weight);
+  // Only look at sets done at that top weight — ignores warmups at lighter loads
+  const workingSets = lastSets.filter(
+    (s) => s.weight === bestSet.weight && s.weight_unit === bestSet.weight_unit
+  );
+
+  // All working sets reached target reps → ready to add weight
+  const allHit = workingSets.every((s) => s.reps >= targetReps);
 
   const unit = bestSet.weight_unit;
   const step = stepFor(unit);
-  const e1rmInUnit = unit === 'lbs' ? bestE1RM / 0.45359237 : bestE1RM;
+  const bwPrefix = ex.is_bodyweight ? '+' : '';
 
-  let recWeight;
-  let label;
-  let isProgression;
-  if (allHitTargetReps) {
+  let recWeight, isProgression;
+  if (allHit) {
     recWeight = +(bestSet.weight + step).toFixed(2);
-    label = ex.is_bodyweight
-      ? `Try +${recWeight}${unit} × ${targetReps}`
-      : `Try ${recWeight}${unit} × ${targetReps}`;
     isProgression = true;
   } else {
     recWeight = bestSet.weight;
-    label = ex.is_bodyweight
-      ? `Retry +${recWeight}${unit} × ${targetReps}`
-      : `Retry ${recWeight}${unit} × ${targetReps}`;
     isProgression = false;
   }
 
-  const lastBest = ex.is_bodyweight
-    ? `+${bestSet.weight}${unit} × ${bestSet.reps}`
-    : `${bestSet.weight}${unit} × ${bestSet.reps}`;
+  // Human-readable last-session summary
+  const repsList = workingSets.map((s) => s.reps).join(', ');
+  const setsLabel = workingSets.length === 1 ? '1 set' : `${workingSets.length} sets`;
 
   return {
     recWeight,
     recUnit: unit,
     recReps: targetReps,
-    label,
-    e1rm: e1rmInUnit,
-    lastBest,
     isProgression,
-    isBodyweight: !!ex.is_bodyweight
+    isBodyweight: !!ex.is_bodyweight,
+    bwPrefix,
+    lastWeight: `${bwPrefix}${bestSet.weight}${unit}`,
+    setsLabel,
+    repsList
   };
 }
 
