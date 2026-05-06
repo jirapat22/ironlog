@@ -310,6 +310,16 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
+// Human-readable weight for a set. BW exercises at 0 show "BW",
+// at non-zero show "+X unit" (dip belt etc.).
+function fmtSetWeight(weight, unit, isBw) {
+  if (isBw) {
+    if (!weight || weight === 0) return 'BW';
+    return `BW+${weight}${unit}`;
+  }
+  return `${weight}${unit}`;
+}
+
 // Cached latest body weight (kg). Set from renderBodyweightSection + syncBw().
 let userBwKg = 0;
 
@@ -1348,21 +1358,19 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 }
 
 function buildProgressionHint(rec) {
-  const prefix = rec.bwPrefix;
   if (rec.isProgression) {
     return `
       <div class="prog-hint prog-hint--up">
-        <div class="prog-hint__main">&#x2B06; Try <strong>${prefix}${rec.recWeight}${rec.recUnit} &times; ${rec.recReps}</strong> today</div>
+        <div class="prog-hint__main">&#x2B06; Try <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> today</div>
         <div class="prog-hint__sub">Last session: ${rec.lastWeight} &times; ${rec.repsList} &mdash; all sets hit ${rec.recReps}+ reps &#x2713;</div>
       </div>`;
   } else {
-    // Be explicit about what the target is so user knows what they're working toward
     const gap = rec.recReps - rec.minReps;
     const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
     return `
       <div class="prog-hint prog-hint--same">
-        <div class="prog-hint__main">&#x1F3AF; Keep <strong>${prefix}${rec.recWeight}${rec.recUnit}</strong> &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
-        <div class="prog-hint__sub">Last session: ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} on all sets to add weight</div>
+        <div class="prog-hint__main">&#x1F3AF; Keep <strong>${rec.recDisplay}</strong> &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
+        <div class="prog-hint__sub">Last: ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} on all sets to add weight</div>
       </div>`;
   }
 }
@@ -1390,7 +1398,7 @@ function recommendForNext(ex, lastSets) {
 
   const unit = bestSet.weight_unit;
   const step = stepFor(unit);
-  const bwPrefix = ex.is_bodyweight ? '+' : '';
+  const isBw = !!ex.is_bodyweight;
 
   let recWeight, isProgression;
   if (allHit) {
@@ -1404,7 +1412,6 @@ function recommendForNext(ex, lastSets) {
   // Human-readable last-session summary
   const repsList = workingSets.map((s) => s.reps).join(', ');
   const setsLabel = workingSets.length === 1 ? '1 set' : `${workingSets.length} sets`;
-  // For the "same weight" case, show how close they are
   const minReps = Math.min(...workingSets.map((s) => s.reps));
 
   return {
@@ -1412,9 +1419,11 @@ function recommendForNext(ex, lastSets) {
     recUnit: unit,
     recReps: targetReps,
     isProgression,
-    isBodyweight: !!ex.is_bodyweight,
-    bwPrefix,
-    lastWeight: `${bwPrefix}${bestSet.weight}${unit}`,
+    isBodyweight: isBw,
+    lastWeight: fmtSetWeight(bestSet.weight, unit, isBw),
+    recDisplay: isBw
+      ? (recWeight === 0 ? 'BW' : `BW+${recWeight}${unit}`)
+      : `${recWeight}${unit}`,
     setsLabel,
     repsList,
     minReps
@@ -1668,8 +1677,11 @@ async function confirmSet(row) {
   const rpeRaw = row.dataset.rpe;
   const rpe = rpeRaw === '' || rpeRaw == null ? null : Number(rpeRaw);
 
-  if (!weight || !reps) {
-    toast('Enter weight and reps first');
+  // BW exercises can legitimately have 0 added weight — only reject negative/NaN
+  const exIsBw = workoutState?.programDay?.exercises
+    ?.find((e) => e.exercise_id === exId)?.is_bodyweight;
+  if ((weight < 0 || (weight === 0 && !exIsBw) || Number.isNaN(weight)) || !reps) {
+    toast(exIsBw ? 'Enter reps (weight can be 0 for bodyweight)' : 'Enter weight and reps first');
     return;
   }
 
@@ -3278,7 +3290,7 @@ async function loadHistoryCardBody(card) {
                   (s) => `
                     <button class="history-ex__set" data-edit-set="${s.id}">
                       <span class="history-ex__set-n">Set ${s.set_number}</span>
-                      <span class="history-ex__set-w">${s.weight}${s.weight_unit} × ${s.reps}</span>
+                      <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight)} × ${s.reps}</span>
                       ${s.rpe != null ? `<span class="history-ex__set-rpe">@${s.rpe}</span>` : ''}
                       ${s.notes ? `<span class="history-ex__set-note">${escapeHtml(s.notes)}</span>` : ''}
                     </button>
@@ -3680,6 +3692,15 @@ async function openSettingsSheet() {
             <span>PIN lock</span>
             <button class="btn btn--ghost btn--sm" id="reset-pin">${pinSet ? 'Change / reset PIN' : 'Set PIN'}</button>
           </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-group__title">Data</div>
+          <div class="settings-row">
+            <span>Export everything to JSON</span>
+            <a class="btn btn--ghost btn--sm" href="/api/export" download>Download</a>
+          </div>
+          <div class="card__subtitle" style="margin-top:4px">Includes all workouts, sets, body weight, PRs and programs. Keep it somewhere safe.</div>
         </div>
 
         <div class="settings-group">

@@ -38,11 +38,11 @@ async function runNudgeCheck() {
 
     const last = db
       .prepare(
-        `SELECT MAX(COALESCE(finished_at, started_at)) as t FROM workouts`
+        `SELECT MAX(finished_at) as t FROM workouts WHERE finished_at IS NOT NULL`
       )
       .get();
     const lastTs = last?.t;
-    if (!lastTs) return; // no workouts ever — don't nag
+    if (!lastTs) return; // no finished workouts ever — don't nag
 
     const daysSince = hoursBetween(lastTs) / 24;
     if (daysSince < threshold) return;
