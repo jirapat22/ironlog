@@ -2203,8 +2203,8 @@ async function renderProgress() {
         <button class="btn btn--ghost btn--sm" data-log-bw>+ Log</button>
       </div>
       <div id="bw-current" class="bw-current"></div>
-      <div class="chart-wrap bw-chart-wrap hidden" id="bw-chart-wrap"><canvas id="bw-chart"></canvas></div>
       <div id="bw-recent" class="bw-recent"></div>
+      <div class="chart-wrap bw-chart-wrap hidden" id="bw-chart-wrap"><canvas id="bw-chart"></canvas></div>
     </div>
     <div class="progress-section">
       <div class="progress-section__title">Strength Standards (vs. body weight)</div>
@@ -2921,26 +2921,68 @@ async function renderBodyweightSection() {
 
   const latest = rows[0];
   userBwKg = toKg(latest.weight, latest.weight_unit);
-  let trend = '';
+
+  // Trend vs previous entry
+  let trendStr = '';
   if (rows.length > 1) {
-    const prev = rows[1];
-    const pKg = prev.weight_unit === 'lbs' ? prev.weight * 0.45359237 : prev.weight;
-    const lKg = latest.weight_unit === 'lbs' ? latest.weight * 0.45359237 : latest.weight;
-    const diff = lKg - pKg;
+    const diff = toKg(latest.weight, latest.weight_unit) - toKg(rows[1].weight, rows[1].weight_unit);
     if (Math.abs(diff) >= 0.05) {
-      const arrow = diff > 0 ? '▲' : '▼';
-      trend = `<span class="bw-current__trend ${diff > 0 ? 'up' : 'down'}">${arrow} ${Math.abs(diff).toFixed(1)} kg</span>`;
+      const sign = diff > 0 ? '+' : '';
+      trendStr = `<span class="bw-current__trend ${diff > 0 ? 'up' : 'down'}">${sign}${diff.toFixed(1)} kg</span>`;
     }
   }
 
+  // Staleness nudge — encourage consistent logging
+  const daysSinceLog = daysAgo(latest.logged_at);
+  const staleNote = daysSinceLog >= 7
+    ? `<div class="bw-stale">Last logged ${daysSinceLog} days ago — tap + Log to keep your trend accurate</div>`
+    : '';
+
   currentEl.innerHTML = `
-    <div class="bw-current__main">
+    <div class="bw-current__row">
       <span class="bw-current__val">${latest.weight}</span>
       <span class="bw-current__unit">${latest.weight_unit}</span>
-      ${trend}
+      ${trendStr}
+      <span class="bw-current__when">${humanAgo(latest.logged_at)}</span>
     </div>
-    <div class="bw-current__when">${humanAgo(latest.logged_at)}</div>
+    ${staleNote}
   `;
+
+  // Collapsible history — show 4 by default, toggle to see all
+  const SHOW_DEFAULT = 4;
+  const hasMore = rows.length > SHOW_DEFAULT;
+
+  function renderRecentList(expanded) {
+    const visible = expanded ? rows : rows.slice(0, SHOW_DEFAULT);
+    return `
+      <div class="bw-list">
+        ${visible.map((r, i) => `
+          <div class="bw-item">
+            <span class="bw-item__date">${formatDateShort(r.logged_at)}</span>
+            <span class="bw-item__w">${r.weight} ${r.weight_unit}</span>
+            ${r.notes ? `<span class="bw-item__note">${escapeHtml(r.notes)}</span>` : ''}
+            <button class="bw-item__del" data-del-bw="${r.id}" aria-label="Delete">&times;</button>
+          </div>
+        `).join('')}
+      </div>
+      ${hasMore
+        ? `<button class="bw-toggle" data-bw-toggle>${expanded
+            ? `&#x25B2; Show less`
+            : `&#x25BC; ${rows.length - SHOW_DEFAULT} more entries`
+          }</button>`
+        : ''}
+    `;
+  }
+
+  let historyExpanded = false;
+  recentEl.innerHTML = renderRecentList(false);
+
+  recentEl.onclick = (e) => {
+    if (e.target.closest('[data-bw-toggle]')) {
+      historyExpanded = !historyExpanded;
+      recentEl.innerHTML = renderRecentList(historyExpanded);
+    }
+  };
 
   if (rows.length >= 2) {
     chartWrap.classList.remove('hidden');
@@ -2948,23 +2990,6 @@ async function renderBodyweightSection() {
   } else {
     chartWrap.classList.add('hidden');
   }
-
-  recentEl.innerHTML =
-    '<div class="bw-recent__title">Recent</div>' +
-    rows
-      .slice(0, 8)
-      .map(
-        (r) => `
-          <div class="bw-item">
-            <div class="bw-item__main">
-              <div class="bw-item__w">${r.weight} ${r.weight_unit}</div>
-              <div class="bw-item__when">${formatDateShort(r.logged_at)}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
-            </div>
-            <button class="btn--icon btn--icon-danger" data-del-bw="${r.id}" aria-label="Delete">&times;</button>
-          </div>
-        `
-      )
-      .join('');
 }
 
 function renderBwChart(rows) {
