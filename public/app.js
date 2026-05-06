@@ -1348,18 +1348,21 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 }
 
 function buildProgressionHint(rec) {
-  const target = `${rec.bwPrefix}${rec.recWeight}${rec.recUnit} × ${rec.recReps}`;
+  const prefix = rec.bwPrefix;
   if (rec.isProgression) {
     return `
       <div class="prog-hint prog-hint--up">
-        <div class="prog-hint__main">&#x1F4AA; Add weight &rarr; <strong>${target}</strong></div>
-        <div class="prog-hint__sub">Last: ${rec.lastWeight} × ${rec.repsList} (${rec.setsLabel}) &mdash; all reps hit &#x2713;</div>
+        <div class="prog-hint__main">&#x2B06; Try <strong>${prefix}${rec.recWeight}${rec.recUnit} &times; ${rec.recReps}</strong> today</div>
+        <div class="prog-hint__sub">Last session: ${rec.lastWeight} &times; ${rec.repsList} &mdash; all sets hit ${rec.recReps}+ reps &#x2713;</div>
       </div>`;
   } else {
+    // Be explicit about what the target is so user knows what they're working toward
+    const gap = rec.recReps - rec.minReps;
+    const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
     return `
       <div class="prog-hint prog-hint--same">
-        <div class="prog-hint__main">&#x1F3AF; Same weight, more reps &rarr; <strong>${rec.bwPrefix}${rec.recWeight}${rec.recUnit} &times; ${rec.recReps}</strong></div>
-        <div class="prog-hint__sub">Last: ${rec.lastWeight} &times; ${rec.repsList} (${rec.setsLabel}) &mdash; hit ${rec.recReps} to progress</div>
+        <div class="prog-hint__main">&#x1F3AF; Keep <strong>${prefix}${rec.recWeight}${rec.recUnit}</strong> &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
+        <div class="prog-hint__sub">Last session: ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} on all sets to add weight</div>
       </div>`;
   }
 }
@@ -1401,6 +1404,8 @@ function recommendForNext(ex, lastSets) {
   // Human-readable last-session summary
   const repsList = workingSets.map((s) => s.reps).join(', ');
   const setsLabel = workingSets.length === 1 ? '1 set' : `${workingSets.length} sets`;
+  // For the "same weight" case, show how close they are
+  const minReps = Math.min(...workingSets.map((s) => s.reps));
 
   return {
     recWeight,
@@ -1411,7 +1416,8 @@ function recommendForNext(ex, lastSets) {
     bwPrefix,
     lastWeight: `${bwPrefix}${bestSet.weight}${unit}`,
     setsLabel,
-    repsList
+    repsList,
+    minReps
   };
 }
 
