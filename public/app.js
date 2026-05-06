@@ -375,6 +375,7 @@ function startRestCountdown(secs = REST_SECONDS) {
         restState.handle = null;
       }
       haptic([250, 120, 250, 120, 400]);
+      playBeep();
       if (restState && !restState.notified) {
         restState.notified = true;
         showLocalNotification('Rest done', 'Time for your next set', {
@@ -418,6 +419,31 @@ function cancelRestCountdown() {
 // ---------- Helpers ----------
 function haptic(ms = 30) {
   if (navigator.vibrate) navigator.vibrate(ms);
+}
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const schedule = (freq, start, dur) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.35, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+      osc.start(start);
+      osc.stop(start + dur);
+    };
+    const t = ctx.currentTime;
+    schedule(880, t, 0.12);
+    schedule(880, t + 0.18, 0.12);
+    schedule(1100, t + 0.36, 0.25);
+    setTimeout(() => ctx.close().catch(() => {}), 1200);
+  } catch {
+    /* Web Audio not available — haptic only */
+  }
 }
 
 function toast(msg, ms = 2000) {
@@ -3552,7 +3578,7 @@ function renderSetEditSheet() {
       const reps = parseInt(document.getElementById('se-reps').value || '0', 10);
       const unit = document.getElementById('se-unit').textContent.trim();
       const notes = document.getElementById('se-notes').value.trim() || null;
-      if (!weight || !reps) return toast('Enter weight and reps');
+      if (weight < 0 || Number.isNaN(weight) || !reps) return toast('Enter weight and reps');
 
       try {
         if (s.mode === 'edit') {
