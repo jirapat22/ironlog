@@ -90,10 +90,94 @@ async function runNudgeCheck() {
   }
 }
 
-function start() {
-  // Run once shortly after startup, then on interval
-  setTimeout(runNudgeCheck, 30_000);
-  setInterval(runNudgeCheck, CHECK_INTERVAL_MS);
+function userLocalDayKey(tzOffsetMin) {
+  const shifted = new Date(Date.now() - tzOffsetMin * 60_000);
+  return shifted.toISOString().slice(0, 10); // YYYY-MM-DD in user-local
 }
 
-module.exports = { start, runNudgeCheck };
+function userLocalDayOfWeek(tzOffsetMin) {
+  const shifted = new Date(Date.now() - tzOffsetMin * 60_000);
+  return shifted.getUTCDay(); // 0=Sun, 6=Sat
+}
+
+async function runWeeklySummary() {
+  try {
+    const settings = settingsRouter.getSettings();
+    if (settings.weekly_summary_enabled !== '1') return;
+
+    const tzOffset = Number(settings.nudge_tz_offset_minutes || 0);
+    const targetDay = Number(settings.weekly_summary_day || 0); // 0 = Sunday
+    const targetHour = Number(settings.weekly_summary_hour || 19);
+
+    const now = new Date(Date.now() - tzOffset * 60_000);
+    if (now.getUTCDay() !== targetDay) return;
+    if (now.getUTCHours() < targetHour) return;
+
+    // Idempotence: one summary per local-week
+    const todayKey = userLocalDayKey(tzOffset);
+    if (settings.weekly_summary_last_sent === todayKey) return;
+
+    // Stats for the last 7 calendar days
+    const stats = db.prepare(
+      `SELECT
+        COUNT(DISTINCT w.id) as workouts,
+        COALESCE(SUM(
+          (CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps
+        ), 0) as volume_kg,
+        COUNT(s.id) as sets
+       FROM workouts w
+       LEFT JOIN sets s ON s.workout_id = w.id
+       WHERE w.finished_at IS NOT NULL
+         AND w.finished_at >= datetime('now', '-7 days')`
+    ).get();
+
+    const prCount = db.prepare(
+      `SELECT COUNT(*) as n FROM personal_records
+       WHERE achieved_at >= datetime('now', '-7 days')`
+    ).get().n;
+
+    const subs = db.prepare('SELECT * FROM push_subscriptions').all();
+    if (!subs.length) return;
+
+    let body;
+    if (stats.workouts === 0) {
+      body = 'No workouts this week. Fresh slate tomorrow 🌅';
+    } else {
+      const vol = Math.round(stats.volume_kg).toLocaleString();
+      const prStr = prCount > 0 ? ` · ${prCount} new PR${prCount === 1 ? '' : 's'} 🏆` : '';
+      body = `${stats.workouts} workout${stats.workouts === 1 ? '' : 's'} · ${vol} kg total${prStr}`;
+    }
+
+    const payload = { title: 'Weekly recap', body, tag: 'ironlog-weekly' };
+    const results = await Promise.allSettled(
+      subs.map((s) =>
+        push.sendTo({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload)
+      )
+    );
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected' && results[i].reason?.statusCode === 410) {
+        db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(subs[i].endpoint);
+      }
+    }
+    db.prepare(
+      'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run('weekly_summary_last_sent', todayKey);
+
+    console.log(`Weekly summary sent: ${body}`);
+  } catch (err) {
+    console.warn('Weekly summary failed:', err.message);
+  }
+}
+
+function tick() {
+  runNudgeCheck();
+  runWeeklySummary();
+}
+
+function start() {
+  // Run once shortly after startup, then on interval
+  setTimeout(tick, 30_000);
+  setInterval(tick, CHECK_INTERVAL_MS);
+}
+
+module.exports = { start, runNudgeCheck, runWeeklySummary };

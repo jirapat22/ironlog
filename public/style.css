@@ -808,23 +808,24 @@ button {
 }
 
 .num-input__btn {
-  width: 32px;
-  height: 40px;
-  font-size: 20px;
+  width: 38px;
+  height: 48px;
+  font-size: 22px;
   color: var(--text-dim);
   flex-shrink: 0;
+  touch-action: none;
 }
 
 .num-input__field {
   flex: 1;
   min-width: 0;
-  height: 40px;
+  height: 48px;
   border: none;
   background: transparent;
   color: var(--text);
   text-align: center;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   padding: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -834,12 +835,12 @@ button {
 }
 
 .unit-toggle {
-  height: 40px;
+  height: 48px;
   border-radius: 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -849,13 +850,19 @@ button {
 }
 
 .set-check {
-  width: 44px;
-  height: 40px;
-  border-radius: 8px;
+  width: 52px;
+  height: 48px;
+  border-radius: 10px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 18px;
+  font-size: 22px;
+}
+
+.set-check:active {
+  background: var(--accent);
+  color: #0c0c0c;
+  transform: scale(0.95);
 }
 
 .set-row.done .set-check {

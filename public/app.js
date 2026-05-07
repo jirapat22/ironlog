@@ -2344,6 +2344,9 @@ async function cancelWorkout() {
 async function finishWorkout() {
   const id = workoutState?.workout?.id;
   if (!id) return;
+  if ((workoutState.loggedSets || []).length === 0) {
+    if (!confirm('No sets logged. Finish this workout anyway? It will show in History as empty.')) return;
+  }
   try {
     await API.finishWorkout(id);
     if (stickyTimerHandle) clearInterval(stickyTimerHandle);
@@ -3943,6 +3946,7 @@ async function openSettingsSheet() {
   }
   const nudgeOn = serverSettings.nudge_enabled === '1';
   const nudgeDays = Number(serverSettings.nudge_threshold_days || 3);
+  const weeklyOn = serverSettings.weekly_summary_enabled === '1';
 
   let notifBody = '';
   if (!canNotif) {
@@ -3995,6 +3999,13 @@ async function openSettingsSheet() {
             </div>
           </div>
           <div class="card__subtitle" style="margin-top:6px">Quiet hours: 10pm–8am. Requires notifications on.</div>
+
+          <label class="settings-row" style="margin-top:10px">
+            <span>Weekly summary (Sundays 7pm)</span>
+            <button class="toggle ${weeklyOn ? 'toggle--on' : ''}" id="toggle-weekly" aria-pressed="${weeklyOn}">
+              <span class="toggle__dot"></span>
+            </button>
+          </label>
         </div>
 
         <div class="settings-group">
@@ -4087,6 +4098,19 @@ async function openSettingsSheet() {
       const on = btn.classList.contains('toggle--on');
       try {
         await API.updateSettings({ nudge_enabled: on ? '0' : '1' });
+        haptic(10);
+        openSettingsSheet();
+      } catch (err) {
+        toast(err.message);
+      }
+      return;
+    }
+
+    if (e.target.closest('#toggle-weekly')) {
+      const btn = e.target.closest('#toggle-weekly');
+      const on = btn.classList.contains('toggle--on');
+      try {
+        await API.updateSettings({ weekly_summary_enabled: on ? '0' : '1' });
         haptic(10);
         openSettingsSheet();
       } catch (err) {
