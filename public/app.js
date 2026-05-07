@@ -1239,6 +1239,59 @@ function openNewExerciseForm(picker) {
 let workoutState = null;
 let stickyTimerHandle = null;
 
+// ---------- Set-count overrides + draft persistence ----------
+function draftKey(workoutId) {
+  return `ironlog.draft.${workoutId}`;
+}
+
+function loadDraft(workoutId) {
+  try {
+    const raw = localStorage.getItem(draftKey(workoutId));
+    if (!raw) return { setCounts: {}, inputs: {} };
+    const parsed = JSON.parse(raw);
+    return {
+      setCounts: parsed.setCounts || {},
+      inputs: parsed.inputs || {}
+    };
+  } catch {
+    return { setCounts: {}, inputs: {} };
+  }
+}
+
+function saveDraft(workoutId, draft) {
+  try {
+    localStorage.setItem(draftKey(workoutId), JSON.stringify(draft));
+  } catch {
+    /* quota exceeded — best-effort only */
+  }
+}
+
+function clearDraft(workoutId) {
+  try { localStorage.removeItem(draftKey(workoutId)); } catch { /* ignore */ }
+}
+
+function clearDraftInput(workoutId, exId, setNum) {
+  if (!workoutState) return;
+  const key = `${exId}-${setNum}`;
+  if (workoutState.draft.inputs[key]) {
+    delete workoutState.draft.inputs[key];
+    saveDraft(workoutId, workoutState.draft);
+  }
+}
+
+function getSetCount(ex) {
+  const override = workoutState?.draft?.setCounts?.[ex.exercise_id];
+  const loggedMax = Math.max(
+    0,
+    ...workoutState.loggedSets
+      .filter((s) => s.exercise_id === ex.exercise_id)
+      .map((s) => s.set_number)
+  );
+  const target = override ?? ex.target_sets;
+  // Never render fewer rows than the user has already logged
+  return Math.max(target, loggedMax);
+}
+
 async function renderWorkout() {
   const root = $('#view-workout');
   const activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
@@ -1287,7 +1340,8 @@ async function renderWorkout() {
       last,
       startedAt: workout.started_at,
       loggedSets: [...(workout.sets || [])],
-      openExtras: new Set()
+      openExtras: new Set(),
+      draft: loadDraft(workout.id)
     };
 
     localStorage.setItem(LS.activeWorkoutStart, workout.started_at);
@@ -1357,24 +1411,38 @@ function renderWorkoutView() {
 }
 
 function exerciseCardHTML(ex, lastSets, loggedBySet) {
-  const target = ex.target_sets;
+  const target = getSetCount(ex);
   const prevReference = lastSets[0];
   const prefillWeight = prevReference?.weight ?? '';
   const prefillUnit = prevReference?.weight_unit || 'kg';
   const prefillReps = prevReference?.reps ?? ex.target_reps;
 
   const rec = recommendForNext(ex, lastSets);
+  const drafts = workoutState?.draft?.inputs || {};
 
   const rows = [];
+  let firstUnloggedSet = null;
   for (let i = 1; i <= target; i++) {
     const key = `${ex.exercise_id}-${i}`;
     const logged = loggedBySet[key];
     const prevSet = lastSets.find((s) => s.set_number === i) || prevReference;
-    // Prefer recommendation for unlogged sets when we have one
-    const w = logged?.weight ?? (rec?.recWeight ?? prevSet?.weight ?? prefillWeight);
-    const u = logged?.weight_unit ?? (rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit);
-    const r = logged?.reps ?? prevSet?.reps ?? prefillReps;
-    rows.push(setRowHTML(ex, i, { w, u, r, logged }));
+    const draft = drafts[key];
+
+    // Priority: logged > draft (unconfirmed input from previous session) > recommendation > last-session > defaults
+    const w = logged?.weight
+      ?? draft?.w
+      ?? rec?.recWeight
+      ?? prevSet?.weight
+      ?? prefillWeight;
+    const u = logged?.weight_unit
+      ?? draft?.u
+      ?? rec?.recUnit
+      ?? prevSet?.weight_unit
+      ?? prefillUnit;
+    const r = logged?.reps ?? draft?.r ?? prevSet?.reps ?? prefillReps;
+
+    if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
+    rows.push(setRowHTML(ex, i, { w, u, r, logged, isNext: !logged && firstUnloggedSet === i }));
   }
 
   const hint = rec ? buildProgressionHint(rec) : '';
@@ -1394,6 +1462,11 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
       ${hint}
       <div class="set-rows">
         ${rows.join('')}
+      </div>
+      <div class="set-count-controls">
+        <button class="set-count-btn" data-remove-set-row="${ex.exercise_id}" aria-label="Remove a set">−</button>
+        <span class="set-count-controls__label">${target} ${target === 1 ? 'set' : 'sets'}</span>
+        <button class="set-count-btn" data-add-set-row="${ex.exercise_id}" aria-label="Add a set">+</button>
       </div>
       <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}">Done with this exercise</button>
     </div>
@@ -1473,8 +1546,13 @@ function recommendForNext(ex, lastSets) {
   };
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, logged }) {
-  const wStr = w === '' ? '' : Number(w);
+function setRowHTML(ex, setNumber, { w, u, r, logged, isNext }) {
+  const isBw = !!ex.is_bodyweight;
+  // For BW exercises with no added weight yet, show empty input + "BW" placeholder.
+  // Otherwise show the numeric value.
+  const showAsEmpty = isBw && (w === 0 || w === '' || w == null);
+  const wStr = showAsEmpty ? '' : (w === '' ? '' : Number(w));
+  const wPlaceholder = isBw ? 'BW' : '0';
   const rpe = logged?.rpe ?? '';
   const note = logged?.notes ?? '';
   const rpeButtons = [6, 7, 8, 9, 10]
@@ -1485,11 +1563,11 @@ function setRowHTML(ex, setNumber, { w, u, r, logged }) {
   const rpeBadge = rpe !== '' && rpe != null ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${rpe}</span>` : '';
 
   return `
-    <div class="set-row ${logged ? 'done' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${rpe}" ${logged ? `data-set-id="${logged.id}"` : ''}>
+    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${rpe}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <div class="set-row__num">${setNumber}</div>
       <div class="num-input" data-field="weight">
         <button class="num-input__btn" data-step="-1">−</button>
-        <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" aria-label="weight"/>
+        <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" placeholder="${wPlaceholder}" aria-label="weight"/>
         <button class="num-input__btn" data-step="1">+</button>
       </div>
       <button class="unit-toggle ${u === 'kg' ? 'kg' : 'lbs'}" data-unit>${u}</button>
@@ -1584,7 +1662,7 @@ function wireWorkoutView() {
     if (delBtn) return deleteLoggedSet(row);
   };
 
-  // Swap / skip / add-exercise handlers (outside row scope — attach on a second handler)
+  // Swap / skip / add-exercise / set-count handlers (outside row scope)
   root.addEventListener('click', async (e) => {
     const swapBtn = e.target.closest('[data-swap-ex]');
     if (swapBtn) {
@@ -1603,7 +1681,64 @@ function wireWorkoutView() {
     if (e.target.closest('[data-add-workout-ex]')) {
       haptic(15);
       openWorkoutAddExercisePicker();
+      return;
     }
+
+    const addRow = e.target.closest('[data-add-set-row]');
+    if (addRow) {
+      e.stopPropagation();
+      haptic(10);
+      const exId = Number(addRow.dataset.addSetRow);
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      if (!ex) return;
+      const current = getSetCount(ex);
+      workoutState.draft.setCounts[exId] = current + 1;
+      saveDraft(workoutState.workout.id, workoutState.draft);
+      renderWorkoutView();
+      return;
+    }
+    const removeRow = e.target.closest('[data-remove-set-row]');
+    if (removeRow) {
+      e.stopPropagation();
+      const exId = Number(removeRow.dataset.removeSetRow);
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      if (!ex) return;
+      const current = getSetCount(ex);
+      const loggedMax = Math.max(
+        0,
+        ...workoutState.loggedSets.filter((s) => s.exercise_id === exId).map((s) => s.set_number)
+      );
+      // Can't remove a row that's already logged (use swipe-to-delete for that)
+      if (current <= loggedMax) {
+        toast('Delete a logged set first');
+        return;
+      }
+      if (current <= 1) return;
+      haptic(10);
+      workoutState.draft.setCounts[exId] = current - 1;
+      // Drop any draft input for the removed row
+      const removedKey = `${exId}-${current}`;
+      delete workoutState.draft.inputs[removedKey];
+      saveDraft(workoutState.workout.id, workoutState.draft);
+      renderWorkoutView();
+    }
+  });
+
+  // Save unconfirmed input as drafts so accidental reloads don't lose work
+  root.addEventListener('input', (e) => {
+    const input = e.target.closest('.num-input__field');
+    if (!input) return;
+    const row = input.closest('.set-row');
+    if (!row || row.dataset.setId) return; // ignore logged rows
+    row.removeAttribute('data-pristine');
+    const exId = Number(row.dataset.ex);
+    const setNum = Number(row.dataset.set);
+    const w = row.querySelector('[data-field="weight"] .num-input__field').value;
+    const r = row.querySelector('[data-field="reps"] .num-input__field').value;
+    const u = row.querySelector('[data-unit]').textContent.trim();
+    const key = `${exId}-${setNum}`;
+    workoutState.draft.inputs[key] = { w, u, r };
+    saveDraft(workoutState.workout.id, workoutState.draft);
   });
 
   // Workout-level notes: PATCH on blur if changed
@@ -1756,7 +1891,11 @@ async function confirmSet(row) {
       });
       row.dataset.setId = res.id;
       row.classList.add('done');
+      row.classList.remove('set-row--next');
       workoutState.loggedSets.push(res);
+      clearDraftInput(workoutState.workout.id, exId, setNumber);
+      cascadePrefillSiblings(row, weight, unit, reps);
+      moveNextHighlight(exId);
       haptic(30);
       if (res.is_new_pr) showPRFlash();
       startRestCountdown();
@@ -1767,6 +1906,40 @@ async function confirmSet(row) {
   } finally {
     if (checkBtn) checkBtn.disabled = false;
   }
+}
+
+// After a set is confirmed, push its values to any unlogged sibling rows
+// for the same exercise that haven't been touched (still pristine).
+function cascadePrefillSiblings(confirmedRow, weight, unit, reps) {
+  const exId = confirmedRow.dataset.ex;
+  const card = confirmedRow.closest('.exercise-card');
+  if (!card) return;
+  const siblings = card.querySelectorAll(`.set-row[data-ex="${exId}"]`);
+  for (const sib of siblings) {
+    if (sib === confirmedRow) continue;
+    if (sib.dataset.setId) continue; // already logged
+    if (sib.dataset.pristine !== '1') continue; // user has touched it
+    const wIn = sib.querySelector('[data-field="weight"] .num-input__field');
+    const rIn = sib.querySelector('[data-field="reps"] .num-input__field');
+    const uBtn = sib.querySelector('[data-unit]');
+    if (wIn) wIn.value = String(weight);
+    if (rIn) rIn.value = String(reps);
+    if (uBtn) {
+      uBtn.textContent = unit;
+      uBtn.classList.toggle('kg', unit === 'kg');
+    }
+  }
+}
+
+// Move the "next" highlight to the lowest unlogged set for this exercise
+function moveNextHighlight(exId) {
+  const card = document.querySelector(`.exercise-card[data-ex="${exId}"]`);
+  if (!card) return;
+  card.querySelectorAll('.set-row--next').forEach((r) => r.classList.remove('set-row--next'));
+  const next = [...card.querySelectorAll('.set-row')].find(
+    (r) => !r.dataset.setId
+  );
+  if (next) next.classList.add('set-row--next');
 }
 
 async function persistRpeChange(row) {
@@ -2159,6 +2332,7 @@ function startStickyTimer() {
 
 async function cancelWorkout() {
   if (!confirm('Cancel this workout? Logged sets will be kept.')) return;
+  if (workoutState?.workout?.id) clearDraft(workoutState.workout.id);
   localStorage.removeItem(LS.activeWorkoutId);
   localStorage.removeItem(LS.activeProgramDayId);
   if (stickyTimerHandle) clearInterval(stickyTimerHandle);
@@ -2206,6 +2380,7 @@ async function finishWorkout() {
       dayLabel: workoutState.programDay.day_label
     });
 
+    clearDraft(id);
     localStorage.removeItem(LS.activeWorkoutId);
     localStorage.removeItem(LS.activeProgramDayId);
     localStorage.removeItem(LS.activeWorkoutStart);
