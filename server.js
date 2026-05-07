@@ -27,7 +27,9 @@ nudge.start();
 console.log('Nudge cron started');
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+// 50mb covers years of workout history in a single import. Server is
+// single-tenant so payload-flood DoS isn't a real concern here.
+app.use(express.json({ limit: '50mb' }));
 
 app.use('/api/exercises', exercisesRouter);
 app.use('/api/programs', programsRouter);

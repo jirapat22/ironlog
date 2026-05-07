@@ -1819,6 +1819,15 @@ button {
   letter-spacing: 0.02em;
 }
 
+.feel-btn--small {
+  max-width: 50px;
+  padding: 6px 2px;
+}
+
+.feel-btn--small .feel-btn__emoji {
+  font-size: 18px;
+}
+
 /* PR Timeline */
 .pr-group {
   padding: 10px 0;

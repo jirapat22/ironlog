@@ -422,14 +422,31 @@ function haptic(ms = 30) {
   if (navigator.vibrate) navigator.vibrate(ms);
 }
 
-function playBeep() {
+// Shared AudioContext — created lazily, kept alive so audio policy doesn't
+// block playback when the beep fires from a setInterval (no recent user
+// gesture). primeAudio() is called on user interactions to ensure the
+// context is in 'running' state before the beep needs to play.
+let audioCtx = null;
+function primeAudio() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  } catch {
+    /* not supported */
+  }
+}
+
+function playBeep() {
+  primeAudio();
+  if (!audioCtx) return;
+  try {
     const schedule = (freq, start, dur) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(audioCtx.destination);
       osc.type = 'sine';
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.35, start);
@@ -437,13 +454,12 @@ function playBeep() {
       osc.start(start);
       osc.stop(start + dur);
     };
-    const t = ctx.currentTime;
+    const t = audioCtx.currentTime;
     schedule(880, t, 0.12);
     schedule(880, t + 0.18, 0.12);
     schedule(1100, t + 0.36, 0.25);
-    setTimeout(() => ctx.close().catch(() => {}), 1200);
   } catch {
-    /* Web Audio not available — haptic only */
+    /* fail silently */
   }
 }
 
@@ -1689,6 +1705,9 @@ function attachHoldRepeat(container) {
 async function confirmSet(row) {
   const checkBtn = row.querySelector('[data-confirm]');
   if (checkBtn?.disabled) return;
+  // Prime AudioContext while we still have a fresh user gesture, so the
+  // rest-done beep can fire from setInterval 3 minutes later.
+  primeAudio();
 
   const exId = Number(row.dataset.ex);
   const setNumber = Number(row.dataset.set);
@@ -2158,7 +2177,14 @@ async function finishWorkout() {
     cancelRestCountdown();
 
     const sets = await API.workoutSets(id);
-    const totalVolume = sets.reduce((acc, s) => acc + toKg(s.weight, s.weight_unit) * s.reps, 0);
+    // BW exercises (pull-ups, push-ups, core etc.) need bodyweight folded in
+    // or they contribute zero to volume despite being real work.
+    const totalVolume = sets.reduce((acc, s) => {
+      const kg = s.is_bodyweight
+        ? toKg(s.weight, s.weight_unit) + (userBwKg || 0)
+        : toKg(s.weight, s.weight_unit);
+      return acc + kg * s.reps;
+    }, 0);
 
     const prs = await API.prs();
     const newPRs = prs.flatMap((g) =>
@@ -3282,6 +3308,34 @@ async function renderHistory() {
         return;
       }
 
+      // Set/change feel rating for a past workout
+      const feelBtn = e.target.closest('[data-history-feel]');
+      if (feelBtn) {
+        e.stopPropagation();
+        const card = feelBtn.closest('.history-card');
+        const id = Number(card.dataset.id);
+        const rating = Number(feelBtn.dataset.historyFeel);
+        // Toggle: tap the active one again to clear
+        const willClear = feelBtn.classList.contains('feel-btn--active');
+        const newVal = willClear ? null : rating;
+        try {
+          await API.updateFeel(id, newVal);
+          card.querySelectorAll('[data-history-feel]').forEach((b) =>
+            b.classList.toggle('feel-btn--active', !willClear && Number(b.dataset.historyFeel) === rating)
+          );
+          // Update meta-line emoji on the card head
+          const meta = card.querySelector('.history-card__meta');
+          if (meta) {
+            const baseText = meta.textContent.split(' · ').slice(0, 2).join(' · ');
+            meta.textContent = newVal ? `${baseText} · ${feelEmoji(newVal)}` : baseText;
+          }
+          haptic(15);
+        } catch (err) {
+          toast(err.message);
+        }
+        return;
+      }
+
       // Delete whole workout
       const delWorkoutBtn = e.target.closest('[data-delete-workout]');
       if (delWorkoutBtn) {
@@ -3381,11 +3435,21 @@ async function loadHistoryCardBody(card) {
       .join('');
 
     const notes = workout.notes || '';
+    const currentFeel = workout.feel_rating;
+    const feelButtons = FEEL_OPTIONS.map((o) => `
+      <button class="feel-btn feel-btn--small ${currentFeel === o.v ? 'feel-btn--active' : ''}" data-history-feel="${o.v}" title="${o.label}">
+        <span class="feel-btn__emoji">${o.emoji}</span>
+        <span class="feel-btn__label">${o.label}</span>
+      </button>
+    `).join('');
+
     body.innerHTML = `
       ${exHTML || '<div class="empty">No sets logged</div>'}
       <button class="btn btn--ghost btn--block" data-add-history-ex style="margin-top:10px">+ Add exercise</button>
       <div class="history-card__body-actions">
-        <label class="form-label">Workout notes</label>
+        <label class="form-label">How did it feel?</label>
+        <div class="feel-prompt__options">${feelButtons}</div>
+        <label class="form-label" style="margin-top:14px">Workout notes</label>
         <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(notes)}" placeholder="How did it go?">${escapeHtml(notes)}</textarea>
         <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger);margin-top:10px">Delete workout</button>
       </div>
