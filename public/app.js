@@ -2511,6 +2511,13 @@ async function renderProgress() {
       <div class="chart-wrap bw-chart-wrap hidden" id="bw-chart-wrap"><canvas id="bw-chart"></canvas></div>
     </div>
     <div class="progress-section">
+      <div class="progress-section__head">
+        <div class="progress-section__title" style="margin:0">Daily Calories</div>
+        <button class="btn btn--ghost btn--sm" data-edit-profile>Profile</button>
+      </div>
+      <div id="tdee-card"></div>
+    </div>
+    <div class="progress-section">
       <div class="progress-section__title">Strength Standards (vs. body weight)</div>
       <div id="strength-standards"></div>
     </div>
@@ -2555,6 +2562,7 @@ async function renderProgress() {
 
   root.onclick = async (e) => {
     if (e.target.closest('[data-log-bw]')) return openBodyweightSheet();
+    if (e.target.closest('[data-edit-profile]')) return openProfileSheet();
     const del = e.target.closest('[data-del-bw]');
     if (del) {
       const id = Number(del.dataset.delBw);
@@ -2562,6 +2570,7 @@ async function renderProgress() {
       try {
         await API.deleteBodyweight(id);
         await renderBodyweightSection();
+        await renderTdeeSection();
       } catch (err) {
         toast(err.message);
       }
@@ -2605,6 +2614,7 @@ async function renderProgress() {
     renderBreakProjection();
     renderPrTimeline();
     renderReadiness(exercises);
+    renderTdeeSection();
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load progress: ${err.message}</div>`;
   }
@@ -3314,6 +3324,199 @@ async function renderBodyweightSection() {
   } else {
     chartWrap.classList.add('hidden');
   }
+}
+
+// ---------- TDEE / Daily Calories ----------
+const ACTIVITY_MULTIPLIERS = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  very: 1.725,
+  athlete: 1.9
+};
+
+const ACTIVITY_LABELS = {
+  sedentary: 'Sedentary (desk job, no exercise)',
+  light: 'Light (1–3 days/week)',
+  moderate: 'Moderate (3–5 days/week)',
+  very: 'Very active (6–7 days/week)',
+  athlete: 'Athlete (2× daily / physical job)'
+};
+
+function calcBmrMifflin(weightKg, heightCm, age, sex) {
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * age;
+  return sex === 'female' ? base - 161 : base + 5;
+}
+
+async function renderTdeeSection() {
+  const root = $('#tdee-card');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+
+  let settings, bw;
+  try {
+    [settings, bw] = await Promise.all([API.settings(), API.bodyweight()]);
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  const heightCm = Number(settings.profile_height_cm);
+  const age = Number(settings.profile_age);
+  const activity = settings.profile_activity || 'moderate';
+  const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
+
+  const missing = [];
+  if (!bw.length) missing.push('body weight');
+  if (!heightCm) missing.push('height');
+  if (!age) missing.push('age');
+
+  if (missing.length) {
+    root.innerHTML = `
+      <div class="bw-current__empty" style="padding:6px 0">
+        Set ${missing.join(', ')} to see your daily calorie targets.
+      </div>
+      <button class="btn btn--primary btn--block" data-edit-profile style="margin-top:6px">Set up profile</button>
+    `;
+    return;
+  }
+
+  const weightKg = toKg(bw[0].weight, bw[0].weight_unit);
+  const bmr = Math.round(calcBmrMifflin(weightKg, heightCm, age, sex));
+  const multiplier = ACTIVITY_MULTIPLIERS[activity] || 1.55;
+  const tdee = Math.round(bmr * multiplier);
+  const cut = tdee - 500;
+  const bulk = tdee + 300;
+
+  root.innerHTML = `
+    <div class="tdee-main">
+      <div class="tdee-main__val">${tdee.toLocaleString()}</div>
+      <div class="tdee-main__unit">kcal / day to maintain</div>
+    </div>
+    <div class="tdee-breakdown">
+      <span>BMR <strong>${bmr.toLocaleString()}</strong></span>
+      <span>×</span>
+      <span>${multiplier.toFixed(3)} <strong>${activity}</strong></span>
+    </div>
+    <div class="tdee-goals">
+      <div class="tdee-goal tdee-goal--cut">
+        <div class="tdee-goal__label">Cut</div>
+        <div class="tdee-goal__val">${cut.toLocaleString()}</div>
+        <div class="tdee-goal__delta">−500</div>
+      </div>
+      <div class="tdee-goal tdee-goal--maintain">
+        <div class="tdee-goal__label">Maintain</div>
+        <div class="tdee-goal__val">${tdee.toLocaleString()}</div>
+        <div class="tdee-goal__delta">±0</div>
+      </div>
+      <div class="tdee-goal tdee-goal--bulk">
+        <div class="tdee-goal__label">Bulk</div>
+        <div class="tdee-goal__val">${bulk.toLocaleString()}</div>
+        <div class="tdee-goal__delta">+300</div>
+      </div>
+    </div>
+    <div class="card__subtitle" style="margin-top:10px">Based on Mifflin–St Jeor: ${weightKg.toFixed(1)} kg · ${heightCm} cm · ${age} yr · ${sex}.</div>
+  `;
+}
+
+function ensureProfileSheet() {
+  let sheet = document.getElementById('profile-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'profile-sheet';
+    sheet.className = 'sheet hidden';
+    document.body.appendChild(sheet);
+  }
+  return sheet;
+}
+
+async function openProfileSheet() {
+  const sheet = ensureProfileSheet();
+  sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
+  showSheet(sheet);
+
+  let settings;
+  try {
+    settings = await API.settings();
+  } catch (err) {
+    sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    return;
+  }
+
+  const height = settings.profile_height_cm || '';
+  const age = settings.profile_age || '';
+  const activity = settings.profile_activity || 'moderate';
+  const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
+
+  const activityOptions = Object.entries(ACTIVITY_LABELS)
+    .map(
+      ([key, label]) => `
+        <label class="radio-row ${activity === key ? 'radio-row--active' : ''}">
+          <input type="radio" name="prof-activity" value="${key}" ${activity === key ? 'checked' : ''}/>
+          <span>${label}</span>
+        </label>`
+    )
+    .join('');
+
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Profile</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:12px">Used to compute your daily calorie targets (TDEE). Sex follows your Strength Standards setting (currently <strong>${sex}</strong>).</div>
+
+        <label class="form-label">Height (cm)</label>
+        <input class="input" id="prof-height" type="number" inputmode="numeric" min="100" max="250" value="${height}" placeholder="e.g. 178"/>
+
+        <label class="form-label" style="margin-top:14px">Age</label>
+        <input class="input" id="prof-age" type="number" inputmode="numeric" min="13" max="100" value="${age}" placeholder="e.g. 28"/>
+
+        <label class="form-label" style="margin-top:14px">Activity level</label>
+        <div class="radio-group">${activityOptions}</div>
+
+        <button class="btn btn--primary btn--block" id="prof-save" style="margin-top:20px">Save</button>
+      </div>
+    </div>
+  `;
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+
+    const radioRow = e.target.closest('.radio-row');
+    if (radioRow) {
+      sheet.querySelectorAll('.radio-row').forEach((r) =>
+        r.classList.toggle('radio-row--active', r === radioRow)
+      );
+      radioRow.querySelector('input[type=radio]').checked = true;
+      return;
+    }
+
+    if (e.target.closest('#prof-save')) {
+      const h = sheet.querySelector('#prof-height').value.trim();
+      const a = sheet.querySelector('#prof-age').value.trim();
+      const act = sheet.querySelector('input[name=prof-activity]:checked')?.value || 'moderate';
+      const heightNum = Number(h);
+      const ageNum = Number(a);
+      if (!heightNum || heightNum < 100 || heightNum > 250) return toast('Enter a valid height (100–250 cm)');
+      if (!ageNum || ageNum < 13 || ageNum > 100) return toast('Enter a valid age (13–100)');
+      try {
+        await API.updateSettings({
+          profile_height_cm: String(heightNum),
+          profile_age: String(ageNum),
+          profile_activity: act
+        });
+        haptic(20);
+        hideSheet(sheet);
+        await renderTdeeSection();
+        toast('Profile saved');
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+  };
 }
 
 function renderBwChart(rows) {

@@ -12,7 +12,11 @@ const DEFAULTS = {
   strength_standard_gender: 'male', // 'male' | 'female'
   weekly_summary_enabled: '1',
   weekly_summary_day: '0', // 0=Sun, 1=Mon, ... 6=Sat
-  weekly_summary_hour: '19' // 24h, in user's local TZ
+  weekly_summary_hour: '19', // 24h, in user's local TZ
+  // Profile data for TDEE / calorie calc (Mifflin–St Jeor)
+  profile_height_cm: '',
+  profile_age: '',
+  profile_activity: 'moderate' // sedentary | light | moderate | very | athlete
 };
 
 function getAll() {

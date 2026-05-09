@@ -1808,6 +1808,116 @@ button {
   }
 }
 
+/* TDEE card */
+.tdee-main {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.tdee-main__val {
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.tdee-main__unit {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+.tdee-breakdown {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 12px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tdee-breakdown strong {
+  color: var(--text);
+}
+
+.tdee-goals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.tdee-goal {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 6px;
+  text-align: center;
+}
+
+.tdee-goal__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.tdee-goal__val {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 4px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tdee-goal__delta {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.tdee-goal--cut .tdee-goal__val { color: #ff8a8a; }
+.tdee-goal--maintain .tdee-goal__val { color: var(--accent); }
+.tdee-goal--bulk .tdee-goal__val { color: #9effa8; }
+
+/* Radio rows (used in Profile sheet) */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.radio-row input[type=radio] {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.radio-row--active {
+  border-color: var(--accent);
+  background: rgba(232, 255, 71, 0.08);
+}
+
 /* Stepper (settings) */
 .stepper {
   display: flex;

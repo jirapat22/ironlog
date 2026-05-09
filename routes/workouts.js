@@ -106,10 +106,22 @@ router.delete('/:id', (req, res) => {
 
 router.patch('/:id/finish', (req, res) => {
   const id = Number(req.params.id);
-  const result = db
-    .prepare("UPDATE workouts SET finished_at = datetime('now') WHERE id = ?")
-    .run(id);
-  if (result.changes === 0) return res.status(404).json({ error: 'workout not found' });
+  const w = db.prepare('SELECT started_at FROM workouts WHERE id = ?').get(id);
+  if (!w) return res.status(404).json({ error: 'workout not found' });
+
+  // Cap finish time at last activity + 10 minutes. Covers normal post-set
+  // rest and packing up; if the user forgot to tap finish for hours, we
+  // don't inflate the duration in history.
+  const lastSet = db
+    .prepare(`SELECT MAX(logged_at) as t FROM sets WHERE workout_id = ?`)
+    .get(id);
+  const lastActivity = lastSet?.t || w.started_at;
+  const lastMs = new Date(lastActivity.replace(' ', 'T') + 'Z').getTime();
+  const capMs = lastMs + 10 * 60 * 1000;
+  const finishMs = Math.min(Date.now(), capMs);
+  const finishedAt = new Date(finishMs).toISOString().slice(0, 19).replace('T', ' ');
+
+  db.prepare('UPDATE workouts SET finished_at = ? WHERE id = ?').run(finishedAt, id);
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   res.json(row);
 });
