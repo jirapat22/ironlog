@@ -10,17 +10,43 @@ function toKg(weight, unit) {
 
 function checkAndUpdatePR(exerciseId, weight, unit, reps) {
   const newKg = toKg(weight, unit);
+  const newE1RM = newKg * (1 + reps / 30);
+
+  // What is the user's overall best for this exercise BEFORE we update?
+  // - Non-bodyweight: best e1RM across all per-rep PR records
+  // - Bodyweight at weight=0: best (highest) reps ever logged at 0 added weight
+  const ex = db.prepare('SELECT is_bodyweight FROM exercises WHERE id = ?').get(exerciseId);
+  const isBwUnloaded = !!ex?.is_bodyweight && newKg === 0;
+
+  let beatPreviousBest = false;
+  if (isBwUnloaded) {
+    const row = db.prepare(
+      `SELECT MAX(reps) as max FROM personal_records WHERE exercise_id = ? AND weight = 0`
+    ).get(exerciseId);
+    const prevMaxReps = row?.max || 0;
+    beatPreviousBest = reps > prevMaxReps;
+  } else {
+    const row = db.prepare(
+      `SELECT MAX(
+         (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END)
+         * (1.0 + reps / 30.0)
+       ) as best FROM personal_records WHERE exercise_id = ?`
+    ).get(exerciseId);
+    const prevBestE1RM = row?.best || 0;
+    // 0.1% threshold to avoid float-noise PRs from tiny rounding
+    beatPreviousBest = newE1RM > prevBestE1RM * 1.001;
+  }
+
+  // Always keep the per-rep-count cache up to date — used by the PR list and
+  // by recomputePrsForExercise after edits/deletes.
   const existing = db
     .prepare('SELECT * FROM personal_records WHERE exercise_id = ? AND reps = ?')
     .get(exerciseId, reps);
-
-  let isNewPR = false;
   if (!existing) {
     db.prepare(
       `INSERT INTO personal_records (exercise_id, weight, weight_unit, reps, achieved_at)
        VALUES (?, ?, ?, ?, datetime('now'))`
     ).run(exerciseId, weight, unit, reps);
-    isNewPR = true;
   } else {
     const existingKg = toKg(existing.weight, existing.weight_unit);
     if (newKg > existingKg) {
@@ -29,10 +55,10 @@ function checkAndUpdatePR(exerciseId, weight, unit, reps) {
          SET weight = ?, weight_unit = ?, achieved_at = datetime('now')
          WHERE id = ?`
       ).run(weight, unit, existing.id);
-      isNewPR = true;
     }
   }
-  return isNewPR;
+
+  return beatPreviousBest;
 }
 
 router.post('/', (req, res) => {

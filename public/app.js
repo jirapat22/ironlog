@@ -510,8 +510,17 @@ function fmtDuration(startIso, endIso) {
   return `${mm}:${String(ss).padStart(2, '0')}`;
 }
 
+// Default step size (used when we don't know the exercise context)
 function stepFor(unit) {
   return unit === 'lbs' ? 5 : 2.5;
+}
+
+// Exercise-aware step. Dumbbells, cable stacks, and machines typically come
+// in 1 kg / 2.5 lb jumps, not 2.5 kg. Barbells stay at 2.5 kg / 5 lb.
+function stepForExercise(unit, ex) {
+  const fineGrain = ex && /dumbbell|\bdb\b|cable|machine/i.test(ex.name);
+  if (unit === 'lbs') return fineGrain ? 2.5 : 5;
+  return fineGrain ? 1 : 2.5;
 }
 
 function skeletonBlocks(n = 3) {
@@ -1513,7 +1522,7 @@ function recommendForNext(ex, lastSets) {
   const allHit = workingSets.every((s) => s.reps >= targetReps);
 
   const unit = bestSet.weight_unit;
-  const step = stepFor(unit);
+  const step = stepForExercise(unit, ex);
   const isBw = !!ex.is_bodyweight;
 
   let recWeight, isProgression;
@@ -1791,7 +1800,11 @@ function fireStep(btn, rowCtx) {
   if (Number.isNaN(v)) v = 0;
   const row = rowCtx || btn.closest('.set-row');
   const unit = row?.querySelector('[data-unit]')?.textContent?.trim() || 'kg';
-  const step = Number(btn.dataset.step) * (field === 'weight' ? stepFor(unit) : 1);
+  // Look up the exercise from workoutState so we get the right step size
+  // (dumbbell/cable/machine = 1 kg, barbell = 2.5 kg).
+  const exId = row ? Number(row.dataset.ex) : null;
+  const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId);
+  const step = Number(btn.dataset.step) * (field === 'weight' ? stepForExercise(unit, ex) : 1);
   let next = v + step;
   if (next < 0) next = 0;
   input.value = field === 'weight' ? String(+next.toFixed(2)) : String(Math.floor(next));
@@ -3833,7 +3846,7 @@ function renderSetEditSheet() {
       let v = parseFloat(input.value || '0');
       if (Number.isNaN(v)) v = 0;
       const unit = document.getElementById('se-unit').textContent.trim();
-      const delta = Number(wStep.dataset.seStep) * stepFor(unit);
+      const delta = Number(wStep.dataset.seStep) * stepForExercise(unit, { name: s.exerciseName });
       let next = v + delta;
       if (next < 0) next = 0;
       input.value = String(+next.toFixed(2));
