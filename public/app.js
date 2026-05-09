@@ -1288,6 +1288,29 @@ function clearDraftInput(workoutId, exId, setNum) {
   }
 }
 
+// Single source of truth for "this row was touched": removes pristine flag,
+// snapshots weight/unit/reps/rpe to localStorage so a reload doesn't lose
+// the user's in-progress input. Called from input events, steppers, unit
+// toggle, and RPE pills.
+function markRowTouched(row) {
+  if (!row || row.dataset.setId) return;
+  if (!workoutState) return;
+  row.removeAttribute('data-pristine');
+  const exId = Number(row.dataset.ex);
+  const setNum = Number(row.dataset.set);
+  const wIn = row.querySelector('[data-field="weight"] .num-input__field');
+  const rIn = row.querySelector('[data-field="reps"] .num-input__field');
+  const uBtn = row.querySelector('[data-unit]');
+  const rpeAttr = row.dataset.rpe;
+  workoutState.draft.inputs[`${exId}-${setNum}`] = {
+    w: wIn ? wIn.value : '',
+    u: uBtn ? uBtn.textContent.trim() : 'kg',
+    r: rIn ? rIn.value : '',
+    rpe: rpeAttr === '' || rpeAttr == null ? null : Number(rpeAttr)
+  };
+  saveDraft(workoutState.workout.id, workoutState.draft);
+}
+
 function getSetCount(ex) {
   const override = workoutState?.draft?.setCounts?.[ex.exercise_id];
   const loggedMax = Math.max(
@@ -1449,9 +1472,10 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
       ?? prevSet?.weight_unit
       ?? prefillUnit;
     const r = logged?.reps ?? draft?.r ?? prevSet?.reps ?? prefillReps;
+    const rpe = draft?.rpe ?? null;
 
     if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
-    rows.push(setRowHTML(ex, i, { w, u, r, logged, isNext: !logged && firstUnloggedSet === i }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rpe, logged, isNext: !logged && firstUnloggedSet === i }));
   }
 
   const hint = rec ? buildProgressionHint(rec) : '';
@@ -1555,24 +1579,25 @@ function recommendForNext(ex, lastSets) {
   };
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, logged, isNext }) {
+function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
   const isBw = !!ex.is_bodyweight;
   // For BW exercises with no added weight yet, show empty input + "BW" placeholder.
   // Otherwise show the numeric value.
   const showAsEmpty = isBw && (w === 0 || w === '' || w == null);
   const wStr = showAsEmpty ? '' : (w === '' ? '' : Number(w));
   const wPlaceholder = isBw ? 'BW' : '0';
-  const rpe = logged?.rpe ?? '';
+  // Effective RPE: logged set wins, else use whatever was passed in (e.g. draft)
+  const effRpe = logged?.rpe ?? rpe ?? '';
   const note = logged?.notes ?? '';
   const rpeButtons = [6, 7, 8, 9, 10]
     .map(
-      (n) => `<button class="rpe-btn ${Number(rpe) === n ? 'rpe-btn--active' : ''}" data-rpe="${n}">${n}</button>`
+      (n) => `<button class="rpe-btn ${Number(effRpe) === n ? 'rpe-btn--active' : ''}" data-rpe="${n}">${n}</button>`
     )
     .join('');
-  const rpeBadge = rpe !== '' && rpe != null ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${rpe}</span>` : '';
+  const rpeBadge = effRpe !== '' && effRpe != null ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${effRpe}</span>` : '';
 
   return `
-    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${rpe}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
+    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${effRpe}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <div class="set-row__num">${setNumber}</div>
       <div class="num-input" data-field="weight">
         <button class="num-input__btn" data-step="-1">−</button>
@@ -1594,7 +1619,7 @@ function setRowHTML(ex, setNumber, { w, u, r, logged, isNext }) {
           <div class="rpe-group" data-rpe-group>
             <span class="rpe-group__label">RPE</span>
             ${rpeButtons}
-            ${rpe !== '' && rpe != null ? '<button class="rpe-btn rpe-btn--clear" data-rpe-clear>×</button>' : ''}
+            ${effRpe !== '' && effRpe != null ? '<button class="rpe-btn rpe-btn--clear" data-rpe-clear>×</button>' : ''}
           </div>
         </div>
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
@@ -1622,6 +1647,7 @@ function wireWorkoutView() {
       const next = cur === 'kg' ? 'lbs' : 'kg';
       unitBtn.textContent = next;
       unitBtn.classList.toggle('kg', next === 'kg');
+      markRowTouched(row);
       return;
     }
 
@@ -1650,8 +1676,9 @@ function wireWorkoutView() {
         b.classList.toggle('rpe-btn--active', Number(b.dataset.rpe) === val)
       );
       haptic(10);
-      // If this set is already logged, persist immediately
+      // Persist: logged sets PATCH immediately, unlogged go into the draft
       if (row.dataset.setId) persistRpeChange(row);
+      else markRowTouched(row);
       updateRpeBadge(row);
       return;
     }
@@ -1660,6 +1687,7 @@ function wireWorkoutView() {
       row.dataset.rpe = '';
       row.querySelectorAll('.rpe-btn').forEach((b) => b.classList.remove('rpe-btn--active'));
       if (row.dataset.setId) persistRpeChange(row);
+      else markRowTouched(row);
       updateRpeBadge(row);
       return;
     }
@@ -1737,17 +1765,7 @@ function wireWorkoutView() {
   root.addEventListener('input', (e) => {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
-    const row = input.closest('.set-row');
-    if (!row || row.dataset.setId) return; // ignore logged rows
-    row.removeAttribute('data-pristine');
-    const exId = Number(row.dataset.ex);
-    const setNum = Number(row.dataset.set);
-    const w = row.querySelector('[data-field="weight"] .num-input__field').value;
-    const r = row.querySelector('[data-field="reps"] .num-input__field').value;
-    const u = row.querySelector('[data-unit]').textContent.trim();
-    const key = `${exId}-${setNum}`;
-    workoutState.draft.inputs[key] = { w, u, r };
-    saveDraft(workoutState.workout.id, workoutState.draft);
+    markRowTouched(input.closest('.set-row'));
   });
 
   // Workout-level notes: PATCH on blur if changed
@@ -1809,6 +1827,7 @@ function fireStep(btn, rowCtx) {
   if (next < 0) next = 0;
   input.value = field === 'weight' ? String(+next.toFixed(2)) : String(Math.floor(next));
   haptic(8);
+  markRowTouched(row);
 }
 
 function attachHoldRepeat(container) {
