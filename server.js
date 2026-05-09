@@ -13,6 +13,7 @@ const pushRouter = require('./routes/push');
 const settingsRouter = require('./routes/settings');
 const exportRouter = require('./routes/export');
 const importRouter = require('./routes/import');
+const platedRouter = require('./routes/plated');
 const nudge = require('./nudge');
 
 init();
@@ -40,6 +41,7 @@ app.use('/api/push', pushRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/import', importRouter);
+app.use('/api/plated', platedRouter);
 app.use('/api', progressRouter);
 
 app.get('/health', (req, res) => {
