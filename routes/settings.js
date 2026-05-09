@@ -16,7 +16,8 @@ const DEFAULTS = {
   // Profile data for TDEE / calorie calc (Mifflin–St Jeor)
   profile_height_cm: '',
   profile_age: '',
-  profile_activity: 'moderate' // sedentary | light | moderate | very | athlete
+  profile_activity: 'moderate', // sedentary | light | moderate | very | athlete
+  profile_goal: 'maintain' // cut | maintain | bulk
 };
 
 function getAll() {

@@ -3348,6 +3348,29 @@ function calcBmrMifflin(weightKg, heightCm, age, sex) {
   return sex === 'female' ? base - 161 : base + 5;
 }
 
+// Goal-aware macro split. Defaults are conservative & evidence-based:
+//  Protein: 2.2 g/kg on a cut (preserve muscle), 2.0 g/kg otherwise
+//  Fat: 25% of calories (above the 0.6 g/kg hormonal floor in all cases)
+//  Carbs: remainder
+function computeMacros(goalKcal, weightKg, goal) {
+  const proteinPerKg = goal === 'cut' ? 2.2 : 2.0;
+  const proteinG = Math.round(weightKg * proteinPerKg);
+  const fatG = Math.round((goalKcal * 0.25) / 9);
+  const proteinKcal = proteinG * 4;
+  const fatKcal = fatG * 9;
+  const carbKcal = Math.max(0, goalKcal - proteinKcal - fatKcal);
+  const carbG = Math.round(carbKcal / 4);
+  return {
+    protein: { g: proteinG, kcal: proteinKcal, pct: Math.round((proteinKcal / goalKcal) * 100) },
+    fat: { g: fatG, kcal: fatKcal, pct: Math.round((fatKcal / goalKcal) * 100) },
+    carbs: { g: carbG, kcal: carbKcal, pct: Math.round((carbKcal / goalKcal) * 100) },
+    proteinPerKg
+  };
+}
+
+const GOAL_OFFSETS = { cut: -500, maintain: 0, bulk: 300 };
+const GOAL_LABELS = { cut: 'Cut', maintain: 'Maintain', bulk: 'Bulk' };
+
 async function renderTdeeSection() {
   const root = $('#tdee-card');
   if (!root) return;
@@ -3365,6 +3388,9 @@ async function renderTdeeSection() {
   const age = Number(settings.profile_age);
   const activity = settings.profile_activity || 'moderate';
   const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
+  const goal = ['cut', 'maintain', 'bulk'].includes(settings.profile_goal)
+    ? settings.profile_goal
+    : 'maintain';
 
   const missing = [];
   if (!bw.length) missing.push('body weight');
@@ -3385,38 +3411,79 @@ async function renderTdeeSection() {
   const bmr = Math.round(calcBmrMifflin(weightKg, heightCm, age, sex));
   const multiplier = ACTIVITY_MULTIPLIERS[activity] || 1.55;
   const tdee = Math.round(bmr * multiplier);
-  const cut = tdee - 500;
-  const bulk = tdee + 300;
+
+  const goalKcal = tdee + GOAL_OFFSETS[goal];
+  const macros = computeMacros(goalKcal, weightKg, goal);
+
+  const goalTile = (key) => {
+    const kcal = tdee + GOAL_OFFSETS[key];
+    const offset = GOAL_OFFSETS[key];
+    const offsetStr = offset === 0 ? '±0' : (offset > 0 ? '+' : '') + offset;
+    return `
+      <button class="tdee-goal tdee-goal--${key} ${goal === key ? 'tdee-goal--active' : ''}" data-goal="${key}">
+        <div class="tdee-goal__label">${GOAL_LABELS[key]}</div>
+        <div class="tdee-goal__val">${kcal.toLocaleString()}</div>
+        <div class="tdee-goal__delta">${offsetStr}</div>
+      </button>`;
+  };
 
   root.innerHTML = `
     <div class="tdee-main">
-      <div class="tdee-main__val">${tdee.toLocaleString()}</div>
-      <div class="tdee-main__unit">kcal / day to maintain</div>
+      <div class="tdee-main__val">${goalKcal.toLocaleString()}</div>
+      <div class="tdee-main__unit">kcal / day · ${GOAL_LABELS[goal]}</div>
     </div>
     <div class="tdee-breakdown">
-      <span>BMR <strong>${bmr.toLocaleString()}</strong></span>
-      <span>×</span>
-      <span>${multiplier.toFixed(3)} <strong>${activity}</strong></span>
+      <span>TDEE <strong>${tdee.toLocaleString()}</strong></span>
+      <span>·</span>
+      <span>BMR <strong>${bmr.toLocaleString()}</strong> × ${multiplier.toFixed(3)}</span>
     </div>
     <div class="tdee-goals">
-      <div class="tdee-goal tdee-goal--cut">
-        <div class="tdee-goal__label">Cut</div>
-        <div class="tdee-goal__val">${cut.toLocaleString()}</div>
-        <div class="tdee-goal__delta">−500</div>
+      ${goalTile('cut')}${goalTile('maintain')}${goalTile('bulk')}
+    </div>
+
+    <div class="macros">
+      <div class="macros__title">Daily macros</div>
+      <div class="macro-row macro-row--protein">
+        <span class="macro-row__name">Protein</span>
+        <span class="macro-row__g">${macros.protein.g} g</span>
+        <span class="macro-row__kcal">${macros.protein.kcal} kcal</span>
+        <span class="macro-row__pct">${macros.protein.pct}%</span>
       </div>
-      <div class="tdee-goal tdee-goal--maintain">
-        <div class="tdee-goal__label">Maintain</div>
-        <div class="tdee-goal__val">${tdee.toLocaleString()}</div>
-        <div class="tdee-goal__delta">±0</div>
+      <div class="macro-bar">
+        <div class="macro-bar__fill macro-bar__fill--protein" style="width:${macros.protein.pct}%"></div>
+        <div class="macro-bar__fill macro-bar__fill--carbs" style="width:${macros.carbs.pct}%"></div>
+        <div class="macro-bar__fill macro-bar__fill--fat" style="width:${macros.fat.pct}%"></div>
       </div>
-      <div class="tdee-goal tdee-goal--bulk">
-        <div class="tdee-goal__label">Bulk</div>
-        <div class="tdee-goal__val">${bulk.toLocaleString()}</div>
-        <div class="tdee-goal__delta">+300</div>
+      <div class="macro-row macro-row--carbs">
+        <span class="macro-row__name">Carbs</span>
+        <span class="macro-row__g">${macros.carbs.g} g</span>
+        <span class="macro-row__kcal">${macros.carbs.kcal} kcal</span>
+        <span class="macro-row__pct">${macros.carbs.pct}%</span>
+      </div>
+      <div class="macro-row macro-row--fat">
+        <span class="macro-row__name">Fat</span>
+        <span class="macro-row__g">${macros.fat.g} g</span>
+        <span class="macro-row__kcal">${macros.fat.kcal} kcal</span>
+        <span class="macro-row__pct">${macros.fat.pct}%</span>
       </div>
     </div>
-    <div class="card__subtitle" style="margin-top:10px">Based on Mifflin–St Jeor: ${weightKg.toFixed(1)} kg · ${heightCm} cm · ${age} yr · ${sex}.</div>
+
+    <div class="card__subtitle" style="margin-top:10px">${weightKg.toFixed(1)} kg · ${heightCm} cm · ${age} yr · ${sex} · ${macros.proteinPerKg} g protein/kg.</div>
   `;
+
+  root.querySelectorAll('[data-goal]').forEach((btn) => {
+    btn.onclick = async () => {
+      const next = btn.dataset.goal;
+      if (next === goal) return;
+      try {
+        await API.updateSettings({ profile_goal: next });
+        haptic(10);
+        renderTdeeSection();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+  });
 }
 
 function ensureProfileSheet() {
