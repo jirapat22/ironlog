@@ -98,6 +98,23 @@ const KCAL_PER_MIN = 5;
 // Routes
 // ---------------------------------------------------------------------------
 
+/** GET /api/plated/ — connection test / discovery */
+router.get('/', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      service: 'IronLog',
+      version: 1,
+      endpoints: [
+        'GET /api/plated/profile',
+        'GET /api/plated/bodyweight',
+        'GET /api/plated/workouts/calories',
+        'GET /api/plated/workouts/recent'
+      ]
+    }
+  });
+});
+
 /**
  * GET /api/plated/profile
  * Returns the full nutrition profile Plated needs at startup / refresh.
