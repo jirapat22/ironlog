@@ -1796,6 +1796,24 @@ function wireWorkoutView() {
     markRowTouched(input.closest('.set-row'));
   });
 
+  // Tapping an input on a logged (done) row activates editing mode so the
+  // user knows they can change the value and tap ✓ to update.
+  root.addEventListener('focusin', (e) => {
+    const input = e.target.closest('.num-input__field');
+    if (!input) return;
+    const row = input.closest('.set-row');
+    if (!row || !row.classList.contains('done')) return;
+    row.classList.add('editing');
+  });
+  root.addEventListener('focusout', (e) => {
+    const input = e.target.closest('.num-input__field');
+    if (!input) return;
+    const row = input.closest('.set-row');
+    if (!row) return;
+    // Small delay so clicking ✓ fires before we remove editing
+    setTimeout(() => row.classList.remove('editing'), 200);
+  });
+
   // Workout-level notes: PATCH on blur if changed
   const notesEl = root.querySelector('[data-workout-notes]');
   if (notesEl) {
@@ -1936,8 +1954,9 @@ async function confirmSet(row) {
         rpe,
         notes: note
       });
+      row.classList.remove('editing');
       haptic(20);
-      toast('Set updated');
+      toast('Updated');
     } else {
       const res = await API.logSet({
         workout_id: workoutState.workout.id,

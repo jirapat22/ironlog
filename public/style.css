@@ -728,7 +728,23 @@ button {
 }
 
 .set-row.done {
-  opacity: 0.6;
+  opacity: 0.55;
+}
+
+/* Row is being edited — restore full opacity and highlight the ✓ as "update" */
+.set-row.done.editing {
+  opacity: 1;
+}
+
+.set-row.done.editing .set-check {
+  background: var(--surface-2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.set-row.done.editing .set-check::after {
+  content: ' ↑';
+  font-size: 11px;
 }
 
 .set-row--next {
