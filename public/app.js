@@ -311,9 +311,15 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
-// Human-readable weight for a set. BW exercises at 0 show "BW",
-// at non-zero show "+X unit" (dip belt etc.).
-function fmtSetWeight(weight, unit, isBw) {
+// Human-readable weight for a set.
+//  Assisted: shows "BW" (no assistance) or "BW−Xkg" (X kg of counter-weight)
+//  BW:       shows "BW" or "BW+Xkg"
+//  Normal:   shows "Xkg"
+function fmtSetWeight(weight, unit, isBw, isAssisted) {
+  if (isAssisted) {
+    if (!weight || weight === 0) return 'BW';
+    return `BW−${weight}${unit}`;   // BW−X
+  }
   if (isBw) {
     if (!weight || weight === 0) return 'BW';
     return `BW+${weight}${unit}`;
@@ -333,10 +339,14 @@ async function syncUserBodyweight() {
   }
 }
 
-// Total load lifted for a set (kg), accounting for bodyweight-driven movements
-// where the logged "weight" is external load added to body weight.
+// Total load lifted for a set (kg).
+//  - Assisted machine (is_assisted): user logs the counter-weight.
+//    effective = bodyweight − counter_weight (more stack = less work)
+//  - Bodyweight + optional added load (is_bodyweight): effective = BW + added
+//  - Everything else: external weight only
 function loadKg(set, exercise) {
   const base = toKg(set.weight, set.weight_unit);
+  if (exercise?.is_assisted && userBwKg) return Math.max(0, userBwKg - base);
   if (exercise?.is_bodyweight && userBwKg) return base + userBwKg;
   return base;
 }
@@ -518,7 +528,8 @@ function stepFor(unit) {
 // Exercise-aware step. Dumbbells, cable stacks, and machines typically come
 // in 1 kg / 2.5 lb jumps, not 2.5 kg. Barbells stay at 2.5 kg / 5 lb.
 function stepForExercise(unit, ex) {
-  const fineGrain = ex && /dumbbell|\bdb\b|cable|machine/i.test(ex.name);
+  // Assisted machines, dumbbells, cables → 1 kg / 2.5 lb increments
+  const fineGrain = ex && /dumbbell|\bdb\b|cable|machine|assisted/i.test(ex.name);
   if (unit === 'lbs') return fineGrain ? 2.5 : 5;
   return fineGrain ? 1 : 2.5;
 }
@@ -1484,8 +1495,11 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     <div class="exercise-card" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
         <div>
-          <div class="exercise-card__name">${escapeHtml(ex.name)}${ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}</div>
-          <div class="card__subtitle">${target} × ${ex.target_reps}${ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}</div>
+          <div class="exercise-card__name">
+            ${escapeHtml(ex.name)}
+            ${ex.is_assisted ? ' <span class="badge badge--assisted">ASSISTED</span>' : ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}
+          </div>
+          <div class="card__subtitle">${target} × ${ex.target_reps}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}</div>
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
@@ -1507,19 +1521,24 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 }
 
 function buildProgressionHint(rec) {
+  const upArrow = rec.isAssisted ? '&#x2B07;' : '&#x2B06;'; // down arrow for assisted (less assistance)
+  const upLabel = rec.isAssisted ? 'Reduce assistance' : 'Increase weight';
+  const sameLabel = rec.isAssisted ? 'Same assistance' : 'Same weight';
+
   if (rec.isProgression) {
     return `
       <div class="prog-hint prog-hint--up">
-        <div class="prog-hint__main">&#x2B06; Try <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> today</div>
+        <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong></div>
         <div class="prog-hint__sub">Last session: ${rec.lastWeight} &times; ${rec.repsList} &mdash; all sets hit ${rec.recReps}+ reps &#x2713;</div>
       </div>`;
   } else {
     const gap = rec.recReps - rec.minReps;
     const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
+    const nextStep = rec.isAssisted ? 'reduce assistance' : 'add weight';
     return `
       <div class="prog-hint prog-hint--same">
-        <div class="prog-hint__main">&#x1F3AF; Keep <strong>${rec.recDisplay}</strong> &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
-        <div class="prog-hint__sub">Last: ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} on all sets to add weight</div>
+        <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
+        <div class="prog-hint__sub">Last: ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
       </div>`;
   }
 }
@@ -1548,10 +1567,16 @@ function recommendForNext(ex, lastSets) {
   const unit = bestSet.weight_unit;
   const step = stepForExercise(unit, ex);
   const isBw = !!ex.is_bodyweight;
+  const isAssisted = !!ex.is_assisted;
 
   let recWeight, isProgression;
   if (allHit) {
-    recWeight = +(bestSet.weight + step).toFixed(2);
+    if (isAssisted) {
+      // Less assistance = harder = progression
+      recWeight = Math.max(0, +(bestSet.weight - step).toFixed(2));
+    } else {
+      recWeight = +(bestSet.weight + step).toFixed(2);
+    }
     isProgression = true;
   } else {
     recWeight = bestSet.weight;
@@ -1569,10 +1594,13 @@ function recommendForNext(ex, lastSets) {
     recReps: targetReps,
     isProgression,
     isBodyweight: isBw,
-    lastWeight: fmtSetWeight(bestSet.weight, unit, isBw),
-    recDisplay: isBw
-      ? (recWeight === 0 ? 'BW' : `BW+${recWeight}${unit}`)
-      : `${recWeight}${unit}`,
+    isAssisted,
+    lastWeight: fmtSetWeight(bestSet.weight, unit, isBw, isAssisted),
+    recDisplay: isAssisted
+      ? (recWeight === 0 ? 'BW (no assistance)' : `${recWeight}${unit} assistance`)
+      : isBw
+        ? (recWeight === 0 ? 'BW' : `BW+${recWeight}${unit}`)
+        : `${recWeight}${unit}`,
     setsLabel,
     repsList,
     minReps
@@ -1581,11 +1609,11 @@ function recommendForNext(ex, lastSets) {
 
 function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
   const isBw = !!ex.is_bodyweight;
-  // For BW exercises with no added weight yet, show empty input + "BW" placeholder.
-  // Otherwise show the numeric value.
-  const showAsEmpty = isBw && (w === 0 || w === '' || w == null);
+  const isAssisted = !!ex.is_assisted;
+  // For BW/assisted exercises at 0, show placeholder instead of "0"
+  const showAsEmpty = (isBw || isAssisted) && (w === 0 || w === '' || w == null);
   const wStr = showAsEmpty ? '' : (w === '' ? '' : Number(w));
-  const wPlaceholder = isBw ? 'BW' : '0';
+  const wPlaceholder = isAssisted ? '0 = unassisted' : isBw ? 'BW' : '0';
   // Effective RPE: logged set wins, else use whatever was passed in (e.g. draft)
   const effRpe = logged?.rpe ?? rpe ?? '';
   const note = logged?.notes ?? '';
@@ -2998,6 +3026,7 @@ async function renderPrTimeline() {
           reps: r.reps,
           achievedAt: r.achieved_at,
           isBodyweight: !!ex?.is_bodyweight,
+          isAssisted: !!ex?.is_assisted,
           e1rm: e1RMForSet(r, ex)
         });
       }
@@ -3039,7 +3068,7 @@ async function renderPrTimeline() {
                     <div class="pr-event">
                       <div class="pr-event__date">${ev.reps}-rep max</div>
                       <div class="pr-event__body">
-                        <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight)} × ${ev.reps}</span>
+                        <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight, ev.isAssisted)} × ${ev.reps}</span>
                         <span class="pr-event__e1rm">${formatDateShort(ev.achievedAt)} · e1RM ${Math.round(ev.e1rm)} kg</span>
                       </div>
                     </div>
@@ -3900,7 +3929,7 @@ async function loadHistoryCardBody(card) {
                   (s) => `
                     <button class="history-ex__set" data-edit-set="${s.id}">
                       <span class="history-ex__set-n">Set ${s.set_number}</span>
-                      <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight)} × ${s.reps}</span>
+                      <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps}</span>
                       ${s.rpe != null ? `<span class="history-ex__set-rpe">@${s.rpe}</span>` : ''}
                       ${s.notes ? `<span class="history-ex__set-note">${escapeHtml(s.notes)}</span>` : ''}
                     </button>

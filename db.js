@@ -145,16 +145,30 @@ function init() {
     if (!/duplicate column/i.test(err.message)) throw err;
   }
 
+  try {
+    db.exec('ALTER TABLE exercises ADD COLUMN is_assisted INTEGER NOT NULL DEFAULT 0');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
   seed();
 }
 
+// Bodyweight exercises: effective load = bodyweight + added_weight
 const BODYWEIGHT_EXERCISES = [
-  'Pull-Up',
-  'Chin-Up',
-  'Push-Up',
-  'Chest Dip',
-  'Tricep Dip',
-  'Hanging Leg Raise'
+  'Pull-Up', 'Chin-Up', 'Push-Up', 'Chest Dip', 'Tricep Dip',
+  'Hanging Leg Raise',
+  // Core / abs — these are always bodyweight only
+  'Crunch', 'Bicycle Crunch', 'Sit-Up', 'Plank', 'Side Plank',
+  'Dead Bug', 'Mountain Climber', 'Leg Raise'
+];
+
+// Assisted machine exercises: effective load = bodyweight − assistance_weight
+// (more weight on the stack = less work). Also marked is_bodyweight.
+const ASSISTED_EXERCISES = [
+  'Assisted Pull-Up',
+  'Assisted Chin-Up',
+  'Assisted Dip'
 ];
 
 const CANONICAL_EXERCISES = [
@@ -219,6 +233,10 @@ const CANONICAL_EXERCISES = [
   ['Tricep Dip', 'triceps', 'Parallel bars, upright'],
   ['Tricep Kickback', 'triceps', 'Dumbbell, bent over'],
   ['Diamond Push-Up', 'triceps', 'Bodyweight, narrow hands'],
+  // Assisted machine versions — logged as counter-weight (more = easier)
+  ['Assisted Pull-Up', 'back', 'Machine counter-weight; enter assistance weight'],
+  ['Assisted Chin-Up', 'biceps', 'Machine counter-weight; enter assistance weight'],
+  ['Assisted Dip', 'triceps', 'Machine counter-weight; enter assistance weight'],
 
   // Legs
   ['Back Squat', 'legs', 'High or low bar'],
@@ -275,12 +293,16 @@ function seed() {
   const markBodyweight = db.prepare(
     'UPDATE exercises SET is_bodyweight = 1 WHERE name = ? AND is_bodyweight != 1'
   );
+  const markAssisted = db.prepare(
+    'UPDATE exercises SET is_bodyweight = 1, is_assisted = 1 WHERE name = ? AND is_assisted != 1'
+  );
   const updateGroup = db.prepare(
     'UPDATE exercises SET muscle_group = ? WHERE name = ? AND muscle_group != ?'
   );
   tx(() => {
     for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
     for (const name of BODYWEIGHT_EXERCISES) markBodyweight.run(name);
+    for (const name of ASSISTED_EXERCISES) markAssisted.run(name);
     // Migrate legacy `arms` rows into biceps / triceps
     for (const [group, names] of Object.entries(GROUP_MIGRATION_BY_NAME)) {
       for (const name of names) updateGroup.run(group, name, group);

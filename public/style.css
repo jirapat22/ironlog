@@ -1491,6 +1491,15 @@ button {
   vertical-align: middle;
 }
 
+.badge--assisted {
+  background: rgba(255, 179, 71, 0.18);
+  color: #ffb347;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 .history-card__groups {
   display: flex;
   flex-wrap: wrap;

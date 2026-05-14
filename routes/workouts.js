@@ -59,7 +59,7 @@ router.get('/last/:programDayId', (req, res) => {
 
   const sets = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?
@@ -130,7 +130,7 @@ router.get('/:id/sets', (req, res) => {
   const id = Number(req.params.id);
   const rows = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?
