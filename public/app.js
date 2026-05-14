@@ -2428,10 +2428,15 @@ function startStickyTimer() {
 }
 
 async function cancelWorkout() {
-  if (!confirm('Cancel this workout? Logged sets will be kept.')) return;
-  if (workoutState?.workout?.id) clearDraft(workoutState.workout.id);
+  if (!confirm('Cancel this workout? All logged sets will be deleted.')) return;
+  const id = workoutState?.workout?.id;
+  if (id) {
+    clearDraft(id);
+    try { await API.deleteWorkout(id); } catch { /* ignore — sets cascade-delete with the workout */ }
+  }
   localStorage.removeItem(LS.activeWorkoutId);
   localStorage.removeItem(LS.activeProgramDayId);
+  localStorage.removeItem(LS.activeWorkoutStart);
   if (stickyTimerHandle) clearInterval(stickyTimerHandle);
   releaseWakeLock();
   cancelRestCountdown();
