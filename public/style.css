@@ -1927,8 +1927,8 @@ button {
 /* Macros */
 .macros {
   margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  border-top: 2px solid var(--border);
 }
 
 .macros__title {

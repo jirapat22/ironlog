@@ -2847,11 +2847,14 @@ function renderCalendar(entries) {
     .reduce((a, e) => a + e.count, 0);
   const total = entries.reduce((a, e) => a + e.count, 0);
 
-  // Month labels
+  // Month labels — use the month of the actual 1st day, not the Monday of the week
+  // (fixes "Mar Mar Apr" when e.g. April 1 is a Wednesday but Monday is still March)
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const monthLabels = weeks.map((w, wi) => {
-    const hasFirst = w.some((iso) => new Date(iso).getDate() === 1);
-    return (hasFirst || wi === 0) ? MONTHS[new Date(w[0]).getMonth()] : '';
+    const firstDay = w.find((iso) => new Date(iso).getDate() === 1);
+    if (firstDay) return MONTHS[new Date(firstDay).getMonth()];
+    if (wi === 0) return MONTHS[new Date(w[0]).getMonth()];
+    return '';
   });
 
   const DAY_LETTERS = ['M','T','W','T','F','S','S'];
