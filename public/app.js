@@ -2770,80 +2770,91 @@ function renderVolumeChart(rows) {
   });
 }
 
+const MIN_WEEKLY_SESSIONS = 3; // 3+ sessions = "active week" for streak
+
 function renderCalendar(entries) {
   // entries: [{date: 'YYYY-MM-DD', count: N}]
   const root = $('#calendar');
   const countMap = new Map(entries.map((e) => [e.date, e.count]));
-  const allDates = new Set(entries.map((e) => e.date));
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayIso = today.toISOString().slice(0, 10);
 
-  // Build week grid (Sun-to-Sat columns)
-  const start = new Date(today);
-  start.setMonth(start.getMonth() - 6);
-  start.setDate(start.getDate() - start.getDay()); // back to Sunday
+  // Helper: get Monday of the week containing a date (Mon=0 … Sun=6)
+  const toMonday = (d) => {
+    const m = new Date(d);
+    const dow = (m.getDay() + 6) % 7; // 0=Mon
+    m.setDate(m.getDate() - dow);
+    return m;
+  };
 
+  // Start from the Monday of the first workout week (trim blank left space)
+  // Fall back to 8 weeks ago so fresh installs still show a reasonable grid.
+  const fallback = new Date(today);
+  fallback.setDate(fallback.getDate() - 7 * 8);
+  const firstEntry = entries.length ? new Date(entries[0].date) : fallback;
+  const gridStart = toMonday(firstEntry < fallback ? firstEntry : fallback);
+  gridStart.setHours(0, 0, 0, 0);
+
+  // Build Mon-first week columns
   const weeks = [];
   let week = [];
-  const cursor = new Date(start);
+  const cursor = new Date(gridStart);
   while (cursor <= today) {
-    if (cursor.getDay() === 0 && week.length) {
-      weeks.push(week);
-      week = [];
-    }
+    const dow = (cursor.getDay() + 6) % 7; // 0=Mon
+    if (dow === 0 && week.length) { weeks.push(week); week = []; }
     week.push(cursor.toISOString().slice(0, 10));
     cursor.setDate(cursor.getDate() + 1);
   }
   if (week.length) weeks.push(week);
 
-  // Month labels — show name at first week that starts in that month
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const monthLabels = weeks.map((w) => {
-    const d = new Date(w[0]);
-    // Show month label when the 1st of the month falls in this week, or it's the very first week
-    const hasFirtOfMonth = w.some((iso) => new Date(iso).getDate() === 1);
-    if (hasFirtOfMonth || w === weeks[0]) {
-      return MONTHS[new Date(w[0]).getMonth()];
-    }
-    return '';
-  });
-
-  // Streak calculations
-  const calcStreak = (fromIso) => {
-    let s = 0;
-    const c = new Date(fromIso);
-    while (allDates.has(c.toISOString().slice(0, 10))) {
-      s++;
-      c.setDate(c.getDate() - 1);
-    }
-    return s;
-  };
-  // Current streak: from today, or yesterday if today not logged (day not over yet)
-  const currentStreak = allDates.has(todayIso)
-    ? calcStreak(todayIso)
-    : calcStreak(new Date(today.getTime() - 86400000).toISOString().slice(0, 10));
-
-  // Longest streak over the whole window
-  let longest = 0, run = 0, prevIso = null;
-  for (const iso of [...allDates].sort()) {
-    if (prevIso) {
-      const diff = (new Date(iso) - new Date(prevIso)) / 86400000;
-      run = diff === 1 ? run + 1 : 1;
-    } else {
-      run = 1;
-    }
-    longest = Math.max(longest, run);
-    prevIso = iso;
+  // Monthly session counts per week (for weekly-streak logic)
+  const weekSessionCount = new Map(); // monday ISO → total sessions that week
+  for (const w of weeks) {
+    const key = w[0];
+    weekSessionCount.set(key, w.reduce((acc, iso) => acc + (countMap.get(iso) || 0), 0));
   }
 
-  // Workouts this month
-  const monthKey = todayIso.slice(0, 7);
-  const thisMonth = entries.filter((e) => e.date.startsWith(monthKey)).length;
+  // Weekly streak — consecutive weeks with MIN_WEEKLY_SESSIONS+, ending now
+  const thisWeekKey = toMonday(today).toISOString().slice(0, 10);
+  let currentStreak = 0;
+  // Don't penalise current week if it's not over: skip it if short so far
+  const weeksDesc = [...weeks].reverse();
+  let skipCurrent = true;
+  for (const w of weeksDesc) {
+    const key = w[0];
+    const cnt = weekSessionCount.get(key) || 0;
+    if (skipCurrent && key === thisWeekKey && cnt < MIN_WEEKLY_SESSIONS) {
+      skipCurrent = false;
+      continue; // current week in progress — don't break streak
+    }
+    skipCurrent = false;
+    if (cnt >= MIN_WEEKLY_SESSIONS) currentStreak++;
+    else break;
+  }
 
-  // Render cells
-  const dayLetters = ['S','M','T','W','T','F','S'];
+  // Best weekly streak
+  let best = 0, run = 0;
+  for (const w of weeks) {
+    const cnt = weekSessionCount.get(w[0]) || 0;
+    if (cnt >= MIN_WEEKLY_SESSIONS) { run++; best = Math.max(best, run); }
+    else run = 0;
+  }
+
+  const monthKey = todayIso.slice(0, 7);
+  const thisMonth = entries.filter((e) => e.date.startsWith(monthKey))
+    .reduce((a, e) => a + e.count, 0);
+  const total = entries.reduce((a, e) => a + e.count, 0);
+
+  // Month labels
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthLabels = weeks.map((w, wi) => {
+    const hasFirst = w.some((iso) => new Date(iso).getDate() === 1);
+    return (hasFirst || wi === 0) ? MONTHS[new Date(w[0]).getMonth()] : '';
+  });
+
+  const DAY_LETTERS = ['M','T','W','T','F','S','S'];
 
   const monthRow = weeks.map((_, wi) =>
     `<div class="cal-month-label">${monthLabels[wi]}</div>`
@@ -2855,9 +2866,9 @@ function renderCalendar(entries) {
       if (!iso) return '<div class="cal-cell cal-cell--empty"></div>';
       const cnt = countMap.get(iso) || 0;
       const isToday = iso === todayIso;
-      const intensity = cnt >= 2 ? 'hi' : cnt === 1 ? 'med' : '';
-      const label = cnt ? `${iso} · ${cnt} workout${cnt > 1 ? 's' : ''}` : iso;
-      return `<div class="cal-cell ${intensity ? `cal-cell--${intensity}` : ''} ${isToday ? 'cal-cell--today' : ''}" title="${label}"></div>`;
+      const cls = cnt >= 2 ? 'cal-cell--hi' : cnt === 1 ? 'cal-cell--med' : '';
+      const label = cnt ? `${iso} · ${cnt} session${cnt > 1 ? 's' : ''}` : iso;
+      return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${label}"></div>`;
     }).join('');
     return `<div class="cal-col">${cells}</div>`;
   }).join('');
@@ -2866,10 +2877,10 @@ function renderCalendar(entries) {
     <div class="cal-stats">
       <div class="cal-stat">
         <div class="cal-stat__val">${currentStreak}</div>
-        <div class="cal-stat__lbl">streak</div>
+        <div class="cal-stat__lbl">wk streak</div>
       </div>
       <div class="cal-stat">
-        <div class="cal-stat__val">${longest}</div>
+        <div class="cal-stat__val">${best}</div>
         <div class="cal-stat__lbl">best</div>
       </div>
       <div class="cal-stat">
@@ -2877,13 +2888,13 @@ function renderCalendar(entries) {
         <div class="cal-stat__lbl">this month</div>
       </div>
       <div class="cal-stat">
-        <div class="cal-stat__val">${entries.length}</div>
-        <div class="cal-stat__lbl">6 months</div>
+        <div class="cal-stat__val">${total}</div>
+        <div class="cal-stat__lbl">total</div>
       </div>
     </div>
     <div class="cal-wrap">
       <div class="cal-day-col">
-        ${dayLetters.map((l) => `<span>${l}</span>`).join('')}
+        ${DAY_LETTERS.map((l) => `<span>${l}</span>`).join('')}
       </div>
       <div class="cal-scroll">
         <div class="cal-month-row">${monthRow}</div>
@@ -2891,11 +2902,12 @@ function renderCalendar(entries) {
       </div>
     </div>
     <div class="cal-legend">
-      <span>None</span>
+      <span style="font-size:10px;color:var(--text-dim)">${MIN_WEEKLY_SESSIONS}+ sessions/wk = active week</span>
+      <span style="margin-left:auto;font-size:10px;color:var(--text-dim)">None</span>
       <div class="cal-cell"></div>
       <div class="cal-cell cal-cell--med"></div>
       <div class="cal-cell cal-cell--hi"></div>
-      <span>2+</span>
+      <span style="font-size:10px;color:var(--text-dim)">2+/day</span>
     </div>
   `;
 }
