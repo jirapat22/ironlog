@@ -1317,7 +1317,7 @@ function markRowTouched(row) {
     w: wIn ? wIn.value : '',
     u: uBtn ? uBtn.textContent.trim() : 'kg',
     r: rIn ? rIn.value : '',
-    rpe: rpeAttr === '' || rpeAttr == null ? null : Number(rpeAttr)
+    rpe: !rpeAttr || rpeAttr === '0' ? null : Number(rpeAttr)
   };
   saveDraft(workoutState.workout.id, workoutState.draft);
 }
@@ -1622,7 +1622,8 @@ function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
       (n) => `<button class="rpe-btn ${Number(effRpe) === n ? 'rpe-btn--active' : ''}" data-rpe="${n}">${n}</button>`
     )
     .join('');
-  const rpeBadge = effRpe !== '' && effRpe != null ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${effRpe}</span>` : '';
+  // Only show badge for valid RPE (6-10); 0 / '' / null mean no RPE set
+  const rpeBadge = effRpe && Number(effRpe) >= 6 ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${effRpe}</span>` : '';
 
   return `
     <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${effRpe}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
@@ -1934,7 +1935,8 @@ async function confirmSet(row) {
   );
   const note = row.querySelector('[data-note]')?.value?.trim() || null;
   const rpeRaw = row.dataset.rpe;
-  const rpe = rpeRaw === '' || rpeRaw == null ? null : Number(rpeRaw);
+  // Treat '' and '0' as no RPE — 0 is not a valid RPE value (range is 6-10)
+  const rpe = !rpeRaw || rpeRaw === '0' ? null : Number(rpeRaw);
 
   // BW exercises can legitimately have 0 added weight — only reject negative/NaN
   const exIsBw = workoutState?.programDay?.exercises
