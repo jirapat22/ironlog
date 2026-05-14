@@ -2034,6 +2034,9 @@ function checkExerciseComplete(exId) {
   );
   const allDone = visibleRows.length > 0 && visibleRows.every((r) => !!r.dataset.setId);
   card.classList.toggle('exercise-card--complete', allDone);
+  // Hide "Done with this exercise" when all sets are already logged
+  const skipBtn = card.querySelector('[data-skip-ex]');
+  if (skipBtn) skipBtn.style.display = allDone ? 'none' : '';
 }
 
 async function persistRpeChange(row) {
@@ -2094,10 +2097,7 @@ function skipRemainingForExercise(exerciseId) {
   if (!card) return;
   const rows = [...card.querySelectorAll('.set-row')];
   const unlogged = rows.filter((r) => !r.dataset.setId);
-  if (!unlogged.length) {
-    toast('All sets already logged');
-    return;
-  }
+  if (!unlogged.length) return; // all sets done — button should already be hidden
   unlogged.forEach((r) => r.classList.add('hidden'));
   card.classList.add('exercise-card--skipped');
   checkExerciseComplete(exerciseId);
