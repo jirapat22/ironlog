@@ -1395,6 +1395,19 @@ button {
   opacity: 0.55;
 }
 
+.exercise-card--complete {
+  border-color: rgba(158, 255, 168, 0.4);
+}
+
+.exercise-card--complete .exercise-card__head::after {
+  content: '✓';
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--success);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .exercise-card--skipped .exercise-card__skip {
   border-style: solid;
   border-color: var(--accent-dim);

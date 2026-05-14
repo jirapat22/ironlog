@@ -2021,6 +2021,19 @@ function moveNextHighlight(exId) {
     (r) => !r.dataset.setId
   );
   if (next) next.classList.add('set-row--next');
+  checkExerciseComplete(exId);
+}
+
+// Mark the exercise card header as complete when every visible set row is logged.
+// Called after confirm and skip so the card updates in real time.
+function checkExerciseComplete(exId) {
+  const card = document.querySelector(`.exercise-card[data-ex="${exId}"]`);
+  if (!card) return;
+  const visibleRows = [...card.querySelectorAll('.set-row')].filter(
+    (r) => !r.classList.contains('hidden')
+  );
+  const allDone = visibleRows.length > 0 && visibleRows.every((r) => !!r.dataset.setId);
+  card.classList.toggle('exercise-card--complete', allDone);
 }
 
 async function persistRpeChange(row) {
@@ -2087,6 +2100,7 @@ function skipRemainingForExercise(exerciseId) {
   }
   unlogged.forEach((r) => r.classList.add('hidden'));
   card.classList.add('exercise-card--skipped');
+  checkExerciseComplete(exerciseId);
   const skipBtn = card.querySelector('[data-skip-ex]');
   if (skipBtn) skipBtn.textContent = 'Skipped — tap to undo';
   skipBtn?.addEventListener(
@@ -2095,8 +2109,10 @@ function skipRemainingForExercise(exerciseId) {
       if (!card.classList.contains('exercise-card--skipped')) return;
       e.stopPropagation();
       card.classList.remove('exercise-card--skipped');
+      card.classList.remove('exercise-card--complete');
       unlogged.forEach((r) => r.classList.remove('hidden'));
       skipBtn.textContent = 'Done with this exercise';
+      checkExerciseComplete(exerciseId);
     },
     { once: true }
   );
@@ -2783,12 +2799,11 @@ function renderCalendar(entries) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DAY_LETTERS = ['M','T','W','T','F','S','S'];
 
-  // Start from the first entry's month (fall back 2 months for fresh installs)
-  const fallbackStart = new Date(today.getFullYear(), today.getMonth() - 2, 1);
-  const firstEntryDate = entries.length
+  // Start from the first month that actually has data — no blank months at the start.
+  // Fall back to last month only if there are no entries at all.
+  const rangeStart = entries.length
     ? new Date(entries[0].date.slice(0, 7) + '-01')
-    : fallbackStart;
-  const rangeStart = firstEntryDate < fallbackStart ? firstEntryDate : fallbackStart;
+    : new Date(today.getFullYear(), today.getMonth() - 1, 1);
 
   // Build month groups — each month is its own set of columns
   const monthGroups = [];
