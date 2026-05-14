@@ -2277,15 +2277,133 @@ button {
   height: 220px;
 }
 
-.calendar {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, 1fr);
-  gap: 3px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+/* Consistency calendar — stats + grid + legend */
+.cal-stats {
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
 }
 
+.cal-stat {
+  flex: 1;
+  text-align: center;
+  padding: 8px 4px;
+  border-right: 1px solid var(--border);
+}
+
+.cal-stat:last-child {
+  border-right: none;
+}
+
+.cal-stat__val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.cal-stat__lbl {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 3px;
+}
+
+.cal-wrap {
+  display: flex;
+  gap: 6px;
+}
+
+.cal-day-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 18px;
+  flex-shrink: 0;
+}
+
+.cal-day-col span {
+  font-size: 9px;
+  color: var(--text-dim);
+  height: 14px;
+  line-height: 14px;
+  text-align: right;
+  width: 10px;
+}
+
+.cal-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cal-month-row {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.cal-month-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  flex-shrink: 0;
+}
+
+.cal-grid {
+  display: flex;
+  gap: 3px;
+}
+
+.cal-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cal-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.cal-cell--empty {
+  background: transparent;
+}
+
+.cal-cell--med {
+  background: rgba(232, 255, 71, 0.45);
+}
+
+.cal-cell--hi {
+  background: var(--accent);
+}
+
+.cal-cell--today {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.cal-cell--med.cal-cell--today,
+.cal-cell--hi.cal-cell--today {
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.cal-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+  justify-content: flex-end;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* Legacy class used elsewhere — keep for safety */
 .calendar__cell {
   width: 12px;
   height: 12px;
@@ -2295,10 +2413,6 @@ button {
 
 .calendar__cell.active {
   background: var(--accent);
-}
-
-.calendar__cell.empty {
-  background: transparent;
 }
 
 /* History */

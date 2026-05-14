@@ -50,13 +50,15 @@ router.get('/volume/weekly', (req, res) => {
 router.get('/calendar', (req, res) => {
   const rows = db
     .prepare(
-      `SELECT DISTINCT date(started_at) as date
+      `SELECT date(started_at) as date, COUNT(*) as count
        FROM workouts
-       WHERE started_at >= datetime('now', '-6 months')
+       WHERE finished_at IS NOT NULL
+         AND started_at >= datetime('now', '-6 months')
+       GROUP BY date(started_at)
        ORDER BY date ASC`
     )
     .all();
-  res.json(rows.map((r) => r.date));
+  res.json(rows);
 });
 
 router.get('/prs', (req, res) => {

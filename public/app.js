@@ -250,15 +250,15 @@ async function setAppBadge(n) {
 
 async function refreshBadgeFromCalendar() {
   try {
-    const dates = await API.calendar();
+    const entries = await API.calendar(); // [{date, count}]
     const now = new Date();
-    const day = now.getDay(); // 0=Sun
+    const day = now.getDay();
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - day); // Sunday
+    start.setDate(start.getDate() - day); // Sunday of this week
     let count = 0;
-    for (const d of dates) {
-      const when = new Date(d + 'T00:00:00');
+    for (const e of entries) {
+      const when = new Date((e.date || e) + 'T00:00:00');
       if (when >= start) count++;
     }
     setAppBadge(count);
@@ -2770,29 +2770,134 @@ function renderVolumeChart(rows) {
   });
 }
 
-function renderCalendar(dates) {
-  const set = new Set(dates);
+function renderCalendar(entries) {
+  // entries: [{date: 'YYYY-MM-DD', count: N}]
   const root = $('#calendar');
+  const countMap = new Map(entries.map((e) => [e.date, e.count]));
+  const allDates = new Set(entries.map((e) => e.date));
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayIso = today.toISOString().slice(0, 10);
 
+  // Build week grid (Sun-to-Sat columns)
   const start = new Date(today);
   start.setMonth(start.getMonth() - 6);
-  // Start on Sunday of that week
-  start.setDate(start.getDate() - start.getDay());
+  start.setDate(start.getDate() - start.getDay()); // back to Sunday
 
-  const cells = [];
+  const weeks = [];
+  let week = [];
   const cursor = new Date(start);
   while (cursor <= today) {
-    const iso = cursor.toISOString().slice(0, 10);
-    const active = set.has(iso);
-    cells.push(
-      `<div class="calendar__cell${active ? ' active' : ''}" title="${iso}${active ? ' — worked out' : ''}"></div>`
-    );
+    if (cursor.getDay() === 0 && week.length) {
+      weeks.push(week);
+      week = [];
+    }
+    week.push(cursor.toISOString().slice(0, 10));
     cursor.setDate(cursor.getDate() + 1);
   }
+  if (week.length) weeks.push(week);
 
-  root.innerHTML = cells.join('');
+  // Month labels — show name at first week that starts in that month
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthLabels = weeks.map((w) => {
+    const d = new Date(w[0]);
+    // Show month label when the 1st of the month falls in this week, or it's the very first week
+    const hasFirtOfMonth = w.some((iso) => new Date(iso).getDate() === 1);
+    if (hasFirtOfMonth || w === weeks[0]) {
+      return MONTHS[new Date(w[0]).getMonth()];
+    }
+    return '';
+  });
+
+  // Streak calculations
+  const calcStreak = (fromIso) => {
+    let s = 0;
+    const c = new Date(fromIso);
+    while (allDates.has(c.toISOString().slice(0, 10))) {
+      s++;
+      c.setDate(c.getDate() - 1);
+    }
+    return s;
+  };
+  // Current streak: from today, or yesterday if today not logged (day not over yet)
+  const currentStreak = allDates.has(todayIso)
+    ? calcStreak(todayIso)
+    : calcStreak(new Date(today.getTime() - 86400000).toISOString().slice(0, 10));
+
+  // Longest streak over the whole window
+  let longest = 0, run = 0, prevIso = null;
+  for (const iso of [...allDates].sort()) {
+    if (prevIso) {
+      const diff = (new Date(iso) - new Date(prevIso)) / 86400000;
+      run = diff === 1 ? run + 1 : 1;
+    } else {
+      run = 1;
+    }
+    longest = Math.max(longest, run);
+    prevIso = iso;
+  }
+
+  // Workouts this month
+  const monthKey = todayIso.slice(0, 7);
+  const thisMonth = entries.filter((e) => e.date.startsWith(monthKey)).length;
+
+  // Render cells
+  const dayLetters = ['S','M','T','W','T','F','S'];
+
+  const monthRow = weeks.map((_, wi) =>
+    `<div class="cal-month-label">${monthLabels[wi]}</div>`
+  ).join('');
+
+  const gridCols = weeks.map((w) => {
+    const cells = Array.from({ length: 7 }, (_, i) => {
+      const iso = w[i];
+      if (!iso) return '<div class="cal-cell cal-cell--empty"></div>';
+      const cnt = countMap.get(iso) || 0;
+      const isToday = iso === todayIso;
+      const intensity = cnt >= 2 ? 'hi' : cnt === 1 ? 'med' : '';
+      const label = cnt ? `${iso} · ${cnt} workout${cnt > 1 ? 's' : ''}` : iso;
+      return `<div class="cal-cell ${intensity ? `cal-cell--${intensity}` : ''} ${isToday ? 'cal-cell--today' : ''}" title="${label}"></div>`;
+    }).join('');
+    return `<div class="cal-col">${cells}</div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <div class="cal-stats">
+      <div class="cal-stat">
+        <div class="cal-stat__val">${currentStreak}</div>
+        <div class="cal-stat__lbl">streak</div>
+      </div>
+      <div class="cal-stat">
+        <div class="cal-stat__val">${longest}</div>
+        <div class="cal-stat__lbl">best</div>
+      </div>
+      <div class="cal-stat">
+        <div class="cal-stat__val">${thisMonth}</div>
+        <div class="cal-stat__lbl">this month</div>
+      </div>
+      <div class="cal-stat">
+        <div class="cal-stat__val">${entries.length}</div>
+        <div class="cal-stat__lbl">6 months</div>
+      </div>
+    </div>
+    <div class="cal-wrap">
+      <div class="cal-day-col">
+        ${dayLetters.map((l) => `<span>${l}</span>`).join('')}
+      </div>
+      <div class="cal-scroll">
+        <div class="cal-month-row">${monthRow}</div>
+        <div class="cal-grid">${gridCols}</div>
+      </div>
+    </div>
+    <div class="cal-legend">
+      <span>None</span>
+      <div class="cal-cell"></div>
+      <div class="cal-cell cal-cell--med"></div>
+      <div class="cal-cell cal-cell--hi"></div>
+      <span>2+</span>
+    </div>
+  `;
 }
 
 // Strength standard ratios (multiples of body weight) for novice/intermediate/
