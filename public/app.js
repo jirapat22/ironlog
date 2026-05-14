@@ -2560,6 +2560,10 @@ async function renderProgress() {
       <div class="chart-wrap bw-chart-wrap hidden" id="bw-chart-wrap"><canvas id="bw-chart"></canvas></div>
     </div>
     <div class="progress-section">
+      <div class="progress-section__title">Consistency (6 months)</div>
+      <div id="calendar" class="calendar"></div>
+    </div>
+    <div class="progress-section">
       <div class="progress-section__head">
         <div class="progress-section__title" style="margin:0">Daily Calories</div>
         <button class="btn btn--ghost btn--sm" data-edit-profile>Profile</button>
@@ -2602,10 +2606,6 @@ async function renderProgress() {
         </select>
       </div>
       <div class="chart-wrap" style="margin-top:12px"><canvas id="volume-chart"></canvas></div>
-    </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Consistency (6 months)</div>
-      <div id="calendar" class="calendar"></div>
     </div>
   `;
 
