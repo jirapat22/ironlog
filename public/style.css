@@ -1842,7 +1842,7 @@ button {
 .tdee-main__val {
   font-size: 38px;
   font-weight: 700;
-  color: var(--accent);
+  color: #c8b8ff;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -1973,17 +1973,22 @@ button {
 
 .macro-row--protein .macro-row__name,
 .macro-row--protein .macro-row__g {
-  color: #ff8ad1;
+  color: #1E88E5;
 }
 
 .macro-row--carbs .macro-row__name,
 .macro-row--carbs .macro-row__g {
-  color: #ffd24a;
+  color: #FFA726;
 }
 
 .macro-row--fat .macro-row__name,
 .macro-row--fat .macro-row__g {
-  color: #62d8ff;
+  color: #FFCA28;
+}
+
+.macro-row--fiber .macro-row__name,
+.macro-row--fiber .macro-row__g {
+  color: #66BB6A;
 }
 
 .macro-bar {
@@ -1999,9 +2004,10 @@ button {
   height: 100%;
 }
 
-.macro-bar__fill--protein { background: #ff8ad1; }
-.macro-bar__fill--carbs   { background: #ffd24a; }
-.macro-bar__fill--fat     { background: #62d8ff; }
+.macro-bar__fill--protein { background: #1E88E5; }
+.macro-bar__fill--carbs   { background: #FFA726; }
+.macro-bar__fill--fat     { background: #FFCA28; }
+.macro-bar__fill--fiber   { background: #66BB6A; }
 
 /* Radio rows (used in Profile sheet) */
 .radio-group {
