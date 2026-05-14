@@ -2773,7 +2773,6 @@ function renderVolumeChart(rows) {
 const MIN_WEEKLY_SESSIONS = 3; // 3+ sessions = "active week" for streak
 
 function renderCalendar(entries) {
-  // entries: [{date: 'YYYY-MM-DD', count: N}]
   const root = $('#calendar');
   const countMap = new Map(entries.map((e) => [e.date, e.count]));
 
@@ -2781,64 +2780,83 @@ function renderCalendar(entries) {
   today.setHours(0, 0, 0, 0);
   const todayIso = today.toISOString().slice(0, 10);
 
-  // Helper: get Monday of the week containing a date (Mon=0 … Sun=6)
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DAY_LETTERS = ['M','T','W','T','F','S','S'];
+
+  // Start from the first entry's month (fall back 2 months for fresh installs)
+  const fallbackStart = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+  const firstEntryDate = entries.length
+    ? new Date(entries[0].date.slice(0, 7) + '-01')
+    : fallbackStart;
+  const rangeStart = firstEntryDate < fallbackStart ? firstEntryDate : fallbackStart;
+
+  // Build month groups — each month is its own set of columns
+  const monthGroups = [];
+  const mCursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+
+  while (mCursor <= today) {
+    const year = mCursor.getFullYear();
+    const month = mCursor.getMonth();
+
+    // Days of this month up to today
+    const lastDayNum = new Date(year, month + 1, 0).getDate();
+    const allDays = [];
+    for (let d = 1; d <= lastDayNum; d++) {
+      const dt = new Date(year, month, d);
+      if (dt > today) break;
+      allDays.push(dt.toISOString().slice(0, 10));
+    }
+
+    // Offset = day-of-week of the 1st (Mon=0 … Sun=6)
+    const firstDow = (new Date(year, month, 1).getDay() + 6) % 7;
+
+    // Build columns: first partial, then full 7-day chunks
+    const cols = [];
+    const firstSlice = 7 - firstDow;
+
+    // First column: pad top with nulls, then days
+    cols.push([...Array(firstDow).fill(null), ...allDays.slice(0, firstSlice)]);
+
+    for (let i = firstSlice; i < allDays.length; i += 7) {
+      const chunk = allDays.slice(i, i + 7);
+      // Pad end of last column to 7 rows so grid stays rectangular
+      while (chunk.length < 7) chunk.push(null);
+      cols.push(chunk);
+    }
+
+    monthGroups.push({ label: MONTHS[month], cols });
+    mCursor.setMonth(mCursor.getMonth() + 1);
+  }
+
+  // Weekly streak: group entries into Mon-Sun weeks and count sessions/week
   const toMonday = (d) => {
     const m = new Date(d);
-    const dow = (m.getDay() + 6) % 7; // 0=Mon
-    m.setDate(m.getDate() - dow);
+    m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+    m.setHours(0, 0, 0, 0);
     return m;
   };
-
-  // Start from the Monday of the first workout week (trim blank left space)
-  // Fall back to 8 weeks ago so fresh installs still show a reasonable grid.
-  const fallback = new Date(today);
-  fallback.setDate(fallback.getDate() - 7 * 8);
-  const firstEntry = entries.length ? new Date(entries[0].date) : fallback;
-  const gridStart = toMonday(firstEntry < fallback ? firstEntry : fallback);
-  gridStart.setHours(0, 0, 0, 0);
-
-  // Build Mon-first week columns
-  const weeks = [];
-  let week = [];
-  const cursor = new Date(gridStart);
-  while (cursor <= today) {
-    const dow = (cursor.getDay() + 6) % 7; // 0=Mon
-    if (dow === 0 && week.length) { weeks.push(week); week = []; }
-    week.push(cursor.toISOString().slice(0, 10));
-    cursor.setDate(cursor.getDate() + 1);
+  const weekMap = new Map();
+  for (const e of entries) {
+    const key = toMonday(new Date(e.date)).toISOString().slice(0, 10);
+    weekMap.set(key, (weekMap.get(key) || 0) + e.count);
   }
-  if (week.length) weeks.push(week);
-
-  // Monthly session counts per week (for weekly-streak logic)
-  const weekSessionCount = new Map(); // monday ISO → total sessions that week
-  for (const w of weeks) {
-    const key = w[0];
-    weekSessionCount.set(key, w.reduce((acc, iso) => acc + (countMap.get(iso) || 0), 0));
-  }
-
-  // Weekly streak — consecutive weeks with MIN_WEEKLY_SESSIONS+, ending now
+  const sortedWeeks = [...weekMap.keys()].sort();
   const thisWeekKey = toMonday(today).toISOString().slice(0, 10);
+
   let currentStreak = 0;
-  // Don't penalise current week if it's not over: skip it if short so far
-  const weeksDesc = [...weeks].reverse();
-  let skipCurrent = true;
-  for (const w of weeksDesc) {
-    const key = w[0];
-    const cnt = weekSessionCount.get(key) || 0;
-    if (skipCurrent && key === thisWeekKey && cnt < MIN_WEEKLY_SESSIONS) {
-      skipCurrent = false;
-      continue; // current week in progress — don't break streak
-    }
+  // Walk backwards; skip current week if not yet at min sessions
+  let skipCurrent = (weekMap.get(thisWeekKey) || 0) < MIN_WEEKLY_SESSIONS;
+  for (let i = sortedWeeks.length - 1; i >= 0; i--) {
+    const k = sortedWeeks[i];
+    if (skipCurrent && k === thisWeekKey) { skipCurrent = false; continue; }
     skipCurrent = false;
-    if (cnt >= MIN_WEEKLY_SESSIONS) currentStreak++;
+    if ((weekMap.get(k) || 0) >= MIN_WEEKLY_SESSIONS) currentStreak++;
     else break;
   }
 
-  // Best weekly streak
   let best = 0, run = 0;
-  for (const w of weeks) {
-    const cnt = weekSessionCount.get(w[0]) || 0;
-    if (cnt >= MIN_WEEKLY_SESSIONS) { run++; best = Math.max(best, run); }
+  for (const k of sortedWeeks) {
+    if ((weekMap.get(k) || 0) >= MIN_WEEKLY_SESSIONS) { run++; best = Math.max(best, run); }
     else run = 0;
   }
 
@@ -2847,61 +2865,36 @@ function renderCalendar(entries) {
     .reduce((a, e) => a + e.count, 0);
   const total = entries.reduce((a, e) => a + e.count, 0);
 
-  // Month labels — use the month of the actual 1st day, not the Monday of the week
-  // (fixes "Mar Mar Apr" when e.g. April 1 is a Wednesday but Monday is still March)
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const monthLabels = weeks.map((w, wi) => {
-    const firstDay = w.find((iso) => new Date(iso).getDate() === 1);
-    if (firstDay) return MONTHS[new Date(firstDay).getMonth()];
-    if (wi === 0) return MONTHS[new Date(w[0]).getMonth()];
-    return '';
-  });
+  // Build grid HTML
+  const cell = (iso) => {
+    if (!iso) return '<div class="cal-cell cal-cell--empty"></div>';
+    const cnt = countMap.get(iso) || 0;
+    const isToday = iso === todayIso;
+    const cls = cnt >= 2 ? 'cal-cell--hi' : cnt === 1 ? 'cal-cell--med' : '';
+    const tip = cnt ? `${iso} · ${cnt} session${cnt > 1 ? 's' : ''}` : iso;
+    return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${tip}"></div>`;
+  };
 
-  const DAY_LETTERS = ['M','T','W','T','F','S','S'];
-
-  const monthRow = weeks.map((_, wi) =>
-    `<div class="cal-month-label">${monthLabels[wi]}</div>`
-  ).join('');
-
-  const gridCols = weeks.map((w) => {
-    const cells = Array.from({ length: 7 }, (_, i) => {
-      const iso = w[i];
-      if (!iso) return '<div class="cal-cell cal-cell--empty"></div>';
-      const cnt = countMap.get(iso) || 0;
-      const isToday = iso === todayIso;
-      const cls = cnt >= 2 ? 'cal-cell--hi' : cnt === 1 ? 'cal-cell--med' : '';
-      const label = cnt ? `${iso} · ${cnt} session${cnt > 1 ? 's' : ''}` : iso;
-      return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${label}"></div>`;
-    }).join('');
-    return `<div class="cal-col">${cells}</div>`;
-  }).join('');
+  const gridHTML = monthGroups.map(({ label, cols }) => `
+    <div class="cal-month-grp">
+      <div class="cal-month-name">${label}</div>
+      <div class="cal-month-cols">
+        ${cols.map((col) => `<div class="cal-col">${col.map(cell).join('')}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
 
   root.innerHTML = `
     <div class="cal-stats">
-      <div class="cal-stat">
-        <div class="cal-stat__val">${currentStreak}</div>
-        <div class="cal-stat__lbl">wk streak</div>
-      </div>
-      <div class="cal-stat">
-        <div class="cal-stat__val">${best}</div>
-        <div class="cal-stat__lbl">best</div>
-      </div>
-      <div class="cal-stat">
-        <div class="cal-stat__val">${thisMonth}</div>
-        <div class="cal-stat__lbl">this month</div>
-      </div>
-      <div class="cal-stat">
-        <div class="cal-stat__val">${total}</div>
-        <div class="cal-stat__lbl">total</div>
-      </div>
+      <div class="cal-stat"><div class="cal-stat__val">${currentStreak}</div><div class="cal-stat__lbl">wk streak</div></div>
+      <div class="cal-stat"><div class="cal-stat__val">${best}</div><div class="cal-stat__lbl">best</div></div>
+      <div class="cal-stat"><div class="cal-stat__val">${thisMonth}</div><div class="cal-stat__lbl">this month</div></div>
+      <div class="cal-stat"><div class="cal-stat__val">${total}</div><div class="cal-stat__lbl">total</div></div>
     </div>
     <div class="cal-wrap">
-      <div class="cal-day-col">
-        ${DAY_LETTERS.map((l) => `<span>${l}</span>`).join('')}
-      </div>
+      <div class="cal-day-col">${DAY_LETTERS.map((l) => `<span>${l}</span>`).join('')}</div>
       <div class="cal-scroll">
-        <div class="cal-month-row">${monthRow}</div>
-        <div class="cal-grid">${gridCols}</div>
+        <div class="cal-grid">${gridHTML}</div>
       </div>
     </div>
     <div class="cal-legend">

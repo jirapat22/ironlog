@@ -2326,7 +2326,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-top: 18px;
+  padding-top: 18px; /* month name (14px) + gap (4px) */
   flex-shrink: 0;
 }
 
@@ -2344,22 +2344,28 @@ button {
   -webkit-overflow-scrolling: touch;
 }
 
-.cal-month-row {
+.cal-grid {
   display: flex;
-  gap: 3px;
-  margin-bottom: 4px;
+  gap: 8px; /* gap between months */
+  align-items: flex-start;
 }
 
-.cal-month-label {
-  font-size: 10px;
-  color: var(--text-dim);
-  min-width: 14px;
-  height: 14px;
-  line-height: 14px;
+.cal-month-grp {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   flex-shrink: 0;
 }
 
-.cal-grid {
+.cal-month-name {
+  font-size: 10px;
+  color: var(--text-dim);
+  height: 14px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+}
+
+.cal-month-cols {
   display: flex;
   gap: 3px;
 }
