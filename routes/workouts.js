@@ -25,7 +25,7 @@ router.get('/history', (req, res) => {
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
-              COALESCE(SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps), 0) as total_volume,
+              COALESCE(SUM(CASE WHEN s.is_warmup = 0 THEN (CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps ELSE 0 END), 0) as total_volume,
               (SELECT GROUP_CONCAT(g, ',') FROM (
                  SELECT DISTINCT e.muscle_group as g
                  FROM sets s2
@@ -59,7 +59,7 @@ router.get('/last/:programDayId', (req, res) => {
 
   const sets = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?
@@ -130,7 +130,7 @@ router.get('/:id/sets', (req, res) => {
   const id = Number(req.params.id);
   const rows = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?

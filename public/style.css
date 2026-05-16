@@ -747,6 +747,39 @@ button {
   font-size: 11px;
 }
 
+/* Warmup rows */
+.set-row.warmup {
+  opacity: 0.7;
+}
+
+.set-row.warmup .set-row__num {
+  color: #ffb347;
+  background: rgba(255, 179, 71, 0.15);
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.set-row.warmup .set-check {
+  border-color: rgba(255, 179, 71, 0.4);
+}
+
+.set-row.warmup.done .set-check {
+  background: rgba(255, 179, 71, 0.3);
+  border-color: #ffb347;
+  color: #ffb347;
+}
+
+.set-row__num {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.set-row__num:active {
+  background: var(--surface-2);
+}
+
 .set-row--next {
   position: relative;
 }

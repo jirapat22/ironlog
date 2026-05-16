@@ -886,7 +886,7 @@ function renderEditSheet() {
           <button class="edit-row__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
           <div class="edit-row__head-text">
             <div class="edit-row__name">${escapeHtml(e.name)}</div>
-            <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}</div>
+            <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}${e.notes ? ' · ' + escapeHtml(e.notes) : ''}</div>
           </div>
         </div>
         <div class="edit-row__controls">
@@ -1392,6 +1392,10 @@ async function renderWorkout() {
     renderWorkoutView();
     startStickyTimer();
     acquireWakeLock();
+    // Prime AudioContext on first user interaction so the rest-done beep
+    // is allowed to play even 3+ minutes later (iOS requires a gesture).
+    const primeOnce = () => { primeAudio(); document.removeEventListener('click', primeOnce); };
+    document.addEventListener('click', primeOnce);
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load workout: ${err.message}</div>`;
   }
@@ -1499,7 +1503,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
             ${escapeHtml(ex.name)}
             ${ex.is_assisted ? ' <span class="badge badge--assisted">ASSISTED</span>' : ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}
           </div>
-          <div class="card__subtitle">${target} × ${ex.target_reps}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}</div>
+          <div class="card__subtitle">${target} × ${ex.target_reps}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
@@ -1625,9 +1629,10 @@ function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
   // Only show badge for valid RPE (6-10); 0 / '' / null mean no RPE set
   const rpeBadge = effRpe && Number(effRpe) >= 6 ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${effRpe}</span>` : '';
 
+  const isWarmup = !!(logged?.is_warmup);
   return `
-    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${effRpe}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
-      <div class="set-row__num">${setNumber}</div>
+    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${effRpe}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
+      <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
       <div class="num-input" data-field="weight">
         <button class="num-input__btn" data-step="-1">−</button>
         <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" placeholder="${wPlaceholder}" aria-label="weight"/>
@@ -1669,6 +1674,19 @@ function wireWorkoutView() {
 
     const row = e.target.closest('.set-row');
     if (!row) return;
+
+    const warmupBtn = e.target.closest('[data-toggle-warmup]');
+    if (warmupBtn) {
+      const nowWarmup = row.dataset.warmup !== '1';
+      row.dataset.warmup = nowWarmup ? '1' : '0';
+      row.classList.toggle('warmup', nowWarmup);
+      warmupBtn.textContent = nowWarmup ? 'W' : row.dataset.set;
+      haptic(10);
+      if (row.dataset.setId) {
+        API.updateSet(Number(row.dataset.setId), { is_warmup: nowWarmup ? 1 : 0 }).catch(() => {});
+      }
+      return;
+    }
 
     const unitBtn = e.target.closest('[data-unit]');
     if (unitBtn) {
@@ -1935,8 +1953,8 @@ async function confirmSet(row) {
   );
   const note = row.querySelector('[data-note]')?.value?.trim() || null;
   const rpeRaw = row.dataset.rpe;
-  // Treat '' and '0' as no RPE — 0 is not a valid RPE value (range is 6-10)
   const rpe = !rpeRaw || rpeRaw === '0' ? null : Number(rpeRaw);
+  const isWarmup = row.dataset.warmup === '1';
 
   // BW exercises can legitimately have 0 added weight — only reject negative/NaN
   const exIsBw = workoutState?.programDay?.exercises
@@ -1968,7 +1986,8 @@ async function confirmSet(row) {
         weight_unit: unit,
         reps,
         rpe,
-        notes: note
+        notes: note,
+        is_warmup: isWarmup ? 1 : 0
       });
       row.dataset.setId = res.id;
       row.classList.add('done');
@@ -2459,6 +2478,7 @@ async function finishWorkout() {
     // BW exercises (pull-ups, push-ups, core etc.) need bodyweight folded in
     // or they contribute zero to volume despite being real work.
     const totalVolume = sets.reduce((acc, s) => {
+      if (s.is_warmup) return acc; // warmup sets don't count toward volume
       const kg = s.is_bodyweight
         ? toKg(s.weight, s.weight_unit) + (userBwKg || 0)
         : toKg(s.weight, s.weight_unit);

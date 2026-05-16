@@ -36,7 +36,7 @@ router.get('/volume/weekly', (req, res) => {
       `SELECT
          strftime('%Y-%W', s.logged_at) as week,
          e.muscle_group,
-         SUM((CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps) as volume
+         SUM(CASE WHEN s.is_warmup = 0 THEN (CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps ELSE 0 END) as volume
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        ${whereClause}
