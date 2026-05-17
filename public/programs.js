@@ -1,0 +1,403 @@
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, enableDragReorder, PICKER_GROUP_ORDER } from './utils.js';
+import { API } from './api.js';
+
+// ---------- PROGRAMS tab ----------
+async function renderPrograms() {
+  const root = $('#view-programs');
+  root.innerHTML = skeletonBlocks(2);
+
+  try {
+    const programs = await API.programs();
+    if (!programs.length) {
+      root.innerHTML = `<div class="empty"><div class="empty__icon">&#x1F4C5;</div><div>No programs yet</div></div>`;
+      return;
+    }
+
+    const full = await Promise.all(programs.map((p) => API.program(p.id)));
+    root.innerHTML = full.map((p) => programCardHTML(p)).join('');
+    await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
+
+    root.onclick = async (e) => {
+      const dupBtn = e.target.closest('[data-dup-program]');
+      if (dupBtn) {
+        e.stopPropagation();
+        const id = Number(dupBtn.dataset.dupProgram);
+        const src = full.find((p) => p.id === id);
+        const suggested = `My ${src?.name || 'Program'}`;
+        const name = prompt('Name for the new program?', suggested);
+        if (!name || !name.trim()) return;
+        try {
+          await API.duplicateProgram(id, { name: name.trim() });
+          haptic(20); toast('Program duplicated'); renderPrograms();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
+      const renameBtn = e.target.closest('[data-rename-program]');
+      if (renameBtn) {
+        e.stopPropagation();
+        const id = Number(renameBtn.dataset.renameProgram);
+        const src = full.find((p) => p.id === id);
+        const name = prompt('Rename program to?', src?.name || '');
+        if (!name || !name.trim() || name.trim() === src?.name) return;
+        try {
+          await API.updateProgram(id, { name: name.trim() });
+          haptic(20); renderPrograms();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
+      const deleteBtn = e.target.closest('[data-delete-program]');
+      if (deleteBtn) {
+        e.stopPropagation();
+        const id = Number(deleteBtn.dataset.deleteProgram);
+        const src = full.find((p) => p.id === id);
+        if (!confirm(`Delete "${src?.name || 'this program'}"? This cannot be undone.`)) return;
+        try {
+          await API.deleteProgram(id);
+          haptic(20); renderPrograms();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
+      const header = e.target.closest('.program-card__header');
+      if (header) { header.closest('.program-card').classList.toggle('expanded'); return; }
+
+      const editBtn = e.target.closest('[data-edit-day]');
+      if (editBtn) {
+        haptic(15);
+        openEditDay(Number(editBtn.dataset.programId), Number(editBtn.dataset.editDay));
+        return;
+      }
+
+      const startBtn = e.target.closest('[data-start-day]');
+      if (startBtn) {
+        haptic();
+        const dayId = Number(startBtn.dataset.startDay);
+        startBtn.disabled = true;
+        startBtn.textContent = 'Starting…';
+        try {
+          const w = await API.startWorkout(dayId);
+          localStorage.setItem(LS.activeWorkoutId, String(w.id));
+          localStorage.setItem(LS.activeProgramDayId, String(dayId));
+          localStorage.setItem(LS.activeWorkoutStart, w.started_at);
+          document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'workout' }));
+        } catch (err) {
+          toast(err.message);
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start workout';
+        }
+      }
+    };
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't load programs: ${err.message}</div>`;
+  }
+}
+
+function programCardHTML(p) {
+  return `
+    <div class="program-card" data-program-id="${p.id}">
+      <button class="program-card__header">
+        <div>
+          <div class="program-card__title">${escapeHtml(p.name)}</div>
+          <div class="program-card__desc">${escapeHtml(p.description || '')}</div>
+        </div>
+        <span class="program-card__chevron">&#x276F;</span>
+      </button>
+      <div class="program-card__body">
+        <div class="program-card__actions">
+          <button class="btn btn--ghost btn--sm" data-dup-program="${p.id}">&#x29C9; Duplicate</button>
+          <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Rename</button>
+          <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
+        </div>
+        ${p.days.map((d) => dayCardHTML(d, p.id)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function dayCardHTML(d, programId) {
+  const exList = d.exercises.length
+    ? d.exercises.map((e) => `${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span>`).join(' · ')
+    : '<em style="opacity:.5">No exercises yet — tap Edit to add some</em>';
+  return `
+    <div class="day-card" data-day-id="${d.id}">
+      <div class="day-card__top">
+        <div class="day-card__label">${escapeHtml(d.day_label)}</div>
+        <div class="day-card__last" data-last="${d.id}">—</div>
+      </div>
+      <div class="day-card__exercises">${exList}</div>
+      <div class="day-card__actions">
+        <button class="btn btn--ghost btn--sm" data-edit-day="${d.id}" data-program-id="${programId}">Edit</button>
+        <button class="btn btn--primary btn--sm" data-start-day="${d.id}" style="flex:1">Start workout</button>
+      </div>
+    </div>
+  `;
+}
+
+async function decorateLastTrained(dayId) {
+  try {
+    const last = await API.lastWorkout(dayId);
+    const el = document.querySelector(`[data-last="${dayId}"]`);
+    if (!el) return;
+    el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
+  } catch { /* ignore */ }
+}
+
+// ---------- Edit Program Day ----------
+let editDayState = null;
+
+async function openEditDay(programId, dayId) {
+  const sheet = ensureSheet('edit-sheet');
+  sheet.innerHTML = `<div class="sheet__inner"><div class="skeleton" style="height:120px"></div></div>`;
+  showSheet(sheet);
+  try {
+    const [program, allExercises] = await Promise.all([API.program(programId), API.exercises()]);
+    const day = program.days.find((d) => d.id === dayId);
+    if (!day) throw new Error('Day not found');
+    editDayState = { programId, dayId, day, allExercises };
+    renderEditSheet();
+  } catch (err) {
+    sheet.innerHTML = `<div class="sheet__inner"><div class="empty">Couldn't load: ${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div>`;
+  }
+}
+
+function renderEditSheet() {
+  const sheet = document.getElementById('edit-sheet');
+  const { day, programId, dayId } = editDayState;
+
+  const rows = day.exercises.map((e, i) => `
+    <div class="edit-row" data-pde="${e.id}">
+      <div class="edit-row__main">
+        <button class="edit-row__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
+        <div class="edit-row__head-text">
+          <div class="edit-row__name">${escapeHtml(e.name)}</div>
+          <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}${e.notes ? ' · ' + escapeHtml(e.notes) : ''}</div>
+        </div>
+      </div>
+      <div class="edit-row__controls">
+        <div class="edit-stepper">
+          <button class="edit-stepper__btn" data-field="target_sets" data-step="-1">−</button>
+          <span class="edit-stepper__value" data-display="target_sets">${e.target_sets}</span>
+          <button class="edit-stepper__btn" data-field="target_sets" data-step="1">+</button>
+          <span class="edit-stepper__label">sets</span>
+        </div>
+        <div class="edit-stepper">
+          <button class="edit-stepper__btn" data-field="target_reps" data-step="-1">−</button>
+          <span class="edit-stepper__value" data-display="target_reps">${e.target_reps}</span>
+          <button class="edit-stepper__btn" data-field="target_reps" data-step="1">+</button>
+          <span class="edit-stepper__label">reps</span>
+        </div>
+      </div>
+      <div class="edit-row__actions">
+        <button class="btn--icon" data-move="up" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button class="btn--icon" data-move="down" title="Move down" ${i === day.exercises.length - 1 ? 'disabled' : ''}>↓</button>
+        <button class="btn--icon btn--icon-danger" data-remove title="Remove">×</button>
+      </div>
+    </div>`).join('');
+
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">${escapeHtml(day.day_label)}</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="edit-rows" id="edit-rows-container">${rows}</div>
+        ${day.exercises.length ? '' : '<div class="empty" style="padding:20px 0">No exercises yet. Add one below.</div>'}
+        <button class="btn btn--primary btn--block" data-open-picker style="margin-top:16px">+ Add exercise</button>
+      </div>
+    </div>
+  `;
+
+  const rowsContainer = sheet.querySelector('#edit-rows-container');
+  if (rowsContainer) enableDragReorder(rowsContainer, persistEditRowOrder);
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) {
+      hideSheet(sheet);
+      if (localStorage.getItem(LS.currentTab) === 'programs') renderPrograms();
+      return;
+    }
+    if (e.target.closest('[data-open-picker]')) return openPicker();
+
+    const row = e.target.closest('.edit-row');
+    if (!row) return;
+    const pdeId = Number(row.dataset.pde);
+
+    const step = e.target.closest('.edit-stepper__btn');
+    if (step) {
+      const field = step.dataset.field;
+      const delta = Number(step.dataset.step);
+      const current = editDayState.day.exercises.find((x) => x.id === pdeId);
+      const next = Math.max(1, current[field] + delta);
+      current[field] = next;
+      row.querySelector(`[data-display="${field}"]`).textContent = next;
+      haptic(10);
+      try { await API.updateDayExercise(programId, dayId, pdeId, { [field]: next }); }
+      catch (err) { toast(err.message); }
+      return;
+    }
+
+    const remove = e.target.closest('[data-remove]');
+    if (remove) {
+      if (!confirm('Remove this exercise from the day?')) return;
+      try {
+        await API.removeDayExercise(programId, dayId, pdeId);
+        editDayState.day.exercises = editDayState.day.exercises.filter((x) => x.id !== pdeId);
+        renderEditSheet(); haptic(20);
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
+    const move = e.target.closest('[data-move]');
+    if (move) {
+      const dir = move.dataset.move === 'up' ? -1 : 1;
+      const exs = editDayState.day.exercises;
+      const idx = exs.findIndex((x) => x.id === pdeId);
+      const swapIdx = idx + dir;
+      if (swapIdx < 0 || swapIdx >= exs.length) return;
+      [exs[idx], exs[swapIdx]] = [exs[swapIdx], exs[idx]];
+      renderEditSheet(); haptic(10);
+      try {
+        await Promise.all(exs.map((x, i) =>
+          x.order_index !== i
+            ? API.updateDayExercise(programId, dayId, x.id, { order_index: i }).then(() => { x.order_index = i; })
+            : null
+        ));
+      } catch (err) { toast(err.message); }
+    }
+  };
+}
+
+async function persistEditRowOrder() {
+  const container = document.getElementById('edit-rows-container');
+  if (!container) return;
+  const order = [...container.children].map((r) => Number(r.dataset.pde));
+  editDayState.day.exercises.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  const updates = [];
+  for (let i = 0; i < editDayState.day.exercises.length; i++) {
+    const ex = editDayState.day.exercises[i];
+    if (ex.order_index !== i) {
+      updates.push(
+        API.updateDayExercise(editDayState.programId, editDayState.dayId, ex.id, { order_index: i })
+          .then(() => { ex.order_index = i; })
+      );
+    }
+  }
+  try { await Promise.all(updates); haptic(15); }
+  catch (err) { toast(err.message); }
+}
+
+// ---------- Exercise picker (programs context only) ----------
+async function openPicker() {
+  const picker = ensureSheet('picker-sheet');
+  const { allExercises } = editDayState;
+  const groups = {};
+  for (const ex of allExercises) {
+    if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
+    groups[ex.muscle_group].push(ex);
+  }
+
+  const currentIds = new Set(editDayState.day.exercises.map((e) => e.exercise_id));
+  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-picker>←</button>
+        <div class="sheet__title">Pick exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <input class="input" id="picker-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <button class="btn btn--ghost btn--block" data-new-exercise style="margin-bottom:16px">+ Create custom exercise</button>
+        ${keys.map((g) => `
+          <div class="picker-group" data-group="${g}">
+            <div class="picker-group__title">${escapeHtml(g)}</div>
+            ${groups[g].map((ex) => `
+              <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+                <span>${escapeHtml(ex.name)}</span>
+                <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
+              </button>`).join('')}
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+  showSheet(picker);
+
+  const search = document.getElementById('picker-search');
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    picker.querySelectorAll('.picker-row').forEach((r) => r.classList.toggle('hidden', q && !r.dataset.name.includes(q)));
+    picker.querySelectorAll('.picker-group').forEach((g) => {
+      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
+      g.classList.toggle('hidden', !any);
+    });
+  };
+
+  picker.onclick = async (e) => {
+    if (e.target.closest('[data-close-picker]')) return hideSheet(picker);
+    if (e.target.closest('[data-new-exercise]')) return openNewExerciseForm(picker);
+    const pickBtn = e.target.closest('[data-pick]');
+    if (!pickBtn) return;
+    if (pickBtn.classList.contains('picker-row--added')) { toast('Already in this day'); return; }
+    const exerciseId = Number(pickBtn.dataset.pick);
+    haptic(20);
+    try {
+      const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
+        exercise_id: exerciseId, target_sets: 3, target_reps: 10
+      });
+      editDayState.day.exercises.push(row);
+      hideSheet(picker);
+      renderEditSheet();
+    } catch (err) { toast(err.message); }
+  };
+}
+
+function openNewExerciseForm(picker) {
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-back-picker>←</button>
+        <div class="sheet__title">New exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <label class="form-label">Name</label>
+        <input class="input" id="new-ex-name" placeholder="e.g. Cable Pullover" />
+        <label class="form-label" style="margin-top:14px">Muscle group</label>
+        <select class="input" id="new-ex-muscle">
+          <option value="chest">chest</option><option value="back">back</option>
+          <option value="shoulders">shoulders</option><option value="biceps">biceps</option>
+          <option value="triceps">triceps</option><option value="legs">legs</option>
+          <option value="core">core</option>
+        </select>
+        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
+        <input class="input" id="new-ex-notes" placeholder="Setup cue or variation" />
+        <button class="btn btn--primary btn--block" id="new-ex-save" style="margin-top:20px">Create & add</button>
+      </div>
+    </div>
+  `;
+
+  picker.querySelector('[data-back-picker]').onclick = () => openPicker();
+  picker.querySelector('#new-ex-save').onclick = async () => {
+    const name = picker.querySelector('#new-ex-name').value.trim();
+    const muscle = picker.querySelector('#new-ex-muscle').value;
+    const notes = picker.querySelector('#new-ex-notes').value.trim() || null;
+    if (!name) return toast('Name required');
+    try {
+      const ex = await API.addExercise({ name, muscle_group: muscle, notes });
+      editDayState.allExercises.push(ex);
+      const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
+        exercise_id: ex.id, target_sets: 3, target_reps: 10
+      });
+      editDayState.day.exercises.push(row);
+      hideSheet(picker);
+      renderEditSheet();
+    } catch (err) { toast(err.message); }
+  };
+}
+
+export { renderPrograms };

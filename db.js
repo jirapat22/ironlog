@@ -157,6 +157,12 @@ function init() {
     if (!/duplicate column/i.test(err.message)) throw err;
   }
 
+  try {
+    db.exec('ALTER TABLE workouts ADD COLUMN bw_kg REAL');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
   seed();
 }
 

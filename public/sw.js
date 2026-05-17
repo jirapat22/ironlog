@@ -1,9 +1,17 @@
-const VERSION = 'ironlog-v37';
+const VERSION = 'ironlog-v38';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  '/api.js',
+  '/utils.js',
+  '/audio.js',
+  '/workout.js',
+  '/programs.js',
+  '/progress.js',
+  '/history.js',
+  '/settings.js',
   '/manifest.json',
   '/icon.svg'
 ];

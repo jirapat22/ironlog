@@ -1432,6 +1432,24 @@ button {
   border-color: rgba(158, 255, 168, 0.4);
 }
 
+.exercise-card__drag {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.exercise-card__drag:active { cursor: grabbing; background: var(--accent); color: #0c0c0c; }
+.exercise-card--dragging { opacity: 0.7; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+
 .exercise-card--complete .exercise-card__head::after {
   content: '✓';
   font-size: 14px;

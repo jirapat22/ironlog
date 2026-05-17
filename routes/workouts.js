@@ -25,7 +25,17 @@ router.get('/history', (req, res) => {
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
-              COALESCE(SUM(CASE WHEN s.is_warmup = 0 THEN (CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps ELSE 0 END), 0) as total_volume,
+              COALESCE(SUM(CASE WHEN s.is_warmup = 0 THEN
+                CASE
+                  WHEN ex.is_bodyweight = 1 AND ex.is_assisted = 1 AND w.bw_kg IS NOT NULL
+                    THEN CASE WHEN w.bw_kg - (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END) < 0
+                              THEN 0
+                              ELSE (w.bw_kg - (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END)) * s.reps END
+                  WHEN ex.is_bodyweight = 1 AND w.bw_kg IS NOT NULL
+                    THEN (w.bw_kg + (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END)) * s.reps
+                  ELSE (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END) * s.reps
+                END
+              ELSE 0 END), 0) as total_volume,
               (SELECT GROUP_CONCAT(g, ',') FROM (
                  SELECT DISTINCT e.muscle_group as g
                  FROM sets s2
@@ -36,6 +46,7 @@ router.get('/history', (req, res) => {
        LEFT JOIN program_days pd ON pd.id = w.program_day_id
        LEFT JOIN programs p ON p.id = pd.program_id
        LEFT JOIN sets s ON s.workout_id = w.id
+       LEFT JOIN exercises ex ON ex.id = s.exercise_id
        WHERE w.finished_at IS NOT NULL
        GROUP BY w.id
        ORDER BY w.started_at DESC`
@@ -121,7 +132,14 @@ router.patch('/:id/finish', (req, res) => {
   const finishMs = Math.min(Date.now(), capMs);
   const finishedAt = new Date(finishMs).toISOString().slice(0, 19).replace('T', ' ');
 
-  db.prepare('UPDATE workouts SET finished_at = ? WHERE id = ?').run(finishedAt, id);
+  const latestBw = db.prepare(
+    `SELECT weight, weight_unit FROM bodyweights ORDER BY logged_at DESC LIMIT 1`
+  ).get();
+  const bwKg = latestBw
+    ? (latestBw.weight_unit === 'lbs' ? latestBw.weight * 0.45359237 : latestBw.weight)
+    : null;
+
+  db.prepare('UPDATE workouts SET finished_at = ?, bw_kg = ? WHERE id = ?').run(finishedAt, bwKg, id);
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   res.json(row);
 });
