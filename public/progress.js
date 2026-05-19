@@ -215,17 +215,23 @@ function renderVolumeChart(rows) {
 
 const MIN_WEEKLY_SESSIONS = 3;
 
+// Format a Date as local YYYY-MM-DD (avoids UTC-shift on toISOString in +12/+13 timezones)
+function localDateStr(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function renderCalendar(entries) {
   const root = $('#calendar');
   const countMap = new Map(entries.map((e) => [e.date, e.count]));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = localDateStr(today);   // was toISOString() — wrong in UTC+ timezones
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const DAY_LETTERS = ['M','T','W','T','F','S','S'];
 
   const rangeStart = entries.length
-    ? new Date(entries[0].date.slice(0, 7) + '-01')
+    ? new Date(entries[0].date + 'T00:00:00')  // parse as local, not UTC
     : new Date(today.getFullYear(), today.getMonth() - 1, 1);
 
   const monthGroups = [];
@@ -237,7 +243,7 @@ function renderCalendar(entries) {
     for (let d = 1; d <= lastDayNum; d++) {
       const dt = new Date(year, month, d);
       if (dt > today) break;
-      allDays.push(dt.toISOString().slice(0, 10));
+      allDays.push(localDateStr(dt));   // was toISOString() — shifted by UTC offset
     }
     const firstDow = (new Date(year, month, 1).getDay() + 6) % 7;
     const cols = [];
@@ -252,14 +258,15 @@ function renderCalendar(entries) {
     mCursor.setMonth(mCursor.getMonth() + 1);
   }
 
+  // Parse entry dates as local midnight so getDay() returns the correct local weekday
   const toMonday = (d) => { const m = new Date(d); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); m.setHours(0,0,0,0); return m; };
   const weekMap = new Map();
   for (const e of entries) {
-    const key = toMonday(new Date(e.date)).toISOString().slice(0, 10);
+    const key = localDateStr(toMonday(new Date(e.date + 'T00:00:00')));  // was toISOString()
     weekMap.set(key, (weekMap.get(key) || 0) + e.count);
   }
   const sortedWeeks = [...weekMap.keys()].sort();
-  const thisWeekKey = toMonday(today).toISOString().slice(0, 10);
+  const thisWeekKey = localDateStr(toMonday(today));  // was toISOString()
 
   let currentStreak = 0;
   let skipCurrent = (weekMap.get(thisWeekKey) || 0) < MIN_WEEKLY_SESSIONS;
