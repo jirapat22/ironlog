@@ -49,9 +49,9 @@ function loadDraft(workoutId) {
     const raw = localStorage.getItem(draftKey(workoutId));
     if (!raw) return { setCounts: {}, inputs: {} };
     const parsed = JSON.parse(raw);
-    return { setCounts: parsed.setCounts || {}, inputs: parsed.inputs || {}, exerciseOrder: parsed.exerciseOrder };
+    return { setCounts: parsed.setCounts || {}, inputs: parsed.inputs || {}, exerciseOrder: parsed.exerciseOrder, skipped: parsed.skipped || {} };
   } catch {
-    return { setCounts: {}, inputs: {} };
+    return { setCounts: {}, inputs: {}, skipped: {} };
   }
 }
 
@@ -249,11 +249,14 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const rec = recommendForNext(ex, lastSets);
   const drafts = workoutState?.draft?.inputs || {};
 
+  const isSkipped = !!(workoutState.draft.skipped?.[ex.exercise_id]);
   const rows = [];
   let firstUnloggedSet = null;
   for (let i = 1; i <= target; i++) {
     const key = `${ex.exercise_id}-${i}`;
     const logged = loggedBySet[key];
+    // When the exercise was skipped, only show logged rows on re-render
+    if (isSkipped && !logged) continue;
     const prevSet = lastSets.find((s) => s.set_number === i) || prevReference;
     const draft = drafts[key];
 
@@ -268,14 +271,14 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 
   const hint = rec ? buildProgressionHint(rec) : '';
 
-  // Mark complete if every target set is already logged — survives re-renders (swap, add, etc.)
-  let allLogged = target > 0;
-  for (let i = 1; i <= target; i++) {
-    if (!loggedBySet[`${ex.exercise_id}-${i}`]) { allLogged = false; break; }
-  }
+  // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
+  const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
+
+  const skipLabel = isSkipped ? 'Skipped — tap to undo' : 'Done with this exercise';
+  const cardClasses = `exercise-card${isComplete ? ' exercise-card--complete' : ''}${isSkipped ? ' exercise-card--skipped' : ''}`;
 
   return `
-    <div class="exercise-card ${allLogged ? 'exercise-card--complete' : ''}" data-ex="${ex.exercise_id}">
+    <div class="${cardClasses}" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
         <button class="exercise-card__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
         <div>
@@ -294,12 +297,12 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
       <div class="set-rows">
         ${rows.join('')}
       </div>
-      <div class="set-count-controls">
+      <div class="set-count-controls" ${isSkipped ? 'style="display:none"' : ''}>
         <button class="set-count-btn" data-remove-set-row="${ex.exercise_id}" aria-label="Remove a set">−</button>
         <span class="set-count-controls__label">${target} ${target === 1 ? 'set' : 'sets'}</span>
         <button class="set-count-btn" data-add-set-row="${ex.exercise_id}" aria-label="Add a set">+</button>
       </div>
-      <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}" ${allLogged ? 'style="display:none"' : ''}>Done with this exercise</button>
+      <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}" ${isComplete && !isSkipped ? 'style="display:none"' : ''}>${skipLabel}</button>
     </div>
   `;
 }
@@ -719,11 +722,16 @@ function moveNextHighlight(exId) {
 function checkExerciseComplete(exId) {
   const card = document.querySelector(`.exercise-card[data-ex="${exId}"]`);
   if (!card) return;
+  const isSkipped = card.classList.contains('exercise-card--skipped');
   const visibleRows = [...card.querySelectorAll('.set-row')].filter((r) => !r.classList.contains('hidden'));
-  const allDone = visibleRows.length > 0 && visibleRows.every((r) => !!r.dataset.setId);
+  const allDone = isSkipped || (visibleRows.length > 0 && visibleRows.every((r) => !!r.dataset.setId));
   card.classList.toggle('exercise-card--complete', allDone);
   const skipBtn = card.querySelector('[data-skip-ex]');
-  if (skipBtn) skipBtn.style.display = allDone ? 'none' : '';
+  if (skipBtn) {
+    // Hide skip button when fully logged; show "Skipped" undo button when skipped
+    if (isSkipped) skipBtn.style.display = '';
+    else skipBtn.style.display = allDone ? 'none' : '';
+  }
 }
 
 async function persistRpeChange(row) {
@@ -774,19 +782,31 @@ function skipRemainingForExercise(exerciseId) {
   const rows = [...card.querySelectorAll('.set-row')];
   const unlogged = rows.filter((r) => !r.dataset.setId);
   if (!unlogged.length) return;
+
+  // Persist skip state so it survives re-renders
+  if (!workoutState.draft.skipped) workoutState.draft.skipped = {};
+  workoutState.draft.skipped[exerciseId] = true;
+  saveDraft(workoutState.workout.id, workoutState.draft);
+
   unlogged.forEach((r) => r.classList.add('hidden'));
-  card.classList.add('exercise-card--skipped');
-  checkExerciseComplete(exerciseId);
+  card.classList.add('exercise-card--skipped', 'exercise-card--complete');
   const skipBtn = card.querySelector('[data-skip-ex]');
-  if (skipBtn) skipBtn.textContent = 'Skipped — tap to undo';
+  if (skipBtn) {
+    skipBtn.style.display = '';
+    skipBtn.textContent = 'Skipped — tap to undo';
+  }
+
   skipBtn?.addEventListener('click', (e) => {
     if (!card.classList.contains('exercise-card--skipped')) return;
     e.stopPropagation();
-    card.classList.remove('exercise-card--skipped', 'exercise-card--complete');
-    unlogged.forEach((r) => r.classList.remove('hidden'));
-    skipBtn.textContent = 'Done with this exercise';
-    checkExerciseComplete(exerciseId);
+    // Un-skip: remove from draft, re-render so the hidden rows come back
+    if (workoutState.draft.skipped) {
+      delete workoutState.draft.skipped[exerciseId];
+      saveDraft(workoutState.workout.id, workoutState.draft);
+    }
+    renderWorkoutView();
   }, { once: true });
+
   toast(`Skipped ${unlogged.length} remaining set${unlogged.length > 1 ? 's' : ''}`);
 }
 
