@@ -233,7 +233,12 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     const newOrder = [...container.children].map((r) => r.dataset[idKey]);
     const moved = newOrder.some((id, i) => id !== drag.origOrder[i]);
     drag = null;
-    if (moved) await onDrop(newOrder);
+    if (moved) {
+      // Suppress the synthetic click that fires after pointerup so it can't
+      // accidentally hit a button (e.g. "Done with this exercise") at the drop position.
+      container.addEventListener('click', (ev) => ev.stopPropagation(), { once: true, capture: true });
+      await onDrop(newOrder);
+    }
   };
 
   container.addEventListener('pointerdown', onDown);

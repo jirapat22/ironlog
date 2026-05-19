@@ -268,8 +268,14 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 
   const hint = rec ? buildProgressionHint(rec) : '';
 
+  // Mark complete if every target set is already logged — survives re-renders (swap, add, etc.)
+  let allLogged = target > 0;
+  for (let i = 1; i <= target; i++) {
+    if (!loggedBySet[`${ex.exercise_id}-${i}`]) { allLogged = false; break; }
+  }
+
   return `
-    <div class="exercise-card" data-ex="${ex.exercise_id}">
+    <div class="exercise-card ${allLogged ? 'exercise-card--complete' : ''}" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
         <button class="exercise-card__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
         <div>
@@ -293,7 +299,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
         <span class="set-count-controls__label">${target} ${target === 1 ? 'set' : 'sets'}</span>
         <button class="set-count-btn" data-add-set-row="${ex.exercise_id}" aria-label="Add a set">+</button>
       </div>
-      <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}">Done with this exercise</button>
+      <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}" ${allLogged ? 'style="display:none"' : ''}>Done with this exercise</button>
     </div>
   `;
 }
@@ -307,7 +313,7 @@ function buildProgressionHint(rec) {
     return `
       <div class="prog-hint prog-hint--up">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong></div>
-        <div class="prog-hint__sub">Last session: ${rec.lastWeight} &times; ${rec.repsList} &mdash; all sets hit ${rec.recReps}+ reps &#x2713;</div>
+        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.recReps}+ &#x2713;</div>
       </div>`;
   } else {
     const gap = rec.recReps - rec.minReps;
@@ -316,7 +322,7 @@ function buildProgressionHint(rec) {
     return `
       <div class="prog-hint prog-hint--same">
         <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
-        <div class="prog-hint__sub">Last: ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
+        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
       </div>`;
   }
 }
@@ -860,7 +866,10 @@ async function openSwapPicker(currentExerciseId) {
       ...currentEx,
       exercise_id: newExId,
       name: newEx.name,
-      muscle_group: newEx.muscle_group
+      muscle_group: newEx.muscle_group,
+      is_bodyweight: !!newEx.is_bodyweight,
+      is_assisted: !!newEx.is_assisted,
+      notes: newEx.notes || null
     };
     hideSheet(picker);
     haptic(20);
@@ -933,8 +942,9 @@ async function openWorkoutAddExercisePicker() {
       exercise_id: exId,
       name: newEx.name,
       muscle_group: newEx.muscle_group,
-      notes: newEx.notes,
+      notes: newEx.notes || null,
       is_bodyweight: !!newEx.is_bodyweight,
+      is_assisted: !!newEx.is_assisted,
       target_sets: 3,
       target_reps: 10,
       order_index: workoutState.programDay.exercises.length
