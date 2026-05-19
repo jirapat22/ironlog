@@ -216,7 +216,11 @@ function historyCardHTML(w) {
           <div class="history-card__meta">${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${dur}${w.feel_rating ? ' · ' + feelEmoji(w.feel_rating) : ''}</div>
           ${groupBadges ? `<div class="history-card__groups">${groupBadges}</div>` : ''}
         </div>
-        <div class="history-card__stats">${w.total_sets} sets<br/>${Math.round(w.total_volume).toLocaleString()} kg</div>
+        <div class="history-card__stats">
+          ${w.total_sets} sets<br/>
+          ${Math.round(w.total_volume).toLocaleString()} kg
+          ${w.calories_burned ? `<br/><span style="font-size:11px;color:var(--text-dim)">~${w.calories_burned} kcal</span>` : ''}
+        </div>
       </button>
       <div class="history-card__body"></div>
     </div>`;

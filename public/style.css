@@ -1918,6 +1918,19 @@ button {
   letter-spacing: 0.04em;
 }
 
+.tdee-workout-burn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.tdee-workout-burn strong { color: var(--text); }
+.tdee-workout-burn--net strong { color: var(--accent); font-size: 15px; }
+
 .tdee-breakdown {
   display: flex;
   justify-content: center;

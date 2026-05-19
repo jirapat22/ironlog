@@ -705,6 +705,31 @@ async function renderTdeeSection() {
   const tdee = Math.round(bmr * multiplier);
   const goalKcal = tdee + GOAL_OFFSETS[goal];
   const macros = computeMacros(goalKcal, weightKg, goal);
+
+  // Today's workout calorie burn (if any finished workouts today)
+  let todayBurn = 0;
+  try {
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })();
+    const history = await API.history();
+    for (const w of history) {
+      const wDate = new Date(w.started_at.replace(' ', 'T') + 'Z');
+      const wLocal = `${wDate.getFullYear()}-${pad(wDate.getMonth()+1)}-${pad(wDate.getDate())}`;
+      if (wLocal === todayStr && w.calories_burned) todayBurn += w.calories_burned;
+    }
+  } catch { /* non-critical */ }
+
+  const burnRow = todayBurn
+    ? `<div class="tdee-workout-burn">
+         <span>Today&#39;s workout burned</span>
+         <strong>~${todayBurn} kcal</strong>
+       </div>
+       <div class="tdee-workout-burn tdee-workout-burn--net">
+         <span>Remaining to eat today</span>
+         <strong>${(goalKcal + todayBurn).toLocaleString()} kcal</strong>
+       </div>`
+    : '';
+
   const goalTile = (key) => {
     const kcal = tdee + GOAL_OFFSETS[key];
     const offset = GOAL_OFFSETS[key];
@@ -715,6 +740,7 @@ async function renderTdeeSection() {
     <div class="tdee-main"><div class="tdee-main__val">${goalKcal.toLocaleString()}</div><div class="tdee-main__unit">kcal / day · ${GOAL_LABELS[goal]}</div></div>
     <div class="tdee-breakdown"><span>TDEE <strong>${tdee.toLocaleString()}</strong></span><span>·</span><span>BMR <strong>${bmr.toLocaleString()}</strong> × ${multiplier.toFixed(3)}</span></div>
     <div class="tdee-goals">${goalTile('cut')}${goalTile('maintain')}${goalTile('bulk')}</div>
+    ${burnRow}
     <div class="macros">
       <div class="macros__title">Daily macros</div>
       <div class="macro-row macro-row--protein"><span class="macro-row__name">Protein</span><span class="macro-row__g">${macros.protein.g} g</span><span class="macro-row__kcal">${macros.protein.kcal} kcal</span><span class="macro-row__pct">${macros.protein.pct}%</span></div>

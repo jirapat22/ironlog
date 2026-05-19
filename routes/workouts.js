@@ -21,7 +21,7 @@ router.post('/', (req, res) => {
 router.get('/history', (req, res) => {
   const rows = db
     .prepare(
-      `SELECT w.id, w.started_at, w.finished_at, w.notes, w.feel_rating,
+      `SELECT w.id, w.started_at, w.finished_at, w.notes, w.feel_rating, w.calories_burned,
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
@@ -139,7 +139,13 @@ router.patch('/:id/finish', (req, res) => {
     ? (latestBw.weight_unit === 'lbs' ? latestBw.weight * 0.45359237 : latestBw.weight)
     : null;
 
-  db.prepare('UPDATE workouts SET finished_at = ?, bw_kg = ? WHERE id = ?').run(finishedAt, bwKg, id);
+  // Estimate calories burned: MET 5.0 (resistance training, moderate) × kg × hours
+  const startMs = new Date(w.started_at.replace(' ', 'T') + 'Z').getTime();
+  const durationHours = (finishMs - startMs) / 3600000;
+  const caloriesBurned = bwKg ? Math.round(5.0 * bwKg * durationHours) : null;
+
+  db.prepare('UPDATE workouts SET finished_at = ?, bw_kg = ?, calories_burned = ? WHERE id = ?')
+    .run(finishedAt, bwKg, caloriesBurned, id);
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   res.json(row);
 });

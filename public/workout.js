@@ -1035,13 +1035,15 @@ async function finishWorkout() {
         .map((r) => ({ name: g.exercise_name, ...r }))
     );
 
+    const finishedWorkout = await API.workout(id);
     renderSummary({
       workoutId: id,
       sets: sets.length,
       volume: totalVolume,
       duration: fmtDuration(workoutState.startedAt, new Date().toISOString()),
       newPRs,
-      dayLabel: workoutState.programDay.day_label
+      dayLabel: workoutState.programDay.day_label,
+      calories: finishedWorkout.calories_burned ?? null
     });
 
     clearDraft(id);
@@ -1055,8 +1057,11 @@ async function finishWorkout() {
   }
 }
 
-function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel }) {
+function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories }) {
   const root = $('#view-workout');
+  const calTile = calories
+    ? `<div class="summary__tile"><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value">${calories}&nbsp;kcal</div></div>`
+    : '';
   root.innerHTML = `
     <div class="summary">
       <div class="summary__stat">${escapeHtml(dayLabel)}</div>
@@ -1065,6 +1070,7 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel }) 
         <div class="summary__tile"><div class="summary__tile-label">Sets</div><div class="summary__tile-value">${sets}</div></div>
         <div class="summary__tile"><div class="summary__tile-label">Volume (kg)</div><div class="summary__tile-value">${Math.round(volume).toLocaleString()}</div></div>
         <div class="summary__tile"><div class="summary__tile-label">Time</div><div class="summary__tile-value">${duration}</div></div>
+        ${calTile}
       </div>
       ${newPRs.length ? `<div class="card" style="text-align:left">
           <div class="card__title">New PRs &#x1F3C6;</div>
