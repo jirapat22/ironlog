@@ -506,7 +506,19 @@ function wireWorkoutView() {
     const swapBtn = e.target.closest('[data-swap-ex]');
     if (swapBtn) { e.stopPropagation(); haptic(15); openSwapPicker(Number(swapBtn.dataset.swapEx)); return; }
     const skipBtn = e.target.closest('[data-skip-ex]');
-    if (skipBtn) { e.stopPropagation(); haptic(15); skipRemainingForExercise(Number(skipBtn.dataset.skipEx)); return; }
+    if (skipBtn) {
+      e.stopPropagation(); haptic(15);
+      const exId = Number(skipBtn.dataset.skipEx);
+      if (workoutState.draft.skipped?.[exId]) {
+        // Undo skip: clear draft flag and re-render to restore hidden rows
+        delete workoutState.draft.skipped[exId];
+        saveDraft(workoutState.workout.id, workoutState.draft);
+        renderWorkoutView();
+      } else {
+        skipRemainingForExercise(exId);
+      }
+      return;
+    }
     if (e.target.closest('[data-add-workout-ex]')) { haptic(15); openWorkoutAddExercisePicker(); return; }
 
     const addRow = e.target.closest('[data-add-set-row]');
@@ -796,17 +808,6 @@ function skipRemainingForExercise(exerciseId) {
     skipBtn.textContent = 'Skipped — tap to undo';
   }
 
-  skipBtn?.addEventListener('click', (e) => {
-    if (!card.classList.contains('exercise-card--skipped')) return;
-    e.stopPropagation();
-    // Un-skip: remove from draft, re-render so the hidden rows come back
-    if (workoutState.draft.skipped) {
-      delete workoutState.draft.skipped[exerciseId];
-      saveDraft(workoutState.workout.id, workoutState.draft);
-    }
-    renderWorkoutView();
-  }, { once: true });
-
   toast(`Skipped ${unlogged.length} remaining set${unlogged.length > 1 ? 's' : ''}`);
 }
 
@@ -1010,7 +1011,7 @@ async function finishWorkout() {
     if (!confirm('No sets logged. Finish this workout anyway? It will show in History as empty.')) return;
   }
   try {
-    await API.finishWorkout(id);
+    const finishedWorkout = await API.finishWorkout(id);
     if (stickyTimerHandle) clearInterval(stickyTimerHandle);
     releaseWakeLock();
     cancelRestCountdown();
@@ -1035,7 +1036,6 @@ async function finishWorkout() {
         .map((r) => ({ name: g.exercise_name, ...r }))
     );
 
-    const finishedWorkout = await API.workout(id);
     renderSummary({
       workoutId: id,
       sets: sets.length,

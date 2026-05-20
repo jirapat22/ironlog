@@ -6,7 +6,7 @@ const router = express.Router();
 router.get('/progress/:exerciseId', (req, res) => {
   const exerciseId = Number(req.params.exerciseId);
   const exercise = db
-    .prepare('SELECT id, name, muscle_group, is_bodyweight FROM exercises WHERE id = ?')
+    .prepare('SELECT id, name, muscle_group, is_bodyweight, is_assisted FROM exercises WHERE id = ?')
     .get(exerciseId);
 
   const rows = db

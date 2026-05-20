@@ -171,5 +171,5 @@ export {
   urlBase64ToUint8Array, subscribeWebPush, unsubscribeWebPush,
   scheduleRestPushBackup, cancelRestPushBackup,
   setAppBadge, refreshBadgeFromCalendar,
-  restState, startRestCountdown, cancelRestCountdown, isRestActive
+  startRestCountdown, cancelRestCountdown, isRestActive
 };
