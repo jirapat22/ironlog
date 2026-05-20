@@ -28,6 +28,16 @@ router.post('/:id/days', (req, res) => {
   res.status(201).json(row);
 });
 
+// Rename a day
+router.patch('/:id/days/:dayId', (req, res) => {
+  const dayId = Number(req.params.dayId);
+  const { day_label } = req.body || {};
+  if (!day_label || !String(day_label).trim()) return res.status(400).json({ error: 'day_label is required' });
+  const result = db.prepare('UPDATE program_days SET day_label = ? WHERE id = ?').run(String(day_label).trim(), dayId);
+  if (result.changes === 0) return res.status(404).json({ error: 'day not found' });
+  res.json(db.prepare('SELECT * FROM program_days WHERE id = ?').get(dayId));
+});
+
 // Delete a day (cascades to exercises)
 router.delete('/:id/days/:dayId', (req, res) => {
   const dayId = Number(req.params.dayId);

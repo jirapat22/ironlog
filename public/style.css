@@ -636,6 +636,36 @@ button {
   font-size: 13px;
 }
 
+.picker-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.picker-row-wrap .picker-row {
+  flex: 1;
+}
+.picker-row__edit {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 0 10px;
+  font-size: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.picker-row__edit:active { color: var(--accent); }
+
+.sheet__title--tap {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.sheet__title--tap:active { background: var(--surface-2); }
+
 .picker-row--added {
   opacity: 0.55;
 }

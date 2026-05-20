@@ -267,7 +267,7 @@ function renderEditSheet() {
     <div class="sheet__inner">
       <div class="sheet__head">
         <button class="btn--icon" data-close-sheet>←</button>
-        <div class="sheet__title">${escapeHtml(day.day_label)}</div>
+        <button class="sheet__title sheet__title--tap" data-rename-day title="Tap to rename">${escapeHtml(day.day_label)} &#x270E;</button>
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body">
@@ -285,6 +285,18 @@ function renderEditSheet() {
     if (e.target.closest('[data-close-sheet]')) {
       hideSheet(sheet);
       if (localStorage.getItem(LS.currentTab) === 'programs') renderPrograms();
+      return;
+    }
+    if (e.target.closest('[data-rename-day]')) {
+      const newLabel = prompt('Rename day:', day.day_label);
+      if (!newLabel || !newLabel.trim() || newLabel.trim() === day.day_label) return;
+      try {
+        await API.renameDay(programId, dayId, { day_label: newLabel.trim() });
+        day.day_label = newLabel.trim();
+        const btn = sheet.querySelector('[data-rename-day]');
+        if (btn) btn.textContent = `${newLabel.trim()} ✎`;
+        haptic(10);
+      } catch (err) { toast(err.message); }
       return;
     }
     if (e.target.closest('[data-open-picker]')) return openPicker();
@@ -395,10 +407,13 @@ async function openPicker() {
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
-              <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}</span>
-                <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
-              </button>`).join('')}
+              <div class="picker-row-wrap">
+                <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+                  <span>${escapeHtml(ex.name)}</span>
+                  <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
+                </button>
+                <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
+              </div>`).join('')}
           </div>`).join('')}
       </div>
     </div>
@@ -418,6 +433,16 @@ async function openPicker() {
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-picker]')) return hideSheet(picker);
     if (e.target.closest('[data-new-exercise]')) return openNewExerciseForm(picker);
+
+    const editExBtn = e.target.closest('[data-edit-ex]');
+    if (editExBtn) {
+      const exId = Number(editExBtn.dataset.editEx);
+      const ex = allExercises.find((x) => x.id === exId);
+      if (!ex) return;
+      openEditExerciseForm(picker, ex, allExercises);
+      return;
+    }
+
     const pickBtn = e.target.closest('[data-pick]');
     if (!pickBtn) return;
     if (pickBtn.classList.contains('picker-row--added')) { toast('Already in this day'); return; }
@@ -475,6 +500,58 @@ function openNewExerciseForm(picker) {
       hideSheet(picker);
       renderEditSheet();
     } catch (err) { toast(err.message); }
+  };
+}
+
+function openEditExerciseForm(picker, ex, allExercises) {
+  const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-back-picker>←</button>
+        <div class="sheet__title">Edit exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <label class="form-label">Name</label>
+        <input class="input" id="edit-ex-name" value="${escapeHtml(ex.name)}"/>
+        <label class="form-label" style="margin-top:14px">Muscle group</label>
+        <select class="input" id="edit-ex-muscle">
+          ${GROUPS.map((g) => `<option value="${g}" ${ex.muscle_group === g ? 'selected' : ''}>${g}</option>`).join('')}
+        </select>
+        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
+        <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
+        <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
+        <button class="btn btn--ghost btn--block" id="edit-ex-delete" style="margin-top:10px;color:var(--danger)">Delete exercise</button>
+      </div>
+    </div>`;
+
+  picker.querySelector('[data-back-picker]').onclick = () => openPicker();
+
+  picker.querySelector('#edit-ex-save').onclick = async () => {
+    const name = picker.querySelector('#edit-ex-name').value.trim();
+    const muscle = picker.querySelector('#edit-ex-muscle').value;
+    const notes = picker.querySelector('#edit-ex-notes').value.trim() || null;
+    if (!name) return toast('Name required');
+    try {
+      const updated = await API.updateExercise(ex.id, { name, muscle_group: muscle, notes });
+      // Sync in-memory list so picker reflects changes immediately
+      Object.assign(ex, updated);
+      editDayState.allExercises = editDayState.allExercises.map((x) => x.id === ex.id ? updated : x);
+      haptic(10);
+      toast('Saved');
+      openPicker();
+    } catch (err) { toast(err.message); }
+  };
+
+  picker.querySelector('#edit-ex-delete').onclick = async () => {
+    if (!confirm(`Delete "${ex.name}"? This only works if it's not used in any program or workout.`)) return;
+    try {
+      await API.deleteExercise(ex.id);
+      editDayState.allExercises = editDayState.allExercises.filter((x) => x.id !== ex.id);
+      haptic(20); toast(`Deleted ${ex.name}`);
+      openPicker();
+    } catch (err) { toast(err.message); } // server returns 409 if in use
   };
 }
 
