@@ -1,5 +1,11 @@
 import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, enableDragReorder, PICKER_GROUP_ORDER } from './utils.js';
-import { API } from './api.js';
+import { API, REST_SECONDS } from './api.js';
+
+function fmtRest(s) {
+  if (s == null) return '—';
+  const m = Math.floor(s / 60), sec = s % 60;
+  return m > 0 ? (sec > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${m}m`) : `${s}s`;
+}
 
 // ---------- PROGRAMS tab ----------
 async function renderPrograms() {
@@ -9,12 +15,25 @@ async function renderPrograms() {
   try {
     const programs = await API.programs();
     if (!programs.length) {
-      root.innerHTML = `<div class="empty"><div class="empty__icon">&#x1F4C5;</div><div>No programs yet</div></div>`;
+      root.innerHTML = `
+        <div class="empty"><div class="empty__icon">&#x1F4C5;</div><div style="margin-bottom:12px">No programs yet</div></div>
+        <button class="btn btn--primary btn--block" data-new-program style="margin-top:8px">+ Create program</button>`;
+      root.querySelector('[data-new-program]').addEventListener('click', async () => {
+        const name = prompt('Program name?', 'My Program');
+        if (!name || !name.trim()) return;
+        try {
+          const p = await API.createProgram({ name: name.trim() });
+          const day = await API.addDay(p.id, { day_label: 'Day 1' });
+          haptic(20);
+          openEditDay(p.id, day.id);
+        } catch (err) { toast(err.message); }
+      });
       return;
     }
 
     const full = await Promise.all(programs.map((p) => API.program(p.id)));
-    root.innerHTML = full.map((p) => programCardHTML(p)).join('');
+    root.innerHTML = full.map((p) => programCardHTML(p)).join('') +
+      `<button class="btn btn--ghost btn--block" data-new-program style="margin-top:12px">+ Create program</button>`;
     await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
 
     root.onclick = async (e) => {
@@ -60,6 +79,19 @@ async function renderPrograms() {
         return;
       }
 
+      const deleteDayBtn = e.target.closest('[data-delete-day]');
+      if (deleteDayBtn) {
+        e.stopPropagation();
+        if (!confirm('Delete this day and all its exercises?')) return;
+        const dayId = Number(deleteDayBtn.dataset.deleteDay);
+        const programId = Number(deleteDayBtn.dataset.programId);
+        try {
+          await API.deleteDay(programId, dayId);
+          haptic(20); renderPrograms();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
       const header = e.target.closest('.program-card__header');
       if (header) { header.closest('.program-card').classList.toggle('expanded'); return; }
 
@@ -67,6 +99,20 @@ async function renderPrograms() {
       if (editBtn) {
         haptic(15);
         openEditDay(Number(editBtn.dataset.programId), Number(editBtn.dataset.editDay));
+        return;
+      }
+
+      const addDayBtn = e.target.closest('[data-add-day]');
+      if (addDayBtn) {
+        e.stopPropagation();
+        const programId = Number(addDayBtn.dataset.addDay);
+        const label = prompt('Day name?', 'Day');
+        if (!label || !label.trim()) return;
+        try {
+          const newDay = await API.addDay(programId, { day_label: label.trim() });
+          haptic(20);
+          openEditDay(programId, newDay.id);
+        } catch (err) { toast(err.message); }
         return;
       }
 
@@ -89,6 +135,19 @@ async function renderPrograms() {
         }
       }
     };
+
+    // Create new program button (outside the program list)
+    root.querySelector('[data-new-program]')?.addEventListener('click', async () => {
+      const name = prompt('Program name?', 'My Program');
+      if (!name || !name.trim()) return;
+      try {
+        const p = await API.createProgram({ name: name.trim() });
+        haptic(20);
+        // Immediately add a first day so the program isn't empty
+        const day = await API.addDay(p.id, { day_label: 'Day 1' });
+        openEditDay(p.id, day.id);
+      } catch (err) { toast(err.message); }
+    });
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load programs: ${err.message}</div>`;
   }
@@ -111,6 +170,7 @@ function programCardHTML(p) {
           <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
         </div>
         ${p.days.map((d) => dayCardHTML(d, p.id)).join('')}
+        <button class="btn btn--ghost btn--sm" data-add-day="${p.id}" style="margin-top:8px;width:100%">+ Add day</button>
       </div>
     </div>
   `;
@@ -130,6 +190,7 @@ function dayCardHTML(d, programId) {
       <div class="day-card__actions">
         <button class="btn btn--ghost btn--sm" data-edit-day="${d.id}" data-program-id="${programId}">Edit</button>
         <button class="btn btn--primary btn--sm" data-start-day="${d.id}" style="flex:1">Start workout</button>
+        <button class="btn btn--ghost btn--sm" data-delete-day="${d.id}" data-program-id="${programId}" style="color:var(--danger)" title="Delete day">&times;</button>
       </div>
     </div>
   `;
@@ -188,6 +249,12 @@ function renderEditSheet() {
           <button class="edit-stepper__btn" data-field="target_reps" data-step="1">+</button>
           <span class="edit-stepper__label">reps</span>
         </div>
+        <div class="edit-stepper">
+          <button class="edit-stepper__btn" data-field="rest_seconds" data-step="-30">−</button>
+          <span class="edit-stepper__value" data-display="rest_seconds">${fmtRest(e.rest_seconds)}</span>
+          <button class="edit-stepper__btn" data-field="rest_seconds" data-step="30">+</button>
+          <span class="edit-stepper__label">rest</span>
+        </div>
       </div>
       <div class="edit-row__actions">
         <button class="btn--icon" data-move="up" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
@@ -231,9 +298,20 @@ function renderEditSheet() {
       const field = step.dataset.field;
       const delta = Number(step.dataset.step);
       const current = editDayState.day.exercises.find((x) => x.id === pdeId);
-      const next = Math.max(1, current[field] + delta);
-      current[field] = next;
-      row.querySelector(`[data-display="${field}"]`).textContent = next;
+      let next, display;
+      if (field === 'rest_seconds') {
+        // null = "use global default". Step below 30 → back to null.
+        const base = current.rest_seconds ?? REST_SECONDS;
+        const raw = base + delta;
+        next = raw < 30 ? null : Math.min(600, raw);
+        current.rest_seconds = next;
+        display = fmtRest(next);
+      } else {
+        next = Math.max(1, current[field] + delta);
+        current[field] = next;
+        display = String(next);
+      }
+      row.querySelector(`[data-display="${field}"]`).textContent = display;
       haptic(10);
       try { await API.updateDayExercise(programId, dayId, pdeId, { [field]: next }); }
       catch (err) { toast(err.message); }

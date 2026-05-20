@@ -32,7 +32,8 @@ async function openSettingsSheet() {
       <div class="card__subtitle" style="margin-top:8px">On iOS, notifications require adding the app to the Home Screen first.</div>`;
   }
 
-  const pinSet = !!localStorage.getItem(LS.pin);
+  const _p = localStorage.getItem(LS.pin);
+  const pinSet = !!_p && _p !== 'none';
   const standalone = isStandalone();
 
   sheet.innerHTML = `

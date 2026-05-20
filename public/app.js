@@ -71,7 +71,7 @@ function renderPinDots() {
 function onPinComplete() {
   const saved = localStorage.getItem(LS.pin);
   const lockEl = $('#pin-lock');
-  if (!saved) {
+  if (!saved || saved === 'none') {
     if (pinMode === 'set') {
       pinFirst = pinBuffer; pinBuffer = ''; pinMode = 'confirm';
       $('#pin-subtitle').textContent = 'Confirm PIN';
@@ -90,7 +90,7 @@ function onPinComplete() {
       renderPinDots(); return;
     }
   }
-  if (pinBuffer === saved) {
+  if (saved && saved !== 'none' && pinBuffer === saved) {
     sessionStorage.setItem(LS.pinUnlocked, '1');
     hidePinLock();
   } else {
@@ -103,11 +103,29 @@ function onPinComplete() {
 
 function showPinLock() {
   const saved = localStorage.getItem(LS.pin);
+  const hasPIN = saved && saved !== 'none';
   pinBuffer = ''; pinFirst = '';
-  pinMode = saved ? 'enter' : 'set';
-  $('#pin-subtitle').textContent = saved ? 'Enter PIN' : 'Set a 4-digit PIN';
+  pinMode = hasPIN ? 'enter' : 'set';
+  $('#pin-subtitle').textContent = hasPIN ? 'Enter PIN' : 'Set a 4-digit PIN';
   renderPinKeypad();
   renderPinDots();
+
+  // Show "Skip" only on first-time PIN setup (not on the enter screen)
+  let skipBtn = document.getElementById('pin-skip');
+  if (!skipBtn) {
+    skipBtn = document.createElement('button');
+    skipBtn.id = 'pin-skip';
+    skipBtn.className = 'btn btn--ghost';
+    skipBtn.style.cssText = 'margin-top:16px;opacity:.7;font-size:13px';
+    skipBtn.textContent = 'Skip — use without PIN';
+    $('#pin-lock .pin-lock__inner').appendChild(skipBtn);
+  }
+  skipBtn.style.display = hasPIN ? 'none' : '';
+  skipBtn.onclick = () => {
+    localStorage.setItem(LS.pin, 'none');
+    hidePinLock();
+  };
+
   $('#pin-lock').classList.remove('hidden');
 }
 
@@ -169,11 +187,14 @@ function boot() {
   syncTimezoneOffset();
 }
 
-// PIN gate
-if (localStorage.getItem(LS.pin) && sessionStorage.getItem(LS.pinUnlocked) !== '1') {
-  showPinLock();
-} else if (!localStorage.getItem(LS.pin)) {
-  showPinLock();
+// PIN gate — 'none' means user explicitly skipped setup
+const _pin = localStorage.getItem(LS.pin);
+if (!_pin) {
+  showPinLock(); // first launch: offer setup or skip
+} else if (_pin === 'none') {
+  boot(); // skipped PIN
+} else if (sessionStorage.getItem(LS.pinUnlocked) !== '1') {
+  showPinLock(); // has PIN, needs to enter it
 } else {
   boot();
 }

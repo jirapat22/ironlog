@@ -26,6 +26,9 @@ async function api(path, opts = {}) {
 }
 
 const API = {
+  createProgram: (data) => api('/api/programs', { method: 'POST', body: data }),
+  addDay: (programId, data) => api(`/api/programs/${programId}/days`, { method: 'POST', body: data }),
+  deleteDay: (programId, dayId) => api(`/api/programs/${programId}/days/${dayId}`, { method: 'DELETE' }),
   exercises: () => api('/api/exercises'),
   addExercise: (data) => api('/api/exercises', { method: 'POST', body: data }),
   programs: () => api('/api/programs'),

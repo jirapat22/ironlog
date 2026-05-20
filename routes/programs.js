@@ -3,6 +3,39 @@ const { db, tx } = require('../db');
 
 const router = express.Router();
 
+// Create a blank program
+router.post('/', (req, res) => {
+  const { name, description = '' } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
+  const info = db.prepare('INSERT INTO programs (name, description) VALUES (?, ?)')
+    .run(String(name).trim(), description || '');
+  const row = db.prepare('SELECT id, name, description FROM programs WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json(row);
+});
+
+// Add a day to a program
+router.post('/:id/days', (req, res) => {
+  const programId = Number(req.params.id);
+  const { day_label } = req.body || {};
+  if (!day_label || !String(day_label).trim()) return res.status(400).json({ error: 'day_label is required' });
+  const program = db.prepare('SELECT id FROM programs WHERE id = ?').get(programId);
+  if (!program) return res.status(404).json({ error: 'program not found' });
+  const { m } = db.prepare('SELECT COALESCE(MAX(day_order), -1) as m FROM program_days WHERE program_id = ?').get(programId);
+  const info = db.prepare('INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)')
+    .run(programId, String(day_label).trim(), m + 1);
+  const row = db.prepare('SELECT * FROM program_days WHERE id = ?').get(info.lastInsertRowid);
+  row.exercises = [];
+  res.status(201).json(row);
+});
+
+// Delete a day (cascades to exercises)
+router.delete('/:id/days/:dayId', (req, res) => {
+  const dayId = Number(req.params.dayId);
+  const result = db.prepare('DELETE FROM program_days WHERE id = ?').run(dayId);
+  if (result.changes === 0) return res.status(404).json({ error: 'day not found' });
+  res.json({ deleted: true });
+});
+
 // Duplicate a program (with all days + exercises) under a new name
 router.post('/:id/duplicate', (req, res) => {
   const srcId = Number(req.params.id);
@@ -91,7 +124,7 @@ router.get('/:id', (req, res) => {
     .all(id);
 
   const dayExStmt = db.prepare(`
-    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index,
+    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
            e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight, e.is_assisted
     FROM program_day_exercises pde
     JOIN exercises e ON e.id = pde.exercise_id
@@ -146,7 +179,7 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   const existing = db.prepare('SELECT * FROM program_day_exercises WHERE id = ?').get(pdeId);
   if (!existing) return res.status(404).json({ error: 'entry not found' });
 
-  const fields = ['target_sets', 'target_reps', 'exercise_id', 'order_index'];
+  const fields = ['target_sets', 'target_reps', 'exercise_id', 'order_index', 'rest_seconds'];
   const updates = [];
   const values = [];
   for (const f of fields) {

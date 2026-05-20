@@ -719,15 +719,20 @@ async function renderTdeeSection() {
     }
   } catch { /* non-critical */ }
 
+  // Only suggest "eat back" when the activity multiplier doesn't already include the session.
+  // Sedentary / light users don't have workouts pre-baked into their TDEE.
+  const earnedBack = activity === 'sedentary' || activity === 'light';
   const burnRow = todayBurn
     ? `<div class="tdee-workout-burn">
          <span>Today&#39;s workout burned</span>
          <strong>~${todayBurn} kcal</strong>
        </div>
-       <div class="tdee-workout-burn tdee-workout-burn--net">
-         <span>Remaining to eat today</span>
-         <strong>${(goalKcal + todayBurn).toLocaleString()} kcal</strong>
-       </div>`
+       ${earnedBack
+         ? `<div class="tdee-workout-burn tdee-workout-burn--net">
+              <span>Eat back (not in your TDEE)</span>
+              <strong>${(goalKcal + todayBurn).toLocaleString()} kcal today</strong>
+            </div>`
+         : `<div class="card__subtitle" style="margin:4px 0 8px">Already counted in your TDEE (${ACTIVITY_LABELS[activity]?.split('(')[0].trim()}).</div>`}`
     : '';
 
   const goalTile = (key) => {

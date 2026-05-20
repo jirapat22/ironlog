@@ -163,6 +163,12 @@ function init() {
     if (!/duplicate column/i.test(err.message)) throw err;
   }
 
+  try {
+    db.exec('ALTER TABLE program_day_exercises ADD COLUMN rest_seconds INTEGER');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
   seed();
 }
 

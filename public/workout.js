@@ -694,7 +694,8 @@ async function confirmSet(row) {
       moveNextHighlight(exId);
       haptic(30);
       if (res.is_new_pr) showPRFlash();
-      startRestCountdown();
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      startRestCountdown(ex?.rest_seconds ?? undefined);
     }
     updateRpeBadge(row);
   } catch (err) {
