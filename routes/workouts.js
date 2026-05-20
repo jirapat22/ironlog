@@ -6,14 +6,12 @@ const router = express.Router();
 
 router.post('/', (req, res) => {
   const { program_day_id } = req.body || {};
-  if (!program_day_id) return res.status(400).json({ error: 'program_day_id is required' });
-
-  const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(program_day_id);
-  if (!day) return res.status(404).json({ error: 'program day not found' });
-
+  if (program_day_id) {
+    const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(program_day_id);
+    if (!day) return res.status(404).json({ error: 'program day not found' });
+  }
   const info = db
-    .prepare('INSERT INTO workouts (program_day_id) VALUES (?)')
-    .run(program_day_id);
+    .prepare('INSERT INTO workouts (program_day_id) VALUES (?)').run(program_day_id || null);
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(row);
 });

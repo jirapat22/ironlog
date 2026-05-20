@@ -17,7 +17,8 @@ const DEFAULTS = {
   profile_height_cm: '',
   profile_age: '',
   profile_activity: 'moderate', // sedentary | light | moderate | very | athlete
-  profile_goal: 'maintain' // cut | maintain | bulk
+  profile_goal: 'maintain', // cut | maintain | bulk
+  preferred_unit: 'kg' // 'kg' | 'lbs'
 };
 
 function getAll() {

@@ -1592,6 +1592,28 @@ button {
   color: #0c0c0c;
 }
 
+.unit-pick {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+.unit-btn {
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.unit-btn--active {
+  background: var(--accent);
+  color: #0c0c0c;
+}
+
 .badge--bw {
   background: rgba(98, 216, 255, 0.18);
   color: #8fdcff;

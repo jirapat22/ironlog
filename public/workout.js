@@ -110,11 +110,22 @@ async function renderWorkout() {
       <div class="empty">
         <div class="empty__icon">&#x1F4AA;</div>
         <div style="margin-bottom:12px">No active workout</div>
-        <button class="btn btn--primary" data-go-programs>Pick a program</button>
+        <button class="btn btn--primary btn--block" data-start-quick>Quick workout</button>
+        <button class="btn btn--ghost btn--block" data-go-programs style="margin-top:8px">Pick a program</button>
       </div>`;
-    root.onclick = (e) => {
+    root.onclick = async (e) => {
       if (e.target.closest('[data-go-programs]'))
         document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
+      if (e.target.closest('[data-start-quick]')) {
+        const btn = e.target.closest('[data-start-quick]');
+        btn.disabled = true; btn.textContent = 'Starting…';
+        try {
+          const w = await API.startQuickWorkout();
+          localStorage.setItem(LS.activeWorkoutId, String(w.id));
+          localStorage.removeItem(LS.activeProgramDayId);
+          renderWorkout();
+        } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Quick workout'; }
+      }
     };
     return;
   }
@@ -131,14 +142,15 @@ async function renderWorkout() {
 
     const programDayId =
       workout.program_day_id || Number(localStorage.getItem(LS.activeProgramDayId) || 0);
-    if (!programDayId) {
-      root.innerHTML = `<div class="empty">Workout has no program day attached.</div>`;
-      return;
-    }
 
-    const [days, last] = await Promise.all([
-      fetchDayDetails(programDayId),
-      API.lastWorkout(programDayId).catch(() => null)
+    const [days, last, settings] = await Promise.all([
+      programDayId
+        ? fetchDayDetails(programDayId)
+        : Promise.resolve({ day_label: 'Quick Workout', exercises: [], id: null }),
+      programDayId
+        ? API.lastWorkout(programDayId).catch(() => null)
+        : Promise.resolve(null),
+      API.settings().catch(() => ({}))
     ]);
     await syncUserBodyweight();
 
@@ -150,7 +162,8 @@ async function renderWorkout() {
       startedAt: workout.started_at,
       loggedSets: [...(workout.sets || [])],
       openExtras: new Set(),
-      draft
+      draft,
+      preferredUnit: settings.preferred_unit || 'kg'
     };
 
     if (draft.exerciseOrder?.length) {
@@ -243,7 +256,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const target = getSetCount(ex);
   const prevReference = lastSets[0];
   const prefillWeight = prevReference?.weight ?? '';
-  const prefillUnit = prevReference?.weight_unit || 'kg';
+  const prefillUnit = prevReference?.weight_unit || workoutState.preferredUnit || 'kg';
   const prefillReps = prevReference?.reps ?? ex.target_reps;
 
   const rec = recommendForNext(ex, lastSets);

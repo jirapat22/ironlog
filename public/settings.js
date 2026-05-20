@@ -13,6 +13,7 @@ async function openSettingsSheet() {
   catch { serverSettings = { nudge_enabled: '1', nudge_threshold_days: '3' }; }
   const nudgeOn = serverSettings.nudge_enabled === '1';
   const nudgeDays = Number(serverSettings.nudge_threshold_days || 3);
+  const prefUnit = serverSettings.preferred_unit || 'kg';
   const weeklyOn = serverSettings.weekly_summary_enabled === '1';
 
   let notifBody = '';
@@ -67,6 +68,16 @@ async function openSettingsSheet() {
             <span>Weekly summary (Sundays 7pm)</span>
             <button class="toggle ${weeklyOn ? 'toggle--on' : ''}" id="toggle-weekly" aria-pressed="${weeklyOn}"><span class="toggle__dot"></span></button>
           </label>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group__title">Workout defaults</div>
+          <div class="settings-row">
+            <span>Weight unit</span>
+            <div class="unit-pick">
+              <button class="unit-btn ${prefUnit === 'kg' ? 'unit-btn--active' : ''}" data-pref-unit="kg">kg</button>
+              <button class="unit-btn ${prefUnit === 'lbs' ? 'unit-btn--active' : ''}" data-pref-unit="lbs">lbs</button>
+            </div>
+          </div>
         </div>
         <div class="settings-group">
           <div class="settings-group__title">App</div>
@@ -144,6 +155,15 @@ async function openSettingsSheet() {
       const on = btn.classList.contains('toggle--on');
       try { await API.updateSettings({ weekly_summary_enabled: on ? '0' : '1' }); haptic(10); openSettingsSheet(); }
       catch (err) { toast(err.message); }
+      return;
+    }
+
+    const prefUnitBtn = e.target.closest('[data-pref-unit]');
+    if (prefUnitBtn) {
+      try {
+        await API.updateSettings({ preferred_unit: prefUnitBtn.dataset.prefUnit });
+        haptic(10); openSettingsSheet();
+      } catch (err) { toast(err.message); }
       return;
     }
 
