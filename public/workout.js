@@ -143,14 +143,17 @@ async function renderWorkout() {
     const programDayId =
       workout.program_day_id || Number(localStorage.getItem(LS.activeProgramDayId) || 0);
 
-    const [days, last, settings] = await Promise.all([
+    const [days, last, settings, recentSessions] = await Promise.all([
       programDayId
         ? fetchDayDetails(programDayId)
         : Promise.resolve({ day_label: 'Quick Workout', exercises: [], id: null }),
       programDayId
         ? API.lastWorkout(programDayId).catch(() => null)
         : Promise.resolve(null),
-      API.settings().catch(() => ({}))
+      API.settings().catch(() => ({})),
+      programDayId
+        ? API.recentWorkouts(programDayId, 4).catch(() => [])
+        : Promise.resolve([])
     ]);
     await syncUserBodyweight();
 
@@ -159,6 +162,8 @@ async function renderWorkout() {
       workout,
       programDay: days,
       last,
+      // Most-recent first, excluding the current in-progress workout
+      recentSessions: recentSessions.filter((w) => w.id !== workout.id),
       startedAt: workout.started_at,
       loggedSets: [...(workout.sets || [])],
       openExtras: new Set(),
@@ -304,7 +309,15 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     rows.push(setRowHTML(ex, i, { w, u, r, rpe, logged, isNext: !logged && firstUnloggedSet === i }));
   }
 
-  const hint = rec ? buildProgressionHint(rec) : '';
+  // Build trend from last 3 finished sessions (oldest → newest top weight)
+  const sessions = (workoutState.recentSessions || []).slice(0, 3);
+  const trend = sessions.map((session) => {
+    const exSets = (session.sets || []).filter((s) => s.exercise_id === ex.exercise_id && !s.is_warmup);
+    if (!exSets.length) return null;
+    return exSets.reduce((best, s) => loadKg(s, ex) >= loadKg(best, ex) ? s : best, exSets[0]);
+  }).filter(Boolean).reverse(); // oldest first
+
+  const hint = rec ? buildProgressionHint(rec, trend) : '';
 
   // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
   const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
@@ -342,16 +355,27 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   `;
 }
 
-function buildProgressionHint(rec) {
+function buildProgressionHint(rec, trend = []) {
   const upArrow = rec.isAssisted ? '&#x2B07;' : '&#x2B06;';
   const upLabel = rec.isAssisted ? 'Reduce assistance' : 'Increase weight';
   const sameLabel = rec.isAssisted ? 'Same assistance' : 'Same weight';
+
+  // Trend line: oldest → newest top weight with direction indicator
+  let trendLine = '';
+  if (trend.length >= 2) {
+    const labels = trend.map((s) => fmtSetWeight(s.weight, s.weight_unit, !!rec.isBodyweight, !!rec.isAssisted));
+    const firstKg = loadKg(trend[0], { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted });
+    const lastKg  = loadKg(trend[trend.length - 1], { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted });
+    const arrow = lastKg > firstKg ? '&#x2197;' : lastKg < firstKg ? '&#x2198;' : '&#x2192;';
+    trendLine = `<div class="prog-hint__trend">${labels.join(' &rarr; ')} ${arrow}</div>`;
+  }
 
   if (rec.isProgression) {
     return `
       <div class="prog-hint prog-hint--up">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong></div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.recReps}+ &#x2713;</div>
+        ${trendLine}
       </div>`;
   } else {
     const gap = rec.recReps - rec.minReps;
@@ -361,6 +385,7 @@ function buildProgressionHint(rec) {
       <div class="prog-hint prog-hint--same">
         <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set</div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
+        ${trendLine}
       </div>`;
   }
 }
@@ -429,6 +454,12 @@ function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
     .join('');
   const rpeBadge = effRpe && Number(effRpe) >= 6 ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${effRpe}</span>` : '';
   const isWarmup = !!(logged?.is_warmup);
+  // e1RM badge on logged working sets (not warmups, reps must be > 0)
+  let e1rmBadge = '';
+  if (logged && !isWarmup && logged.reps > 0) {
+    const load = loadKg({ weight: logged.weight, weight_unit: logged.weight_unit }, ex);
+    if (load > 0) e1rmBadge = `<span class="set-row__e1rm">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
+  }
   return `
     <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${effRpe}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
@@ -456,7 +487,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
         </div>
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
       </div>
-      ${rpeBadge}
+      ${rpeBadge}${e1rmBadge}
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
     </div>
   `;
@@ -729,6 +760,16 @@ async function confirmSet(row) {
       if (res.is_new_pr) showPRFlash();
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
       startRestCountdown(ex?.rest_seconds ?? undefined);
+      // Append e1RM badge to the newly-done row
+      if (!isWarmup && reps > 0) {
+        const load = loadKg({ weight, weight_unit: unit }, ex);
+        if (load > 0) {
+          const badge = document.createElement('span');
+          badge.className = 'set-row__e1rm';
+          badge.textContent = `~${Math.round(e1RM(load, reps))} kg 1RM`;
+          row.appendChild(badge);
+        }
+      }
     }
     updateRpeBadge(row);
   } catch (err) {

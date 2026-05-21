@@ -44,6 +44,8 @@ const API = {
   removeDayExercise: (programId, dayId, pdeId) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'DELETE' }),
   lastWorkout: (programDayId) => api(`/api/workouts/last/${programDayId}`),
+  recentWorkouts: (programDayId, n = 3) => api(`/api/workouts/recent/${programDayId}?n=${n}`),
+  muscleFrequency: () => api('/api/muscle-frequency'),
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),
   startWorkout: (programDayId) =>

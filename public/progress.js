@@ -32,6 +32,10 @@ async function renderProgress() {
       <div id="calendar" class="calendar"></div>
     </div>
     <div class="progress-section">
+      <div class="progress-section__title">Muscle Frequency</div>
+      <div id="muscle-frequency"></div>
+    </div>
+    <div class="progress-section">
       <div class="progress-section__head">
         <div class="progress-section__title" style="margin:0">Daily Calories</div>
         <button class="btn btn--ghost btn--sm" data-edit-profile>Profile</button>
@@ -114,6 +118,7 @@ async function renderProgress() {
 
     renderVolumeChart(weekly);
     renderCalendar(calendarDates);
+    renderMuscleFrequency();
 
     document.getElementById('volume-range').onchange = async (e) => {
       const data = await API.weeklyVolume(Number(e.target.value));
@@ -219,6 +224,44 @@ const MIN_WEEKLY_SESSIONS = 3;
 function localDateStr(d) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+async function renderMuscleFrequency() {
+  const root = $('#muscle-frequency');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:80px"></div>`;
+  try {
+    const rows = await API.muscleFrequency();
+    if (!rows.length) { root.innerHTML = `<div class="bw-current__empty">No workouts logged yet.</div>`; return; }
+
+    const now = Date.now();
+    const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+    const byGroup = new Map(rows.map((r) => [r.muscle_group, r]));
+
+    // All known groups — add any never-trained ones at the end
+    const allGroups = [...new Set([...GROUPS, ...rows.map((r) => r.muscle_group)])];
+
+    root.innerHTML = allGroups.map((g) => {
+      const row = byGroup.get(g);
+      let label, color;
+      if (!row) {
+        label = 'Never'; color = '#8a8a8a';
+      } else {
+        const ms = new Date(row.last_trained_at.replace(' ', 'T') + 'Z').getTime();
+        const days = Math.floor((now - ms) / 86400000);
+        label = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
+        color = days >= 7 ? '#ff8a8a' : days >= 4 ? '#ffb347' : days >= 2 ? '#9effa8' : 'var(--accent)';
+      }
+      return `
+        <div class="mfreq-row">
+          <span class="badge badge--group badge--g-${g}">${g}</span>
+          <div class="mfreq-bar-wrap">
+            <div class="mfreq-bar" style="background:${color}"></div>
+          </div>
+          <span class="mfreq-label" style="color:${color}">${label}</span>
+        </div>`;
+    }).join('');
+  } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
 }
 
 function renderCalendar(entries) {

@@ -1435,6 +1435,25 @@ button {
   opacity: 0.75;
   font-weight: 400;
 }
+.prog-hint__trend {
+  font-size: 11px;
+  margin-top: 4px;
+  opacity: 0.65;
+  letter-spacing: 0.01em;
+}
+
+/* Muscle frequency section */
+.mfreq-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 72px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.mfreq-bar-wrap { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.mfreq-bar { height: 100%; width: 100%; border-radius: 999px; opacity: 0.6; }
+.mfreq-label { font-size: 12px; font-weight: 600; text-align: right; }
 
 .exercise-card__skip {
   display: block;
@@ -1708,6 +1727,16 @@ button {
   min-width: 48px;
   height: 44px;
   font-size: 15px;
+}
+
+/* e1RM badge on logged set rows */
+.set-row__e1rm {
+  position: absolute;
+  bottom: 3px;
+  left: 34px;
+  font-size: 10px;
+  color: var(--text-dim);
+  pointer-events: none;
 }
 
 .set-row__rpe-badge {

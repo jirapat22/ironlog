@@ -53,6 +53,27 @@ router.get('/history', (req, res) => {
   res.json(rows);
 });
 
+// Last N finished workouts for a program day (with sets + exercise info) — for trend display
+router.get('/recent/:programDayId', (req, res) => {
+  const pdid = Number(req.params.programDayId);
+  const n = Math.min(10, Math.max(1, Number(req.query.n) || 3));
+  const workouts = db.prepare(
+    `SELECT * FROM workouts
+     WHERE program_day_id = ? AND finished_at IS NOT NULL
+     ORDER BY finished_at DESC LIMIT ?`
+  ).all(pdid, n);
+  for (const w of workouts) {
+    w.sets = db.prepare(
+      `SELECT s.*, e.is_bodyweight, e.is_assisted
+       FROM sets s
+       JOIN exercises e ON e.id = s.exercise_id
+       WHERE s.workout_id = ?
+       ORDER BY s.set_number`
+    ).all(w.id);
+  }
+  res.json(workouts);
+});
+
 router.get('/last/:programDayId', (req, res) => {
   const pdid = Number(req.params.programDayId);
   const workout = db

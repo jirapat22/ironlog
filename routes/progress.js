@@ -61,6 +61,20 @@ router.get('/calendar', (req, res) => {
   res.json(rows);
 });
 
+router.get('/muscle-frequency', (req, res) => {
+  const rows = db.prepare(
+    `SELECT e.muscle_group,
+            MAX(w.started_at) AS last_trained_at,
+            COUNT(DISTINCT w.id) AS total_workouts
+     FROM sets s
+     JOIN workouts  w ON w.id = s.workout_id AND w.finished_at IS NOT NULL
+     JOIN exercises e ON e.id = s.exercise_id
+     GROUP BY e.muscle_group
+     ORDER BY last_trained_at DESC`
+  ).all();
+  res.json(rows);
+});
+
 router.get('/prs', (req, res) => {
   const rows = db
     .prepare(
