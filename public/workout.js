@@ -888,7 +888,24 @@ async function openSwapPicker(currentExerciseId) {
       </div>
     </div>`;
 
-  document.getElementById('swap-create-new').onclick = () => openWorkoutNewExerciseForm(picker, exercises, new Set());
+  document.getElementById('swap-create-new').onclick = () => openWorkoutNewExerciseForm(picker, {
+    onBack: () => openSwapPicker(currentExerciseId),
+    onCreated: (ex) => {
+      // Swap the current exercise with the newly created one
+      workoutState.programDay.exercises[currentIdx] = {
+        ...currentEx,
+        exercise_id: ex.id,
+        name: ex.name,
+        muscle_group: ex.muscle_group,
+        is_bodyweight: !!ex.is_bodyweight,
+        is_assisted: !!ex.is_assisted,
+        notes: ex.notes || null
+      };
+      hideSheet(picker);
+      toast(`Swapped to ${ex.name}`);
+      renderWorkoutView();
+    }
+  });
 
   const search = document.getElementById('swap-search');
   search.oninput = () => {
@@ -986,7 +1003,26 @@ async function openWorkoutAddExercisePicker() {
     });
   };
 
-  document.getElementById('wkadd-create').onclick = () => openWorkoutNewExerciseForm(picker, exercises, inWorkout);
+  document.getElementById('wkadd-create').onclick = () => openWorkoutNewExerciseForm(picker, {
+    onBack: () => openWorkoutAddExercisePicker(),
+    onCreated: (ex) => {
+      workoutState.programDay.exercises.push({
+        id: null,
+        exercise_id: ex.id,
+        name: ex.name,
+        muscle_group: ex.muscle_group,
+        notes: ex.notes || null,
+        is_bodyweight: !!ex.is_bodyweight,
+        is_assisted: !!ex.is_assisted,
+        target_sets: 3,
+        target_reps: 10,
+        order_index: workoutState.programDay.exercises.length
+      });
+      hideSheet(picker);
+      toast(`Added ${ex.name}`);
+      renderWorkoutView();
+    }
+  });
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
@@ -1197,7 +1233,9 @@ async function flushWorkoutNotes() {
   }
 }
 
-function openWorkoutNewExerciseForm(picker, exercises, inWorkout) {
+// onBack: () => void — returns to the calling picker
+// onCreated: (ex) => void — what to do once exercise is created (add vs swap)
+function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
   const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -1219,7 +1257,7 @@ function openWorkoutNewExerciseForm(picker, exercises, inWorkout) {
       </div>
     </div>`;
 
-  document.getElementById('wknew-back').onclick = () => openWorkoutAddExercisePicker();
+  document.getElementById('wknew-back').onclick = () => onBack();
 
   document.getElementById('wknew-save').onclick = async () => {
     const name = document.getElementById('wknew-name').value.trim();
@@ -1228,22 +1266,8 @@ function openWorkoutNewExerciseForm(picker, exercises, inWorkout) {
     if (!name) return toast('Name required');
     try {
       const ex = await API.addExercise({ name, muscle_group: muscle, notes });
-      workoutState.programDay.exercises.push({
-        id: null,
-        exercise_id: ex.id,
-        name: ex.name,
-        muscle_group: ex.muscle_group,
-        notes: ex.notes || null,
-        is_bodyweight: !!ex.is_bodyweight,
-        is_assisted: !!ex.is_assisted,
-        target_sets: 3,
-        target_reps: 10,
-        order_index: workoutState.programDay.exercises.length
-      });
-      hideSheet(picker);
       haptic(20);
-      toast(`Added ${ex.name}`);
-      renderWorkoutView();
+      onCreated(ex);
     } catch (err) { toast(err.message); }
   };
 }
