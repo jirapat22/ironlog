@@ -167,9 +167,14 @@ router.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   if (!row) return res.status(404).json({ error: 'workout not found' });
 
-  const sets = db
-    .prepare('SELECT * FROM sets WHERE workout_id = ? ORDER BY logged_at')
-    .all(id);
+  // Include exercise metadata so the client can rebuild mid-workout added exercise cards
+  const sets = db.prepare(
+    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted
+     FROM sets s
+     JOIN exercises e ON e.id = s.exercise_id
+     WHERE s.workout_id = ?
+     ORDER BY s.logged_at`
+  ).all(id);
   row.sets = sets;
   res.json(row);
 });

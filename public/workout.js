@@ -166,6 +166,28 @@ async function renderWorkout() {
       preferredUnit: settings.preferred_unit || 'kg'
     };
 
+    // Reconstruct any exercises that were added mid-workout (not in the program template).
+    // workout.sets now includes exercise_name/muscle_group/flags from the JOIN.
+    const templateExIds = new Set(workoutState.programDay.exercises.map((e) => e.exercise_id));
+    const extraById = new Map();
+    for (const s of workoutState.loggedSets) {
+      if (!templateExIds.has(s.exercise_id) && !extraById.has(s.exercise_id)) {
+        extraById.set(s.exercise_id, {
+          id: null,
+          exercise_id: s.exercise_id,
+          name: s.exercise_name || `Exercise ${s.exercise_id}`,
+          muscle_group: s.muscle_group || '',
+          notes: null,
+          is_bodyweight: !!s.is_bodyweight,
+          is_assisted: !!s.is_assisted,
+          target_sets: Math.max(...workoutState.loggedSets.filter(x => x.exercise_id === s.exercise_id).map(x => x.set_number)),
+          target_reps: s.reps,
+          order_index: workoutState.programDay.exercises.length + extraById.size
+        });
+      }
+    }
+    for (const ex of extraById.values()) workoutState.programDay.exercises.push(ex);
+
     if (draft.exerciseOrder?.length) {
       const order = draft.exerciseOrder;
       workoutState.programDay.exercises.sort((a, b) => {
@@ -942,6 +964,7 @@ async function openWorkoutAddExercisePicker() {
       </div>
       <div class="sheet__body">
         <input class="input" id="wkadd-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <button class="btn btn--ghost btn--block" id="wkadd-create" style="margin-bottom:16px">+ Create new exercise</button>
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>
@@ -963,6 +986,8 @@ async function openWorkoutAddExercisePicker() {
       g.classList.toggle('hidden', !any);
     });
   };
+
+  document.getElementById('wkadd-create').onclick = () => openWorkoutNewExerciseForm(picker, exercises, inWorkout);
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
@@ -1131,6 +1156,57 @@ async function flushWorkoutNotes() {
       } catch { /* best-effort */ }
     }
   }
+}
+
+function openWorkoutNewExerciseForm(picker, exercises, inWorkout) {
+  const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  picker.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" id="wknew-back">←</button>
+        <div class="sheet__title">New exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <label class="form-label">Name</label>
+        <input class="input" id="wknew-name" placeholder="e.g. Cable Pullover"/>
+        <label class="form-label" style="margin-top:14px">Muscle group</label>
+        <select class="input" id="wknew-muscle">
+          ${GROUPS.map((g) => `<option value="${g}">${g}</option>`).join('')}
+        </select>
+        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
+        <input class="input" id="wknew-notes" placeholder="Setup cue or variation"/>
+        <button class="btn btn--primary btn--block" id="wknew-save" style="margin-top:20px">Create & add to workout</button>
+      </div>
+    </div>`;
+
+  document.getElementById('wknew-back').onclick = () => openWorkoutAddExercisePicker();
+
+  document.getElementById('wknew-save').onclick = async () => {
+    const name = document.getElementById('wknew-name').value.trim();
+    const muscle = document.getElementById('wknew-muscle').value;
+    const notes = document.getElementById('wknew-notes').value.trim() || null;
+    if (!name) return toast('Name required');
+    try {
+      const ex = await API.addExercise({ name, muscle_group: muscle, notes });
+      workoutState.programDay.exercises.push({
+        id: null,
+        exercise_id: ex.id,
+        name: ex.name,
+        muscle_group: ex.muscle_group,
+        notes: ex.notes || null,
+        is_bodyweight: !!ex.is_bodyweight,
+        is_assisted: !!ex.is_assisted,
+        target_sets: 3,
+        target_reps: 10,
+        order_index: workoutState.programDay.exercises.length
+      });
+      hideSheet(picker);
+      haptic(20);
+      toast(`Added ${ex.name}`);
+      renderWorkoutView();
+    } catch (err) { toast(err.message); }
+  };
 }
 
 export {
