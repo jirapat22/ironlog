@@ -274,6 +274,44 @@ const CANONICAL_EXERCISES = [
   ['Hip Thrust', 'legs', 'Barbell, bench-supported'],
   ['Glute Bridge', 'legs', 'Barbell or bodyweight'],
 
+  // Chest — cable and dumbbell variations
+  ['Incline Cable Fly', 'chest', 'Low cable, angled upward — peak stretch at bottom'],
+  ['Low-to-High Cable Fly', 'chest', 'Low cable to high, follows lower-pec fibre direction'],
+  ['Dumbbell Fly', 'chest', 'Flat bench, wide arc to stretch chest'],
+
+  // Back — isolation and unilateral
+  ['Straight-Arm Pulldown', 'back', 'Cable, arms straight — lat isolation without biceps'],
+  ['Dumbbell Pullover', 'back', 'Dumbbell over bench, lat/serratus stretch'],
+  ['Seal Row', 'back', 'Prone on elevated bench, strict form — no momentum'],
+  ['Close-Grip Lat Pulldown', 'back', 'Neutral or V-bar attachment'],
+  ['Machine Row', 'back', 'Chest-supported selectorized or plate-loaded'],
+  ['Landmine Row', 'back', 'One arm, landmine anchored — high lat, low back sparing'],
+
+  // Shoulders — angles and cables
+  ['Landmine Press', 'shoulders', 'Arc from chest to overhead, shoulder-friendly angle'],
+  ['Seated Cable Lateral Raise', 'shoulders', 'Low cable, seated — constant tension lateral head'],
+
+  // Biceps — full-range and cable
+  ['EZ Bar Curl', 'biceps', 'EZ bar, easier on wrists than straight bar'],
+  ['Cable Hammer Curl', 'biceps', 'Rope attachment, neutral grip, constant tension'],
+  ['Machine Curl', 'biceps', 'Preacher-style machine, removes body swing'],
+  ['Bayesian Curl', 'biceps', 'Behind-the-body cable — peak stretch with resistance'],
+
+  // Triceps — long-head emphasis
+  ['Cable Overhead Tricep Extension', 'triceps', 'Rope, high cable — long-head stretch at full extension'],
+  ['Machine Tricep Extension', 'triceps', 'Overhead or pushdown machine, constant tension'],
+
+  // Legs — unilateral, posterior chain, machines
+  ['Nordic Hamstring Curl', 'legs', 'Eccentric-focused, kneel with feet anchored'],
+  ['Hip Abduction Machine', 'legs', 'Outer glute med — machine, controlled squeeze'],
+  ['Hip Adduction Machine', 'legs', 'Inner thigh — machine, squeeze at finish'],
+  ['Cable Pullthrough', 'legs', 'Hip hinge, rope between legs — glute/hamstring drive'],
+  ['Step-Up', 'legs', 'Box or bench — dumbbell, knee-over-toe'],
+  ['Reverse Lunge', 'legs', 'Knee-friendly lunge variation, barbell or dumbbells'],
+  ['Single-Leg Press', 'legs', 'Unilateral leg press — fixes strength imbalances'],
+  ['Glute Kickback', 'legs', 'Cable cuff or machine — pure glute isolation'],
+  ['Sissy Squat', 'legs', 'Deep quad stretch, bodyweight or plate held to chest'],
+
   // Core / Abs
   ['Hanging Leg Raise', 'core', 'From pull-up bar'],
   ['Cable Crunch', 'core', 'Kneeling, rope attachment'],
@@ -531,6 +569,110 @@ const CANONICAL_PROGRAMS = [
         ]
       }
     ]
+  },
+
+  // ── Time-efficient hypertrophy templates (2–3 sets, 8–12 reps, rest times set) ──
+
+  {
+    name: 'Minimalist Hypertrophy',
+    description: '3-day PPL · 2–3 sets · 8–12 reps · rest times set · progressive overload focus',
+    days: [
+      {
+        label: 'Push',
+        exercises: [
+          // [name, sets, reps, rest_seconds]
+          ['Bench Press',            3, 8,  120],
+          ['Overhead Press',         2, 10, 120],
+          ['Incline Dumbbell Press', 2, 10, 90],
+          ['Lateral Raise',          2, 12, 60],
+          ['Rope Pushdown',          2, 12, 60]
+        ]
+      },
+      {
+        label: 'Pull',
+        exercises: [
+          ['Pull-Up',            3, 8,  120],
+          ['Seated Cable Row',   2, 10, 90],
+          ['Straight-Arm Pulldown', 2, 12, 60],
+          ['Face Pull',          2, 15, 60],
+          ['Barbell Curl',       2, 10, 60]
+        ]
+      },
+      {
+        label: 'Legs',
+        exercises: [
+          ['Back Squat',         3, 8,  150],
+          ['Romanian Deadlift',  2, 10, 120],
+          ['Lying Leg Curl',     2, 12, 60],
+          ['Hip Thrust',         2, 12, 90],
+          ['Standing Calf Raise',2, 15, 60]
+        ]
+      }
+    ]
+  },
+
+  {
+    name: 'Full Body 3×',
+    description: '3-day full-body · hits every pattern each session · 2–3 sets · progressive overload',
+    days: [
+      {
+        label: 'Session A',
+        exercises: [
+          ['Bench Press',         3, 8,  120],
+          ['Barbell Row',         3, 8,  120],
+          ['Back Squat',          3, 8,  150],
+          ['Overhead Press',      2, 10, 90],
+          ['Lateral Raise',       2, 12, 60]
+        ]
+      },
+      {
+        label: 'Session B',
+        exercises: [
+          ['Incline Dumbbell Press', 3, 10, 90],
+          ['Pull-Up',               3, 8,  120],
+          ['Romanian Deadlift',     3, 10, 120],
+          ['Barbell Curl',          2, 10, 60],
+          ['Rope Pushdown',         2, 12, 60]
+        ]
+      },
+      {
+        label: 'Session C',
+        exercises: [
+          ['Flat Dumbbell Press',  2, 10, 90],
+          ['Seated Cable Row',     3, 10, 90],
+          ['Bulgarian Split Squat',2, 10, 120],
+          ['Hip Thrust',           2, 12, 90],
+          ['Standing Calf Raise',  2, 15, 60]
+        ]
+      }
+    ]
+  },
+
+  {
+    name: 'Minimal Effective Dose',
+    description: '2-day full-body · 2 sets per lift · compounds only · maximum results, minimum time',
+    days: [
+      {
+        label: 'Session A',
+        exercises: [
+          ['Bench Press',       2, 8,  120],
+          ['Barbell Row',       2, 8,  120],
+          ['Back Squat',        2, 8,  150],
+          ['Overhead Press',    2, 10, 90],
+          ['Romanian Deadlift', 2, 10, 120]
+        ]
+      },
+      {
+        label: 'Session B',
+        exercises: [
+          ['Deadlift',              2, 5,  180],
+          ['Pull-Up',               2, 8,  120],
+          ['Hip Thrust',            2, 10, 120],
+          ['Incline Dumbbell Press',2, 10, 90],
+          ['Seated Cable Row',      2, 10, 90]
+        ]
+      }
+    ]
   }
 ];
 
@@ -541,7 +683,7 @@ function seedPrograms() {
     'INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)'
   );
   const insertDayEx = db.prepare(
-    'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)'
   );
   const findEx = db.prepare('SELECT id FROM exercises WHERE name = ?');
 
@@ -556,9 +698,9 @@ function seedPrograms() {
         const dayId = Number(
           insertDay.run(programId, day.label, dayIdx + 1).lastInsertRowid
         );
-        day.exercises.forEach(([name, sets, reps], i) => {
+        day.exercises.forEach(([name, sets, reps, rest = null], i) => {
           const ex = findEx.get(name);
-          if (ex) insertDayEx.run(dayId, ex.id, sets, reps, i);
+          if (ex) insertDayEx.run(dayId, ex.id, sets, reps, i, rest);
         });
       });
     }
