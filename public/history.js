@@ -1,5 +1,6 @@
 import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise } from './utils.js';
 import { API } from './api.js';
+import { saveAsTemplate } from './workout.js';
 
 // ---------- HISTORY tab ----------
 async function renderHistory() {
@@ -83,6 +84,17 @@ async function renderHistory() {
           await API.deleteWorkout(Number(card.dataset.id));
           renderHistory();
         } catch (err) { toast(err.message); }
+        return;
+      }
+
+      const saveTplBtn = e.target.closest('[data-save-template-history]');
+      if (saveTplBtn) {
+        e.stopPropagation();
+        const card = saveTplBtn.closest('.history-card');
+        const dayLabel = card.querySelector('.history-card__title')?.textContent || 'My Workout';
+        // templateExercises is captured in the closure from loadHistoryCardBody
+        const tplData = card._templateExercises;
+        if (tplData) saveAsTemplate(tplData, dayLabel);
         return;
       }
 
@@ -170,6 +182,20 @@ async function loadHistoryCardBody(card) {
         <span class="feel-btn__label">${o.label}</span>
       </button>`).join('');
 
+    // Build template data from the grouped sets for "Save as template" button
+    const templateExercises = Object.values(grouped).map((g) => {
+      const workingSets = g.sets.filter((s) => !s.is_warmup);
+      if (!workingSets.length) return null;
+      const lastSet = workingSets[workingSets.length - 1];
+      return {
+        exercise_id: g.exerciseId,
+        name: g.name,
+        target_sets: Math.max(...workingSets.map((s) => s.set_number)),
+        target_reps: lastSet.reps,
+        rest_seconds: null
+      };
+    }).filter(Boolean);
+
     body.innerHTML = `
       ${exHTML || '<div class="empty">No sets logged</div>'}
       <button class="btn btn--ghost btn--block" data-add-history-ex style="margin-top:10px">+ Add exercise</button>
@@ -178,8 +204,12 @@ async function loadHistoryCardBody(card) {
         <div class="feel-prompt__options">${feelButtons}</div>
         <label class="form-label" style="margin-top:14px">Workout notes</label>
         <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(notes)}" placeholder="How did it go?">${escapeHtml(notes)}</textarea>
-        <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger);margin-top:10px">Delete workout</button>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn--ghost btn--sm" data-save-template-history style="flex:1">&#x1F4CB; Save as template</button>
+          <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger)">Delete</button>
+        </div>
       </div>`;
+    card._templateExercises = templateExercises;
     card.dataset.loaded = '1';
     card.dataset.exerciseNames = Object.values(grouped).map((g) => g.name.toLowerCase()).join('|');
   } catch (err) {

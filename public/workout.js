@@ -1075,6 +1075,21 @@ async function finishWorkout() {
         .map((r) => ({ name: g.exercise_name, ...r }))
     );
 
+    // Build template data before clearing workoutState
+    const templateExercises = workoutState.programDay.exercises
+      .filter((ex) => workoutState.loggedSets.some((s) => s.exercise_id === ex.exercise_id && !s.is_warmup))
+      .map((ex) => {
+        const logged = workoutState.loggedSets.filter((s) => s.exercise_id === ex.exercise_id && !s.is_warmup);
+        const lastSet = logged[logged.length - 1];
+        return {
+          exercise_id: ex.exercise_id,
+          name: ex.name,
+          target_sets: Math.max(...logged.map((s) => s.set_number)),
+          target_reps: lastSet?.reps || ex.target_reps,
+          rest_seconds: ex.rest_seconds || null
+        };
+      });
+
     renderSummary({
       workoutId: id,
       sets: sets.length,
@@ -1082,7 +1097,8 @@ async function finishWorkout() {
       duration: fmtDuration(workoutState.startedAt, new Date().toISOString()),
       newPRs,
       dayLabel: workoutState.programDay.day_label,
-      calories: finishedWorkout.calories_burned ?? null
+      calories: finishedWorkout.calories_burned ?? null,
+      templateExercises
     });
 
     clearDraft(id);
@@ -1096,7 +1112,7 @@ async function finishWorkout() {
   }
 }
 
-function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories }) {
+function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises }) {
   const root = $('#view-workout');
   const calTile = calories
     ? `<div class="summary__tile"><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value">${calories}&nbsp;kcal</div></div>`
@@ -1125,13 +1141,16 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
             </button>`).join('')}
         </div>
       </div>
-      <button class="btn btn--primary btn--block" data-go-programs>Done</button>
+      ${templateExercises?.length ? `<button class="btn btn--ghost btn--block" data-save-template style="margin-top:8px">&#x1F4CB; Save as program template</button>` : ''}
+      <button class="btn btn--primary btn--block" data-go-programs style="margin-top:8px">Done</button>
     </div>
   `;
 
   root.onclick = async (e) => {
     if (e.target.closest('[data-go-programs]'))
       return document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
+    if (e.target.closest('[data-save-template]'))
+      return saveAsTemplate(templateExercises, dayLabel);
     const feelBtn = e.target.closest('[data-feel]');
     if (feelBtn && workoutId) {
       const rating = Number(feelBtn.dataset.feel);
@@ -1142,6 +1161,27 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
       try { await API.updateFeel(workoutId, rating); } catch { /* non-critical */ }
     }
   };
+}
+
+async function saveAsTemplate(exercises, dayLabel) {
+  const name = prompt('Save as program?', dayLabel || 'My Program');
+  if (!name || !name.trim()) return;
+  try {
+    const prog = await API.createProgram({ name: name.trim() });
+    const day = await API.addDay(prog.id, { day_label: dayLabel || 'Day 1' });
+    for (const ex of exercises) {
+      await API.addDayExercise(prog.id, day.id, {
+        exercise_id: ex.exercise_id,
+        target_sets: ex.target_sets,
+        target_reps: ex.target_reps,
+        rest_seconds: ex.rest_seconds
+      });
+    }
+    haptic(20);
+    toast(`Saved as "${name.trim()}" — find it in Programs`);
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`);
+  }
 }
 
 async function flushWorkoutNotes() {
@@ -1211,5 +1251,6 @@ function openWorkoutNewExerciseForm(picker, exercises, inWorkout) {
 
 export {
   renderWorkout, workoutState, flushWorkoutNotes,
-  userBwKg, syncUserBodyweight, loadKg, e1RMForSet
+  userBwKg, syncUserBodyweight, loadKg, e1RMForSet,
+  saveAsTemplate
 };

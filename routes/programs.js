@@ -153,7 +153,7 @@ router.get('/:id', (req, res) => {
 // Add an exercise to a program day
 router.post('/:programId/days/:dayId/exercises', (req, res) => {
   const dayId = Number(req.params.dayId);
-  const { exercise_id, target_sets = 3, target_reps = 10 } = req.body || {};
+  const { exercise_id, target_sets = 3, target_reps = 10, rest_seconds = null } = req.body || {};
   if (!exercise_id) return res.status(400).json({ error: 'exercise_id is required' });
 
   const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(dayId);
@@ -166,10 +166,10 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(dayId, exercise_id, target_sets, target_reps, maxOrder);
+    .run(dayId, exercise_id, target_sets, target_reps, maxOrder, rest_seconds);
 
   const row = db
     .prepare(
