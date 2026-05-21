@@ -469,6 +469,54 @@ function wireWorkoutView() {
     if (e.target.closest('[data-cancel-workout]')) return cancelWorkout();
     if (e.target.closest('[data-rest-cancel]')) return cancelRestCountdown();
 
+    // Card-level controls — must be checked before the set-row guard below
+    const swapBtn = e.target.closest('[data-swap-ex]');
+    if (swapBtn) { haptic(15); openSwapPicker(Number(swapBtn.dataset.swapEx)); return; }
+
+    const skipBtn = e.target.closest('[data-skip-ex]');
+    if (skipBtn) {
+      haptic(15);
+      const exId = Number(skipBtn.dataset.skipEx);
+      if (workoutState.draft.skipped?.[exId]) {
+        delete workoutState.draft.skipped[exId];
+        saveDraft(workoutState.workout.id, workoutState.draft);
+        renderWorkoutView();
+      } else {
+        skipRemainingForExercise(exId);
+      }
+      return;
+    }
+
+    if (e.target.closest('[data-add-workout-ex]')) { haptic(15); openWorkoutAddExercisePicker(); return; }
+
+    const addRow = e.target.closest('[data-add-set-row]');
+    if (addRow) {
+      haptic(10);
+      const exId = Number(addRow.dataset.addSetRow);
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      if (!ex) return;
+      workoutState.draft.setCounts[exId] = getSetCount(ex) + 1;
+      saveDraft(workoutState.workout.id, workoutState.draft);
+      renderWorkoutView();
+      return;
+    }
+    const removeRow = e.target.closest('[data-remove-set-row]');
+    if (removeRow) {
+      const exId = Number(removeRow.dataset.removeSetRow);
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      if (!ex) return;
+      const current = getSetCount(ex);
+      const loggedMax = Math.max(0, ...workoutState.loggedSets.filter((s) => s.exercise_id === exId).map((s) => s.set_number));
+      if (current <= loggedMax) { toast('Delete a logged set first'); return; }
+      if (current <= 1) return;
+      haptic(10);
+      workoutState.draft.setCounts[exId] = current - 1;
+      delete workoutState.draft.inputs[`${exId}-${current}`];
+      saveDraft(workoutState.workout.id, workoutState.draft);
+      renderWorkoutView();
+      return;
+    }
+
     const row = e.target.closest('.set-row');
     if (!row) return;
 
@@ -537,77 +585,27 @@ function wireWorkoutView() {
     if (delBtn) return deleteLoggedSet(row);
   };
 
-  root.addEventListener('click', async (e) => {
-    const swapBtn = e.target.closest('[data-swap-ex]');
-    if (swapBtn) { e.stopPropagation(); haptic(15); openSwapPicker(Number(swapBtn.dataset.swapEx)); return; }
-    const skipBtn = e.target.closest('[data-skip-ex]');
-    if (skipBtn) {
-      e.stopPropagation(); haptic(15);
-      const exId = Number(skipBtn.dataset.skipEx);
-      if (workoutState.draft.skipped?.[exId]) {
-        // Undo skip: clear draft flag and re-render to restore hidden rows
-        delete workoutState.draft.skipped[exId];
-        saveDraft(workoutState.workout.id, workoutState.draft);
-        renderWorkoutView();
-      } else {
-        skipRemainingForExercise(exId);
-      }
-      return;
-    }
-    if (e.target.closest('[data-add-workout-ex]')) { haptic(15); openWorkoutAddExercisePicker(); return; }
 
-    const addRow = e.target.closest('[data-add-set-row]');
-    if (addRow) {
-      e.stopPropagation(); haptic(10);
-      const exId = Number(addRow.dataset.addSetRow);
-      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
-      if (!ex) return;
-      workoutState.draft.setCounts[exId] = getSetCount(ex) + 1;
-      saveDraft(workoutState.workout.id, workoutState.draft);
-      renderWorkoutView();
-      return;
-    }
-    const removeRow = e.target.closest('[data-remove-set-row]');
-    if (removeRow) {
-      e.stopPropagation();
-      const exId = Number(removeRow.dataset.removeSetRow);
-      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
-      if (!ex) return;
-      const current = getSetCount(ex);
-      const loggedMax = Math.max(
-        0,
-        ...workoutState.loggedSets.filter((s) => s.exercise_id === exId).map((s) => s.set_number)
-      );
-      if (current <= loggedMax) { toast('Delete a logged set first'); return; }
-      if (current <= 1) return;
-      haptic(10);
-      workoutState.draft.setCounts[exId] = current - 1;
-      delete workoutState.draft.inputs[`${exId}-${current}`];
-      saveDraft(workoutState.workout.id, workoutState.draft);
-      renderWorkoutView();
-    }
-  });
-
-  root.addEventListener('input', (e) => {
+  root.oninput = (e) => {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
     markRowTouched(input.closest('.set-row'));
-  });
+  };
 
-  root.addEventListener('focusin', (e) => {
+  root.onfocusin = (e) => {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
     const row = input.closest('.set-row');
     if (!row || !row.classList.contains('done')) return;
     row.classList.add('editing');
-  });
-  root.addEventListener('focusout', (e) => {
+  };
+  root.onfocusout = (e) => {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
     const row = input.closest('.set-row');
     if (!row) return;
     setTimeout(() => row.classList.remove('editing'), 200);
-  });
+  };
 
   const notesEl = root.querySelector('[data-workout-notes]');
   if (notesEl) {
@@ -873,7 +871,7 @@ async function openSwapPicker(currentExerciseId) {
       <div class="sheet__head">
         <button class="btn--icon" data-close-sheet>←</button>
         <div class="sheet__title">Swap ${escapeHtml(currentEx?.name || 'exercise')}</div>
-        <span style="width:40px"></span>
+        <button class="btn--icon" id="swap-create-new" title="Create new exercise" style="font-size:20px;font-weight:700">+</button>
       </div>
       <div class="sheet__body">
         <div class="card__subtitle" style="margin-bottom:10px">Pick a replacement. This only affects today's workout.</div>
@@ -889,6 +887,8 @@ async function openSwapPicker(currentExerciseId) {
           </div>`).join('')}
       </div>
     </div>`;
+
+  document.getElementById('swap-create-new').onclick = () => openWorkoutNewExerciseForm(picker, exercises, new Set());
 
   const search = document.getElementById('swap-search');
   search.oninput = () => {
@@ -960,11 +960,10 @@ async function openWorkoutAddExercisePicker() {
       <div class="sheet__head">
         <button class="btn--icon" data-close-sheet>←</button>
         <div class="sheet__title">Add exercise</div>
-        <span style="width:40px"></span>
+        <button class="btn--icon" id="wkadd-create" title="Create new exercise" style="font-size:20px;font-weight:700">+</button>
       </div>
       <div class="sheet__body">
         <input class="input" id="wkadd-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
-        <button class="btn btn--ghost btn--block" id="wkadd-create" style="margin-bottom:16px">+ Create new exercise</button>
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>

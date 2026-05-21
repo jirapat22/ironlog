@@ -887,9 +887,9 @@ button {
 }
 
 .num-input__btn {
-  width: 38px;
-  height: 48px;
-  font-size: 22px;
+  width: 32px;
+  height: 44px;
+  font-size: 20px;
   color: var(--text-dim);
   flex-shrink: 0;
   touch-action: none;
@@ -898,13 +898,13 @@ button {
 .num-input__field {
   flex: 1;
   min-width: 0;
-  height: 48px;
+  height: 44px;
   border: none;
   background: transparent;
   color: var(--text);
   text-align: center;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 15px;
   padding: 0;
   font-variant-numeric: tabular-nums;
 }
