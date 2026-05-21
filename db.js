@@ -175,10 +175,12 @@ function init() {
 // Bodyweight exercises: effective load = bodyweight + added_weight
 const BODYWEIGHT_EXERCISES = [
   'Pull-Up', 'Chin-Up', 'Push-Up', 'Chest Dip', 'Tricep Dip',
-  'Hanging Leg Raise',
+  'Hanging Leg Raise', 'Toes to Bar',
+  'Diamond Push-Up', 'Reverse Nordic Curl',
   // Core / abs — these are always bodyweight only
   'Crunch', 'Bicycle Crunch', 'Sit-Up', 'Plank', 'Side Plank',
-  'Dead Bug', 'Mountain Climber', 'Leg Raise'
+  'Dead Bug', 'Mountain Climber', 'Leg Raise',
+  'Hollow Body Hold', 'L-Sit'
 ];
 
 // Assisted machine exercises: effective load = bodyweight − assistance_weight
@@ -312,6 +314,32 @@ const CANONICAL_EXERCISES = [
   ['Glute Kickback', 'legs', 'Cable cuff or machine — pure glute isolation'],
   ['Sissy Squat', 'legs', 'Deep quad stretch, bodyweight or plate held to chest'],
 
+  // Shoulders — health / rotator cuff
+  ['Band Pull-Apart', 'shoulders', 'Band, scapular retraction and external rotation — prehab'],
+  ['External Rotation', 'shoulders', 'Cable or band, rotator cuff strengthening'],
+  ['Y-T-W Raise', 'shoulders', 'Prone or cable — scapular stability and rear delt'],
+
+  // Back — lower back / posterior chain
+  ['Hyperextension', 'back', '45-degree bench or GHD — lower back, glutes, hamstrings'],
+  ['Reverse Hyperextension', 'back', 'Reverse hyper machine — glutes and spinal decompression'],
+  ['Good Morning', 'back', 'Barbell on back, hip hinge — posterior chain and erectors'],
+  ['Cable Pullthrough', 'back', 'Rope between legs, hip hinge — glute and hamstring drive'],
+
+  // Arms — forearms / grip
+  ['Wrist Curl', 'arms', 'Barbell or dumbbell, forearm flexors'],
+  ['Reverse Curl', 'arms', 'Overhand barbell — brachialis and forearm extensors'],
+  ['Zottman Curl', 'biceps', 'Curl up with supination, lower with pronation — full arm development'],
+  ['Farmer Carry', 'arms', 'Heavy dumbbells or trap bar — grip, stability, full-body tension'],
+
+  // Legs — power / functional / posterior chain
+  ['Kettlebell Swing', 'legs', 'Hip hinge power, ballistic glute and hamstring drive'],
+  ['Box Squat', 'legs', 'Sit to box, hip-dominant — teaches depth and position'],
+  ['Pause Squat', 'legs', '2 s pause at bottom — strength through the hole'],
+  ['Smith Machine Squat', 'legs', 'Fixed bar, foot positioning flexibility'],
+  ['Reverse Nordic Curl', 'legs', 'Quad-focused eccentric — bodyweight or added weight'],
+  ['Cable Kickback', 'legs', 'Cable cuff or machine — pure glute isolation'],
+  ['Donkey Calf Raise', 'legs', 'Hip-flexed position, maximum soleus stretch'],
+
   // Core / Abs
   ['Hanging Leg Raise', 'core', 'From pull-up bar'],
   ['Cable Crunch', 'core', 'Kneeling, rope attachment'],
@@ -324,7 +352,12 @@ const CANONICAL_EXERCISES = [
   ['Sit-Up', 'core', 'Full range floor'],
   ['Dead Bug', 'core', 'Floor, opposite arm/leg'],
   ['Mountain Climber', 'core', 'Plank position, timed'],
-  ['Leg Raise', 'core', 'Lying floor or bench']
+  ['Leg Raise', 'core', 'Lying floor or bench'],
+  ['Pallof Press', 'core', 'Anti-rotation cable press — obliques and core stability'],
+  ['Hollow Body Hold', 'core', 'Supine tuck, arms overhead — log seconds as reps'],
+  ['L-Sit', 'core', 'Parallel bars or floor, isometric — log seconds as reps'],
+  ['Toes to Bar', 'core', 'From pull-up bar, strict — hip flexors and abs'],
+  ['Cable Woodchop', 'core', 'Rotational cable, high-to-low or low-to-high — obliques']
 ];
 
 // Maps old/legacy muscle_group values → current canonical name. Run on every

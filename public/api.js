@@ -33,6 +33,7 @@ const API = {
   updateExercise: (id, data) => api(`/api/exercises/${id}`, { method: 'PATCH', body: data }),
   deleteExercise: (id) => api(`/api/exercises/${id}`, { method: 'DELETE' }),
   exercises: () => api('/api/exercises'),
+  exerciseStats: () => api('/api/exercises/stats'),
   addExercise: (data) => api('/api/exercises', { method: 'POST', body: data }),
   programs: () => api('/api/programs'),
   program: (id) => api(`/api/programs/${id}`),

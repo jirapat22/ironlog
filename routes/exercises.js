@@ -10,6 +10,22 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
+// Usage stats — how many finished workouts each exercise appears in + last used
+router.get('/stats', (req, res) => {
+  const rows = db.prepare(`
+    SELECT
+      e.id, e.name, e.muscle_group, e.is_bodyweight, e.is_assisted,
+      COUNT(DISTINCT s.workout_id) AS workout_count,
+      MAX(w.started_at)            AS last_used_at
+    FROM exercises e
+    LEFT JOIN sets     s ON s.exercise_id = e.id
+    LEFT JOIN workouts w ON w.id = s.workout_id AND w.finished_at IS NOT NULL
+    GROUP BY e.id
+    ORDER BY e.muscle_group ASC, workout_count DESC, e.name ASC
+  `).all();
+  res.json(rows);
+});
+
 router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);

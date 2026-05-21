@@ -85,6 +85,14 @@ async function openSettingsSheet() {
           <div class="settings-row"><span>PIN lock</span><button class="btn btn--ghost btn--sm" id="reset-pin">${pinSet ? 'Change / reset PIN' : 'Set PIN'}</button></div>
         </div>
         <div class="settings-group">
+          <div class="settings-group__title">Exercises</div>
+          <div class="settings-row">
+            <span>Library &amp; usage stats</span>
+            <button class="btn btn--ghost btn--sm" id="open-ex-library">View</button>
+          </div>
+          <div class="card__subtitle" style="margin-top:4px">See how often each exercise has been used. Delete unused ones to keep the picker clean.</div>
+        </div>
+        <div class="settings-group">
           <div class="settings-group__title">Data</div>
           <div class="settings-row"><span>Export everything to JSON</span><a class="btn btn--ghost btn--sm" href="/api/export" download>Download</a></div>
           <div class="settings-row">
@@ -158,6 +166,8 @@ async function openSettingsSheet() {
       return;
     }
 
+    if (e.target.closest('#open-ex-library')) { openExerciseLibrary(); return; }
+
     const prefUnitBtn = e.target.closest('[data-pref-unit]');
     if (prefUnitBtn) {
       try {
@@ -196,6 +206,88 @@ async function openSettingsSheet() {
       } catch (err) { toast(`Import failed: ${err.message}`); }
     };
   }
+}
+
+async function openExerciseLibrary() {
+  const sheet = ensureSheet('ex-library-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Exercise Library</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body" id="ex-lib-body">
+        <div class="skeleton" style="height:200px"></div>
+      </div>
+    </div>`;
+  showSheet(sheet);
+
+  let stats;
+  try { stats = await API.exerciseStats(); }
+  catch (err) {
+    document.getElementById('ex-lib-body').innerHTML = `<div class="empty">${err.message}</div>`;
+    return;
+  }
+
+  const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  const byGroup = {};
+  for (const ex of stats) {
+    const g = ex.muscle_group || 'other';
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(ex);
+  }
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmtDate = (iso) => {
+    if (!iso) return 'never';
+    const d = new Date(iso.replace(' ', 'T') + 'Z');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  };
+
+  const order = [...new Set([...GROUPS, ...Object.keys(byGroup)])].filter((g) => byGroup[g]);
+  const html = order.map((g) => `
+    <div class="ex-lib-group">
+      <div class="ex-lib-group__title">${g}</div>
+      ${byGroup[g].map((ex) => `
+        <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
+          <div class="ex-lib-row__info">
+            <div class="ex-lib-row__name">${ex.name}</div>
+            <div class="ex-lib-row__meta">
+              ${ex.workout_count === 0
+                ? '<span style="color:var(--text-dim)">Never used</span>'
+                : `<span style="color:var(--accent)">${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''}</span> · last ${fmtDate(ex.last_used_at)}`}
+            </div>
+          </div>
+          ${ex.workout_count === 0
+            ? `<button class="btn--icon btn--icon-danger" data-del-ex="${ex.id}" title="Delete">×</button>`
+            : ''}
+        </div>`).join('')}
+    </div>`).join('');
+
+  const unusedCount = stats.filter((e) => e.workout_count === 0).length;
+  document.getElementById('ex-lib-body').innerHTML = `
+    <div class="card__subtitle" style="margin-bottom:12px">
+      ${stats.length} exercises total · <strong>${unusedCount}</strong> never used
+    </div>
+    ${html}`;
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+    const delBtn = e.target.closest('[data-del-ex]');
+    if (delBtn) {
+      const exId = Number(delBtn.dataset.delEx);
+      const row = delBtn.closest('.ex-lib-row');
+      const name = row?.querySelector('.ex-lib-row__name')?.textContent || 'this exercise';
+      if (!confirm(`Delete "${name}"?`)) return;
+      try {
+        await API.deleteExercise(exId);
+        row.remove();
+        haptic(20);
+        toast(`Deleted ${name}`);
+      } catch (err) { toast(err.message); }
+    }
+  };
 }
 
 export { openSettingsSheet };
