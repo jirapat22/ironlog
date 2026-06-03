@@ -5,7 +5,7 @@ const router = express.Router();
 
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted FROM exercises ORDER BY muscle_group, name')
+    .prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted, equipment FROM exercises ORDER BY muscle_group, name')
     .all();
   res.json(rows);
 });
@@ -30,7 +30,7 @@ router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'exercise not found' });
-  const fields = ['name', 'muscle_group', 'notes'];
+  const fields = ['name', 'muscle_group', 'notes', 'equipment'];
   const updates = [], values = [];
   for (const f of fields) {
     if (f in (req.body || {})) { updates.push(`${f} = ?`); values.push(req.body[f]); }
@@ -43,7 +43,7 @@ router.patch('/:id', (req, res) => {
     if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'exercise name already exists' });
     throw err;
   }
-  res.json(db.prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted FROM exercises WHERE id = ?').get(id));
+  res.json(db.prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(id));
 });
 
 router.delete('/:id', (req, res) => {
@@ -60,15 +60,17 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, muscle_group, notes } = req.body || {};
+  const { name, muscle_group, notes, equipment = 'barbell' } = req.body || {};
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
+  const validEquipment = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
+  const equip = validEquipment.includes(equipment) ? equipment : 'barbell';
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, notes) VALUES (?, ?, ?)')
-      .run(name.trim(), muscle_group.trim(), notes || null);
-    const row = db.prepare('SELECT * FROM exercises WHERE id = ?').get(info.lastInsertRowid);
+      .prepare('INSERT INTO exercises (name, muscle_group, notes, equipment) VALUES (?, ?, ?, ?)')
+      .run(name.trim(), muscle_group.trim(), notes || null, equip);
+    const row = db.prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json(row);
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) {

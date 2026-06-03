@@ -112,9 +112,21 @@ function stepFor(unit) {
 }
 
 function stepForExercise(unit, ex) {
-  const fineGrain = ex && /dumbbell|\bdb\b|cable|machine|assisted/i.test(ex.name);
-  if (unit === 'lbs') return fineGrain ? 2.5 : 5;
-  return fineGrain ? 1 : 2.5;
+  // Use equipment field if available; fall back to name regex for older data
+  const equipment = ex?.equipment
+    || (/dumbbell|\bdb\b/i.test(ex?.name || '') ? 'dumbbell'
+        : /cable|machine|assisted/i.test(ex?.name || '') ? 'cable'
+        : 'barbell');
+
+  if (unit === 'lbs') {
+    if (equipment === 'barbell') return 10;   // 5 lbs/side
+    if (equipment === 'dumbbell') return 5;   // standard US dumbbell jump
+    return 5;                                  // cable / machine stack
+  }
+  // kg
+  if (equipment === 'barbell') return 5;      // 2.5 kg/side
+  if (equipment === 'dumbbell') return 2;     // standard DB increment
+  return 2.5;                                  // cable / machine
 }
 
 function skeletonBlocks(n = 3) {

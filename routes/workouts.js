@@ -64,7 +64,7 @@ router.get('/recent/:programDayId', (req, res) => {
   ).all(pdid, n);
   for (const w of workouts) {
     w.sets = db.prepare(
-      `SELECT s.*, e.is_bodyweight, e.is_assisted
+      `SELECT s.*, e.is_bodyweight, e.is_assisted, e.equipment
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?
@@ -89,7 +89,7 @@ router.get('/last/:programDayId', (req, res) => {
 
   const sets = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, s.is_warmup
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?
@@ -173,7 +173,7 @@ router.get('/:id/sets', (req, res) => {
   const id = Number(req.params.id);
   const rows = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, s.is_warmup
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?
@@ -190,7 +190,7 @@ router.get('/:id', (req, res) => {
 
   // Include exercise metadata so the client can rebuild mid-workout added exercise cards
   const sets = db.prepare(
-    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted
+    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment
      FROM sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.workout_id = ?

@@ -15,75 +15,107 @@ function calcE1RM(set, exercise, bwKg) {
 }
 
 // ---------- PROGRESS tab ----------
+// ---------- Collapsible section helpers ----------
+function getCollapsedSet() {
+  try {
+    const raw = localStorage.getItem('ironlog.progress.collapsed');
+    // Default: Personal Records collapsed
+    return new Set(raw ? JSON.parse(raw) : ['ps-pr']);
+  } catch { return new Set(['ps-pr']); }
+}
+
+function saveCollapsedSet(set) {
+  localStorage.setItem('ironlog.progress.collapsed', JSON.stringify([...set]));
+}
+
+function restoreCollapsedSections() {
+  const collapsed = getCollapsedSet();
+  for (const id of collapsed) {
+    const section = document.getElementById(id);
+    if (!section) continue;
+    section.classList.add('ps--collapsed');
+    const btn = section.querySelector('[data-ps-toggle]');
+    if (btn) btn.textContent = '▸';
+  }
+}
+
 async function renderProgress() {
   const root = $('#view-progress');
   root.innerHTML = `
-    <div class="progress-section">
+    <div class="progress-section" id="ps-bodyweight">
       <div class="progress-section__head">
         <div class="progress-section__title" style="margin:0">Body Weight</div>
-        <button class="btn btn--ghost btn--sm" data-log-bw>+ Log</button>
+        <div class="ps-head-actions">
+          <button class="btn btn--ghost btn--sm" data-log-bw>+ Log</button>
+          <button class="ps-toggle" data-ps-toggle="ps-bodyweight">▾</button>
+        </div>
       </div>
-      <div id="bw-current" class="bw-current"></div>
-      <div id="bw-recent" class="bw-recent"></div>
-      <div class="chart-wrap bw-chart-wrap hidden" id="bw-chart-wrap"><canvas id="bw-chart"></canvas></div>
+      <div class="ps-body">
+        <div id="bw-current" class="bw-current"></div>
+        <div id="bw-recent" class="bw-recent"></div>
+        <div class="chart-wrap bw-chart-wrap hidden" id="bw-chart-wrap"><canvas id="bw-chart"></canvas></div>
+      </div>
     </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Consistency (6 months)</div>
-      <div id="calendar" class="calendar"></div>
+    <div class="progress-section" id="ps-consistency">
+      <div class="progress-section__head">
+        <div class="progress-section__title" style="margin:0">Consistency (6 months)</div>
+        <button class="ps-toggle" data-ps-toggle="ps-consistency">▾</button>
+      </div>
+      <div class="ps-body">
+        <div id="calendar" class="calendar"></div>
+      </div>
     </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Muscle Frequency</div>
-      <div id="muscle-frequency"></div>
+    <div class="progress-section" id="ps-muscle-freq">
+      <div class="progress-section__head">
+        <div class="progress-section__title" style="margin:0">Muscle Frequency</div>
+        <button class="ps-toggle" data-ps-toggle="ps-muscle-freq">▾</button>
+      </div>
+      <div class="ps-body">
+        <div id="muscle-frequency"></div>
+      </div>
     </div>
-    <div class="progress-section">
+    <div class="progress-section" id="ps-tdee">
       <div class="progress-section__head">
         <div class="progress-section__title" style="margin:0">Daily Calories</div>
-        <button class="btn btn--ghost btn--sm" data-edit-profile>Profile</button>
+        <div class="ps-head-actions">
+          <button class="btn btn--ghost btn--sm" data-edit-profile>Profile</button>
+          <button class="ps-toggle" data-ps-toggle="ps-tdee">▾</button>
+        </div>
       </div>
-      <div id="tdee-card"></div>
+      <div class="ps-body">
+        <div id="tdee-card"></div>
+      </div>
     </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Strength Standards (vs. body weight)</div>
-      <div id="strength-standards"></div>
-    </div>
-    <div class="progress-section">
-      <div class="progress-section__title">What if I took a break?</div>
-      <div id="break-projection"></div>
-    </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Readiness (RPE trend)</div>
-      <div id="readiness"></div>
-    </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Personal Records (best per rep count)</div>
-      <div id="pr-timeline"></div>
-    </div>
-    <div class="progress-section">
-      <div class="progress-section__title">Strength Curve</div>
-      <select class="input" id="strength-ex"></select>
-      <div class="chart-wrap" style="margin-top:12px"><canvas id="strength-chart"></canvas></div>
-      <div class="progress-section__title" style="margin-top:18px">Weekly volume — same exercise</div>
-      <div class="chart-wrap"><canvas id="ex-volume-chart"></canvas></div>
-    </div>
-    <div class="progress-section">
+    <div class="progress-section" id="ps-pr">
       <div class="progress-section__head">
-        <div class="progress-section__title" style="margin:0">Weekly Volume by Muscle Group</div>
-        <select class="input" id="volume-range" style="width:auto;min-height:34px;padding:0 10px;font-size:13px">
-          <option value="4">4 weeks</option>
-          <option value="8" selected>8 weeks</option>
-          <option value="13">3 months</option>
-          <option value="26">6 months</option>
-          <option value="52">1 year</option>
-          <option value="0">All time</option>
-        </select>
+        <div class="progress-section__title" style="margin:0">Personal Records</div>
+        <button class="ps-toggle" data-ps-toggle="ps-pr">▾</button>
       </div>
-      <div class="chart-wrap" style="margin-top:12px"><canvas id="volume-chart"></canvas></div>
+      <div class="ps-body">
+        <div id="pr-timeline"></div>
+      </div>
     </div>
   `;
 
   root.onclick = async (e) => {
     if (e.target.closest('[data-log-bw]')) return openBodyweightSheet();
     if (e.target.closest('[data-edit-profile]')) return openProfileSheet();
+
+    const toggle = e.target.closest('[data-ps-toggle]');
+    if (toggle) {
+      const sectionId = toggle.dataset.psToggle;
+      const section = document.getElementById(sectionId);
+      if (section) {
+        section.classList.toggle('ps--collapsed');
+        toggle.textContent = section.classList.contains('ps--collapsed') ? '▸' : '▾';
+        const collapsed = getCollapsedSet();
+        if (section.classList.contains('ps--collapsed')) collapsed.add(sectionId);
+        else collapsed.delete(sectionId);
+        saveCollapsedSet(collapsed);
+      }
+      return;
+    }
+
     const del = e.target.closest('[data-del-bw]');
     if (del) {
       const id = Number(del.dataset.delBw);
@@ -97,38 +129,15 @@ async function renderProgress() {
   };
 
   try {
-    const [exercises, weekly, calendarDates] = await Promise.all([
-      API.exercises(),
-      API.weeklyVolume(),
-      API.calendar()
-    ]);
+    const calendarDates = await API.calendar();
 
     await renderBodyweightSection();
-
-    const sel = $('#strength-ex');
-    sel.innerHTML = '<option value="">Select an exercise…</option>' +
-      exercises.map((e) => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.muscle_group)})</option>`).join('');
-    sel.onchange = async () => {
-      const id = Number(sel.value);
-      if (!id) return;
-      const data = await API.progress(id);
-      renderStrengthChart(data);
-      renderExerciseVolumeChart(data.sets);
-    };
-
-    renderVolumeChart(weekly);
     renderCalendar(calendarDates);
     renderMuscleFrequency();
-
-    document.getElementById('volume-range').onchange = async (e) => {
-      const data = await API.weeklyVolume(Number(e.target.value));
-      renderVolumeChart(data);
-    };
-    renderStrengthStandards();
-    renderBreakProjection();
     renderPrTimeline();
-    renderReadiness(exercises);
     renderTdeeSection();
+
+    restoreCollapsedSections();
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load progress: ${err.message}</div>`;
   }
@@ -142,81 +151,6 @@ function chartDefaults() {
   };
 }
 
-function renderStrengthChart({ sets, prs, exercise }) {
-  const canvas = document.getElementById('strength-chart');
-  if (!canvas) return;
-  if (chartInstances.strength) chartInstances.strength.destroy();
-
-  const isBw = !!exercise?.is_bodyweight;
-  const byDay = new Map();
-  for (const s of sets) {
-    const day = s.logged_at.slice(0, 10);
-    const kg = isBw ? toKg(s.weight, s.weight_unit) + (localBwKg || 0) : toKg(s.weight, s.weight_unit);
-    const prev = byDay.get(day) || 0;
-    if (kg > prev) byDay.set(day, kg);
-  }
-  const labels = [...byDay.keys()].sort();
-  const values = labels.map((l) => Number(byDay.get(l).toFixed(1)));
-  const prDays = new Set(prs.map((p) => p.achieved_at.slice(0, 10)));
-  const pointStyle = labels.map((l) => (prDays.has(l) ? 'star' : 'circle'));
-  const pointSize = labels.map((l) => (prDays.has(l) ? 9 : 4));
-  const d = chartDefaults();
-
-  chartInstances.strength = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data: values,
-        borderColor: '#e8ff47',
-        backgroundColor: 'rgba(232,255,71,0.1)',
-        tension: 0.25, fill: true,
-        pointStyle, pointRadius: pointSize,
-        pointBackgroundColor: '#e8ff47',
-        pointBorderColor: '#0f0f0f'
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} kg${isBw ? ' (incl. BW)' : ''}` } } },
-      scales: { x: d, y: { ...d, beginAtZero: true } }
-    }
-  });
-}
-
-function renderVolumeChart(rows) {
-  const canvas = document.getElementById('volume-chart');
-  if (!canvas) return;
-  if (chartInstances.volume) chartInstances.volume.destroy();
-
-  const weeks = [...new Set(rows.map((r) => r.week))].sort();
-  const groups = [...new Set(rows.map((r) => r.muscle_group))];
-  const palette = {
-    chest: '#e8ff47', back: '#62d8ff', shoulders: '#ffb347',
-    biceps: '#c6a1ff', triceps: '#ff8ad1', arms: '#c6a1ff',
-    legs: '#9effa8', core: '#ffe066'
-  };
-  const defaults = chartDefaults();
-  const datasets = groups.map((g) => ({
-    label: g,
-    data: weeks.map((w) => {
-      const row = rows.find((r) => r.week === w && r.muscle_group === g);
-      return row ? Math.round(row.volume) : 0;
-    }),
-    backgroundColor: palette[g] || '#8a8a8a',
-    borderRadius: 2
-  }));
-
-  chartInstances.volume = new Chart(canvas, {
-    type: 'bar',
-    data: { labels: weeks, datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#c8c8c8', boxWidth: 12 } } },
-      scales: { x: { ...defaults, stacked: true }, y: { ...defaults, stacked: true, beginAtZero: true } }
-    }
-  });
-}
 
 const MIN_WEEKLY_SESSIONS = 3;
 
@@ -368,137 +302,6 @@ function renderCalendar(entries) {
   `;
 }
 
-const STRENGTH_STANDARDS = {
-  male: [
-    { name: 'Bench Press', novice: 0.75, inter: 1.25, adv: 1.5, elite: 2.0 },
-    { name: 'Back Squat', novice: 1.25, inter: 1.75, adv: 2.25, elite: 2.75 },
-    { name: 'Deadlift', novice: 1.5, inter: 2.25, adv: 2.75, elite: 3.25 },
-    { name: 'Overhead Press', novice: 0.55, inter: 0.9, adv: 1.15, elite: 1.4 }
-  ],
-  female: [
-    { name: 'Bench Press', novice: 0.5, inter: 0.8, adv: 1.0, elite: 1.3 },
-    { name: 'Back Squat', novice: 0.9, inter: 1.25, adv: 1.6, elite: 2.0 },
-    { name: 'Deadlift', novice: 1.0, inter: 1.5, adv: 2.0, elite: 2.5 },
-    { name: 'Overhead Press', novice: 0.35, inter: 0.55, adv: 0.75, elite: 1.0 }
-  ]
-};
-
-function classifyStrength(ratio, std) {
-  if (ratio >= std.elite) return { label: 'Elite', color: '#e8ff47' };
-  if (ratio >= std.adv) return { label: 'Advanced', color: '#9effa8' };
-  if (ratio >= std.inter) return { label: 'Intermediate', color: '#62d8ff' };
-  if (ratio >= std.novice) return { label: 'Novice', color: '#ffb347' };
-  return { label: 'Beginner', color: '#8a8a8a' };
-}
-
-async function renderStrengthStandards() {
-  const root = $('#strength-standards');
-  if (!root) return;
-  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
-  try {
-    const [prs, bw, settings] = await Promise.all([
-      API.prs(), API.bodyweight(),
-      API.settings().catch(() => ({ strength_standard_gender: 'male' }))
-    ]);
-    if (!bw.length) { root.innerHTML = `<div class="bw-current__empty">Log your body weight above to see strength ratios.</div>`; return; }
-    const bwKg = toKg(bw[0].weight, bw[0].weight_unit);
-    const gender = settings.strength_standard_gender === 'female' ? 'female' : 'male';
-    const standards = STRENGTH_STANDARDS[gender];
-
-    const rows = standards.map((std) => {
-      const group = prs.find((p) => p.exercise_name === std.name);
-      if (!group || !group.records.length) return `<div class="std-row std-row--empty"><div class="std-row__name">${std.name}</div><div class="std-row__meta">No data yet</div></div>`;
-      let bestE1RM = 0, bestRec = null;
-      for (const r of group.records) {
-        const e = e1RM(toKg(r.weight, r.weight_unit), r.reps);
-        if (e > bestE1RM) { bestE1RM = e; bestRec = r; }
-      }
-      const ratio = bestE1RM / bwKg;
-      const cls = classifyStrength(ratio, std);
-      const pct = Math.min(100, (ratio / std.elite) * 100);
-      return `
-        <div class="std-row">
-          <div class="std-row__top">
-            <div class="std-row__name">${std.name}</div>
-            <div class="std-row__ratio">${ratio.toFixed(2)}× <span style="color:${cls.color}">${cls.label}</span></div>
-          </div>
-          <div class="std-row__bar">
-            <div class="std-row__fill" style="width:${pct}%;background:${cls.color}"></div>
-            <div class="std-row__tick" style="left:${(std.novice / std.elite) * 100}%" title="Novice"></div>
-            <div class="std-row__tick" style="left:${(std.inter / std.elite) * 100}%" title="Intermediate"></div>
-            <div class="std-row__tick" style="left:${(std.adv / std.elite) * 100}%" title="Advanced"></div>
-          </div>
-          <div class="std-row__meta">Est. 1RM ${Math.round(bestE1RM)} kg · best ${bestRec.weight}${bestRec.weight_unit} × ${bestRec.reps}</div>
-        </div>`;
-    }).join('');
-
-    root.innerHTML = `
-      <div class="std-header">
-        <div class="card__subtitle">Based on best e1RM ÷ body weight (${bw[0].weight} ${bw[0].weight_unit}) · ${gender} standards</div>
-        <div class="std-header__toggle">
-          <button class="std-tab ${gender === 'male' ? 'std-tab--active' : ''}" data-std-gender="male">Male</button>
-          <button class="std-tab ${gender === 'female' ? 'std-tab--active' : ''}" data-std-gender="female">Female</button>
-        </div>
-      </div>${rows}`;
-
-    root.querySelectorAll('[data-std-gender]').forEach((btn) => {
-      btn.onclick = async () => {
-        const next = btn.dataset.stdGender;
-        if (next === gender) return;
-        try { await API.updateSettings({ strength_standard_gender: next }); haptic(10); renderStrengthStandards(); }
-        catch (err) { toast(err.message); }
-      };
-    });
-  } catch (err) { root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`; }
-}
-
-function projectStrengthLoss(daysOff) {
-  if (daysOff <= 0) return 0;
-  if (daysOff <= 7) return daysOff * 0.0014;
-  if (daysOff <= 21) return 0.01 + (daysOff - 7) * 0.003;
-  if (daysOff <= 56) return 0.05 + (daysOff - 21) * 0.004;
-  return Math.min(0.35, 0.19 + (daysOff - 56) * 0.002);
-}
-
-async function renderBreakProjection() {
-  const root = $('#break-projection');
-  if (!root) return;
-  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
-  try {
-    const prs = await API.prs();
-    const mainLifts = ['Bench Press', 'Back Squat', 'Deadlift', 'Overhead Press'];
-    const rows = [];
-    for (const name of mainLifts) {
-      const group = prs.find((p) => p.exercise_name === name);
-      if (!group || !group.records.length) { rows.push({ name, empty: true }); continue; }
-      let bestE1RM = 0, bestAt = null;
-      for (const r of group.records) {
-        const e = e1RM(toKg(r.weight, r.weight_unit), r.reps);
-        if (e > bestE1RM) { bestE1RM = e; bestAt = r.achieved_at; }
-      }
-      let daysSince = null;
-      try {
-        const data = await API.progress(group.exercise_id);
-        const lastSet = data.sets[data.sets.length - 1];
-        if (lastSet) daysSince = Math.floor((Date.now() - new Date(lastSet.logged_at.replace(' ', 'T') + 'Z').getTime()) / 86400000);
-      } catch { /* ignore */ }
-      rows.push({ name, bestE1RM, bestAt, daysSince, projections: [{ label: '1 wk', days: 7 }, { label: '2 wk', days: 14 }, { label: '1 mo', days: 30 }, { label: '2 mo', days: 60 }] });
-    }
-    if (rows.every((r) => r.empty)) { root.innerHTML = `<div class="bw-current__empty">Log a few sessions of the main lifts (bench, squat, deadlift, press) to see this.</div>`; return; }
-    root.innerHTML = `
-      <div class="card__subtitle" style="margin-bottom:12px">Rough detraining projection from your current best e1RM. Comes back fast when you resume.</div>
-      ${rows.map((r) => {
-        if (r.empty) return `<div class="break-row break-row--empty"><div class="break-row__name">${r.name}</div><div class="break-row__meta">No data yet</div></div>`;
-        const cells = r.projections.map((p) => {
-          const loss = projectStrengthLoss(p.days);
-          const projected = r.bestE1RM * (1 - loss);
-          return `<div class="break-cell"><div class="break-cell__label">${p.label}</div><div class="break-cell__val">${Math.round(projected)}</div><div class="break-cell__delta">-${Math.round(loss * 100)}%</div></div>`;
-        }).join('');
-        const daysSinceTxt = r.daysSince == null ? '' : r.daysSince === 0 ? 'today' : r.daysSince === 1 ? 'yesterday' : `${r.daysSince}d ago`;
-        return `<div class="break-row"><div class="break-row__head"><div class="break-row__name">${r.name}</div><div class="break-row__meta"><span>Now: <strong>${Math.round(r.bestE1RM)} kg</strong></span>${daysSinceTxt ? `<span class="break-row__since">last ${daysSinceTxt}</span>` : ''}</div></div><div class="break-cells">${cells}</div></div>`;
-      }).join('')}`;
-  } catch (err) { root.innerHTML = `<div class="empty">Couldn't compute: ${escapeHtml(err.message)}</div>`; }
-}
 
 async function renderPrTimeline() {
   const root = $('#pr-timeline');
@@ -543,95 +346,6 @@ async function renderPrTimeline() {
   } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
 }
 
-async function renderReadiness(exercises) {
-  const root = $('#readiness');
-  if (!root) return;
-  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
-  const since = Date.now() - 42 * 86400000;
-  try {
-    const prs = await API.prs();
-    const tracked = prs.map((p) => p.exercise_id);
-    const datas = await Promise.all(tracked.map((id) => API.progress(id).then((d) => ({ id, d })).catch(() => null)));
-    const rows = [];
-    for (const item of datas) {
-      if (!item) continue;
-      const { id, d } = item;
-      const exName = exercises.find((e) => e.id === id)?.name || '?';
-      const bySession = new Map();
-      for (const s of d.sets) {
-        if (s.rpe == null) continue;
-        const t = new Date(s.logged_at.replace(' ', 'T') + 'Z').getTime();
-        if (t < since) continue;
-        const day = s.logged_at.slice(0, 10);
-        if (!bySession.has(day)) bySession.set(day, []);
-        bySession.get(day).push(s);
-      }
-      if (bySession.size < 2) continue;
-      const sessionKeys = [...bySession.keys()].sort();
-      const sessionAvgRpe = sessionKeys.map((k) => {
-        const sets = bySession.get(k);
-        const avg = sets.reduce((acc, s) => acc + s.rpe, 0) / sets.length;
-        const maxW = Math.max(...sets.map((s) => toKg(s.weight, s.weight_unit)));
-        return { day: k, avgRpe: avg, maxW };
-      });
-      const recent = sessionAvgRpe.slice(-3);
-      const prior = sessionAvgRpe.slice(-6, -3);
-      const recentAvg = recent.reduce((a, s) => a + s.avgRpe, 0) / recent.length;
-      const priorAvg = prior.length ? prior.reduce((a, s) => a + s.avgRpe, 0) / prior.length : recentAvg;
-      const delta = recentAvg - priorAvg;
-      const recentW = recent[recent.length - 1].maxW;
-      const priorW = prior.length ? prior[prior.length - 1].maxW : recentW;
-      const weightUp = recentW > priorW;
-      let label, color;
-      if (delta >= 0.75 && !weightUp) { label = 'Fatigue building'; color = '#ff8a8a'; }
-      else if (delta >= 0.5 && !weightUp) { label = 'Watch it'; color = '#ffb347'; }
-      else if (delta <= -0.5 || (delta <= 0.25 && weightUp)) { label = 'Progressing'; color = '#9effa8'; }
-      else { label = 'Stable'; color = '#62d8ff'; }
-      rows.push({ exName, recentAvg, priorAvg, delta, label, color, weightUp, recentW });
-    }
-    if (!rows.length) { root.innerHTML = `<div class="bw-current__empty">Log RPE on a few sets to see fatigue/readiness trends.</div>`; return; }
-    rows.sort((a, b) => b.delta - a.delta);
-    root.innerHTML = `<div class="card__subtitle" style="margin-bottom:10px">Rising RPE at the same weight = fatigue building. Last 3 sessions vs. prior 3.</div>
-      ${rows.map((r) => `<div class="ready-row">
-        <div class="ready-row__top"><div class="ready-row__name">${escapeHtml(r.exName)}</div><div class="ready-row__label" style="color:${r.color}">${r.label}</div></div>
-        <div class="ready-row__meta">Avg RPE ${r.priorAvg.toFixed(1)} → ${r.recentAvg.toFixed(1)} <span style="color:${r.delta > 0 ? '#ff8a8a' : '#9effa8'}">${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(1)}</span> · ${Math.round(r.recentW)} kg ${r.weightUp ? '↑' : ''}</div>
-      </div>`).join('')}`;
-  } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
-}
-
-function renderExerciseVolumeChart(sets) {
-  const canvas = document.getElementById('ex-volume-chart');
-  if (!canvas) return;
-  if (chartInstances.exVolume) chartInstances.exVolume.destroy();
-  if (!sets.length) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
-  const byWeek = new Map();
-  for (const s of sets) {
-    const d = new Date(s.logged_at.replace(' ', 'T') + 'Z');
-    const week = isoWeekKey(d);
-    byWeek.set(week, (byWeek.get(week) || 0) + toKg(s.weight, s.weight_unit) * s.reps);
-  }
-  const labels = [...byWeek.keys()].sort();
-  const values = labels.map((w) => Math.round(byWeek.get(w)));
-  const d = chartDefaults();
-  chartInstances.exVolume = new Chart(canvas, {
-    type: 'bar',
-    data: { labels, datasets: [{ data: values, backgroundColor: 'rgba(232,255,71,0.8)', borderRadius: 4 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y.toLocaleString()} kg volume` } } },
-      scales: { x: d, y: { ...d, beginAtZero: true } }
-    }
-  });
-}
-
-function isoWeekKey(date) {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNum = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
-}
 
 async function renderBodyweightSection() {
   const currentEl = $('#bw-current'), recentEl = $('#bw-recent'), chartWrap = $('#bw-chart-wrap');

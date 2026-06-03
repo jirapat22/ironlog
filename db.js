@@ -169,6 +169,18 @@ function init() {
     if (!/duplicate column/i.test(err.message)) throw err;
   }
 
+  try {
+    db.exec("ALTER TABLE exercises ADD COLUMN equipment TEXT NOT NULL DEFAULT 'barbell'");
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
+  try {
+    db.exec('ALTER TABLE sets ADD COLUMN rir INTEGER');
+  } catch (err) {
+    if (!/duplicate column/i.test(err.message)) throw err;
+  }
+
   seed();
 }
 
@@ -397,6 +409,30 @@ function seed() {
       for (const name of names) updateGroup.run(group, name, group);
     }
   });
+
+  // Set equipment on exercises still at the default 'barbell' value.
+  // Order matters: more specific patterns first; bodyweight/assisted last to override.
+  const equipmentMigrations = [
+    `UPDATE exercises SET equipment = 'cable' WHERE equipment = 'barbell'
+     AND (name LIKE '%Cable%' OR name LIKE '%Pulldown%' OR name LIKE '%Pushdown%'
+          OR name LIKE '%Pullthrough%' OR name LIKE '%Pallof%'
+          OR name IN ('Face Pull','Seated Cable Row','Band Pull-Apart','Rope Pushdown',
+                      'Seated Cable Lateral Raise','Bayesian Curl','Cable Hammer Curl'))`,
+    `UPDATE exercises SET equipment = 'dumbbell' WHERE equipment = 'barbell'
+     AND (name LIKE '%Dumbbell%'
+          OR name IN ('Lateral Raise','Rear Delt Fly','Arnold Press','Hammer Curl',
+                      'Concentration Curl','Overhead Tricep Extension','Tricep Kickback',
+                      'Goblet Squat','Farmer Carry','Zottman Curl','Shrug'))`,
+    `UPDATE exercises SET equipment = 'machine' WHERE equipment = 'barbell'
+     AND (name LIKE '%Machine%' OR name LIKE '%Pec Deck%' OR name LIKE '%Leg Press%'
+          OR name LIKE '%Leg Extension%' OR name LIKE '%Leg Curl%' OR name LIKE '%Hack Squat%'
+          OR name LIKE '%Hip Abduction%' OR name LIKE '%Hip Adduction%'
+          OR name LIKE '%Smith%' OR name IN ('Sissy Squat','Reverse Hyperextension'))`,
+    `UPDATE exercises SET equipment = 'bodyweight'
+     WHERE is_bodyweight = 1 AND (is_assisted IS NULL OR is_assisted = 0)`,
+    `UPDATE exercises SET equipment = 'machine' WHERE is_assisted = 1`
+  ];
+  for (const sql of equipmentMigrations) db.exec(sql);
 
   seedPrograms();
 }

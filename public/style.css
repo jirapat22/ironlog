@@ -209,6 +209,45 @@ button {
   color: var(--text);
 }
 
+.badge--equipment {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge--equipment:active { background: var(--surface-2); }
+
+/* Equipment picker options */
+.equip-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.equip-option--active {
+  border-color: var(--accent);
+  background: rgba(232,255,71,0.08);
+}
+.equip-option__label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.equip-option__step {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -858,6 +897,18 @@ button {
   color: #0c0c0c;
   border-color: var(--accent);
 }
+
+.undo-set-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+.undo-set-btn:active { background: var(--surface-2); }
 
 .set-count-controls__label {
   font-size: 12px;
@@ -2458,6 +2509,27 @@ button {
   margin: 0 0 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* Collapsible sections */
+.ps-body { overflow: hidden; }
+.ps--collapsed .ps-body { display: none; }
+.ps--collapsed .progress-section__title { margin-bottom: 0; }
+
+.ps-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 0 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ps-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .chart-wrap {

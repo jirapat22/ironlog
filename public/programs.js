@@ -477,6 +477,14 @@ function openNewExerciseForm(picker) {
           <option value="triceps">triceps</option><option value="legs">legs</option>
           <option value="core">core</option>
         </select>
+        <label class="form-label" style="margin-top:14px">Equipment</label>
+        <select class="input" id="new-ex-equipment">
+          <option value="barbell">Barbell</option>
+          <option value="dumbbell">Dumbbell</option>
+          <option value="cable">Cable</option>
+          <option value="machine">Machine</option>
+          <option value="bodyweight">Bodyweight</option>
+        </select>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="new-ex-notes" placeholder="Setup cue or variation" />
         <button class="btn btn--primary btn--block" id="new-ex-save" style="margin-top:20px">Create & add</button>
@@ -488,10 +496,11 @@ function openNewExerciseForm(picker) {
   picker.querySelector('#new-ex-save').onclick = async () => {
     const name = picker.querySelector('#new-ex-name').value.trim();
     const muscle = picker.querySelector('#new-ex-muscle').value;
+    const equipment = picker.querySelector('#new-ex-equipment').value;
     const notes = picker.querySelector('#new-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, notes });
+      const ex = await API.addExercise({ name, muscle_group: muscle, equipment, notes });
       editDayState.allExercises.push(ex);
       const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
         exercise_id: ex.id, target_sets: 3, target_reps: 10
@@ -505,6 +514,7 @@ function openNewExerciseForm(picker) {
 
 function openEditExerciseForm(picker, ex, allExercises) {
   const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  const EQUIPMENT = ['barbell','dumbbell','cable','machine','bodyweight'];
   picker.innerHTML = `
     <div class="sheet__inner">
       <div class="sheet__head">
@@ -519,6 +529,10 @@ function openEditExerciseForm(picker, ex, allExercises) {
         <select class="input" id="edit-ex-muscle">
           ${GROUPS.map((g) => `<option value="${g}" ${ex.muscle_group === g ? 'selected' : ''}>${g}</option>`).join('')}
         </select>
+        <label class="form-label" style="margin-top:14px">Equipment</label>
+        <select class="input" id="edit-ex-equipment">
+          ${EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${e}</option>`).join('')}
+        </select>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
@@ -531,10 +545,11 @@ function openEditExerciseForm(picker, ex, allExercises) {
   picker.querySelector('#edit-ex-save').onclick = async () => {
     const name = picker.querySelector('#edit-ex-name').value.trim();
     const muscle = picker.querySelector('#edit-ex-muscle').value;
+    const equipment = picker.querySelector('#edit-ex-equipment').value;
     const notes = picker.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const updated = await API.updateExercise(ex.id, { name, muscle_group: muscle, notes });
+      const updated = await API.updateExercise(ex.id, { name, muscle_group: muscle, equipment, notes });
       // Sync in-memory list so picker reflects changes immediately
       Object.assign(ex, updated);
       editDayState.allExercises = editDayState.allExercises.map((x) => x.id === ex.id ? updated : x);

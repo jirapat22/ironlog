@@ -81,12 +81,12 @@ function markRowTouched(row) {
   const wIn = row.querySelector('[data-field="weight"] .num-input__field');
   const rIn = row.querySelector('[data-field="reps"] .num-input__field');
   const uBtn = row.querySelector('[data-unit]');
-  const rpeAttr = row.dataset.rpe;
+  const rirAttr = row.dataset.rir;
   workoutState.draft.inputs[`${exId}-${setNum}`] = {
     w: wIn ? wIn.value : '',
     u: uBtn ? uBtn.textContent.trim() : 'kg',
     r: rIn ? rIn.value : '',
-    rpe: !rpeAttr || rpeAttr === '0' ? null : Number(rpeAttr)
+    rir: rirAttr === '' || rirAttr == null ? null : Number(rirAttr)
   };
   saveDraft(workoutState.workout.id, workoutState.draft);
 }
@@ -185,6 +185,7 @@ async function renderWorkout() {
           notes: null,
           is_bodyweight: !!s.is_bodyweight,
           is_assisted: !!s.is_assisted,
+          equipment: s.equipment || null,
           target_sets: Math.max(...workoutState.loggedSets.filter(x => x.exercise_id === s.exercise_id).map(x => x.set_number)),
           target_reps: s.reps,
           order_index: workoutState.programDay.exercises.length + extraById.size
@@ -303,10 +304,10 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const w = logged?.weight ?? draft?.w ?? rec?.recWeight ?? prevSet?.weight ?? prefillWeight;
     const u = logged?.weight_unit ?? draft?.u ?? rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit;
     const r = logged?.reps ?? draft?.r ?? prevSet?.reps ?? prefillReps;
-    const rpe = draft?.rpe ?? null;
+    const rir = draft?.rir ?? null;
 
     if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
-    rows.push(setRowHTML(ex, i, { w, u, r, rpe, logged, isNext: !logged && firstUnloggedSet === i }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rir, logged, isNext: !logged && firstUnloggedSet === i }));
   }
 
   // Build trend from last 3 finished sessions (oldest → newest top weight)
@@ -325,6 +326,8 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const skipLabel = isSkipped ? 'Skipped — tap to undo' : 'Done with this exercise';
   const cardClasses = `exercise-card${isComplete ? ' exercise-card--complete' : ''}${isSkipped ? ' exercise-card--skipped' : ''}`;
 
+  const hasLoggedSets = workoutState.loggedSets.some((s) => s.exercise_id === ex.exercise_id);
+
   return `
     <div class="${cardClasses}" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
@@ -338,6 +341,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
+          <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
           <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}</span>
         </div>
       </div>
@@ -349,6 +353,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
         <button class="set-count-btn" data-remove-set-row="${ex.exercise_id}" aria-label="Remove a set">−</button>
         <span class="set-count-controls__label">${target} ${target === 1 ? 'set' : 'sets'}</span>
         <button class="set-count-btn" data-add-set-row="${ex.exercise_id}" aria-label="Add a set">+</button>
+        ${hasLoggedSets ? `<button class="undo-set-btn" data-undo-set="${ex.exercise_id}" title="Undo last set">&#x21A9; Undo</button>` : ''}
       </div>
       <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}" ${isComplete && !isSkipped ? 'style="display:none"' : ''}>${skipLabel}</button>
     </div>
@@ -441,18 +446,19 @@ function recommendForNext(ex, lastSets) {
   };
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
+function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
   const showAsEmpty = (isBw || isAssisted) && (w === 0 || w === '' || w == null);
   const wStr = showAsEmpty ? '' : (w === '' ? '' : Number(w));
   const wPlaceholder = isAssisted ? '0 = unassisted' : isBw ? 'BW' : '0';
-  const effRpe = logged?.rpe ?? rpe ?? '';
+  const effRir = logged?.rir ?? rir ?? '';
   const note = logged?.notes ?? '';
-  const rpeButtons = [6, 7, 8, 9, 10]
-    .map((n) => `<button class="rpe-btn ${Number(effRpe) === n ? 'rpe-btn--active' : ''}" data-rpe="${n}">${n}</button>`)
+  // RIR scale 0–4: 0 = to failure, 1 = 1 left, …, 4 = 4+ left
+  const rirButtons = [0, 1, 2, 3, 4]
+    .map((n) => `<button class="rpe-btn ${Number(effRir) === n && effRir !== '' ? 'rpe-btn--active' : ''}" data-rir="${n}">${n}</button>`)
     .join('');
-  const rpeBadge = effRpe && Number(effRpe) >= 6 ? `<span class="set-row__rpe-badge" data-rpe-badge>RPE ${effRpe}</span>` : '';
+  const rirBadge = effRir !== '' && effRir != null ? `<span class="set-row__rpe-badge" data-rir-badge>RIR ${effRir}</span>` : '';
   const isWarmup = !!(logged?.is_warmup);
   // e1RM badge on logged working sets (not warmups, reps must be > 0)
   let e1rmBadge = '';
@@ -461,7 +467,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
     if (load > 0) e1rmBadge = `<span class="set-row__e1rm">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
   }
   return `
-    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rpe="${effRpe}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
+    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
       <div class="num-input" data-field="weight">
         <button class="num-input__btn" data-step="-1">−</button>
@@ -479,15 +485,15 @@ function setRowHTML(ex, setNumber, { w, u, r, rpe, logged, isNext }) {
         <div class="set-row__tools">
           <button data-toggle-note>&#x270E; note</button>
           <button data-rest class="rest-timer">start rest</button>
-          <div class="rpe-group" data-rpe-group>
-            <span class="rpe-group__label">RPE</span>
-            ${rpeButtons}
-            ${effRpe !== '' && effRpe != null ? '<button class="rpe-btn rpe-btn--clear" data-rpe-clear>×</button>' : ''}
+          <div class="rpe-group" data-rir-group>
+            <span class="rpe-group__label">RIR</span>
+            ${rirButtons}
+            ${effRir !== '' && effRir != null ? '<button class="rpe-btn rpe-btn--clear" data-rir-clear>×</button>' : ''}
           </div>
         </div>
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
       </div>
-      ${rpeBadge}${e1rmBadge}
+      ${rirBadge}${e1rmBadge}
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
     </div>
   `;
@@ -503,6 +509,9 @@ function wireWorkoutView() {
     // Card-level controls — must be checked before the set-row guard below
     const swapBtn = e.target.closest('[data-swap-ex]');
     if (swapBtn) { haptic(15); openSwapPicker(Number(swapBtn.dataset.swapEx)); return; }
+
+    const equipBtn = e.target.closest('[data-equip-ex]');
+    if (equipBtn) { haptic(15); openEquipmentPicker(Number(equipBtn.dataset.equipEx)); return; }
 
     const skipBtn = e.target.closest('[data-skip-ex]');
     if (skipBtn) {
@@ -586,26 +595,26 @@ function wireWorkoutView() {
       return;
     }
 
-    const rpeBtn = e.target.closest('[data-rpe]');
-    if (rpeBtn) {
-      const val = Number(rpeBtn.dataset.rpe);
-      row.dataset.rpe = String(val);
-      row.querySelectorAll('.rpe-btn').forEach((b) =>
-        b.classList.toggle('rpe-btn--active', Number(b.dataset.rpe) === val)
+    const rirBtn = e.target.closest('[data-rir]');
+    if (rirBtn) {
+      const val = Number(rirBtn.dataset.rir);
+      row.dataset.rir = String(val);
+      row.querySelectorAll('[data-rir]').forEach((b) =>
+        b.classList.toggle('rpe-btn--active', Number(b.dataset.rir) === val)
       );
       haptic(10);
-      if (row.dataset.setId) persistRpeChange(row);
+      if (row.dataset.setId) persistRirChange(row);
       else markRowTouched(row);
-      updateRpeBadge(row);
+      updateRirBadge(row);
       return;
     }
 
-    if (e.target.closest('[data-rpe-clear]')) {
-      row.dataset.rpe = '';
-      row.querySelectorAll('.rpe-btn').forEach((b) => b.classList.remove('rpe-btn--active'));
-      if (row.dataset.setId) persistRpeChange(row);
+    if (e.target.closest('[data-rir-clear]')) {
+      row.dataset.rir = '';
+      row.querySelectorAll('[data-rir]').forEach((b) => b.classList.remove('rpe-btn--active'));
+      if (row.dataset.setId) persistRirChange(row);
       else markRowTouched(row);
-      updateRpeBadge(row);
+      updateRirBadge(row);
       return;
     }
 
@@ -615,6 +624,14 @@ function wireWorkoutView() {
     const delBtn = e.target.closest('[data-delete]');
     if (delBtn) return deleteLoggedSet(row);
   };
+
+  // Undo last set — outside set-row guard, so handle separately
+  root.addEventListener('click', async (e) => {
+    const undoBtn = e.target.closest('[data-undo-set]');
+    if (!undoBtn) return;
+    haptic(20);
+    await undoLastSet(Number(undoBtn.dataset.undoSet));
+  }, { capture: false });
 
 
   root.oninput = (e) => {
@@ -723,8 +740,8 @@ async function confirmSet(row) {
   const weight = parseFloat(row.querySelector('[data-field="weight"] .num-input__field').value || '0');
   const reps = parseInt(row.querySelector('[data-field="reps"] .num-input__field').value || '0', 10);
   const note = row.querySelector('[data-note]')?.value?.trim() || null;
-  const rpeRaw = row.dataset.rpe;
-  const rpe = !rpeRaw || rpeRaw === '0' ? null : Number(rpeRaw);
+  const rirRaw = row.dataset.rir;
+  const rir = rirRaw === '' || rirRaw == null ? null : Number(rirRaw);
   const isWarmup = row.dataset.warmup === '1';
 
   const exIsBw = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId)?.is_bodyweight;
@@ -736,7 +753,7 @@ async function confirmSet(row) {
   if (checkBtn) checkBtn.disabled = true;
   try {
     if (row.dataset.setId) {
-      await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, rpe, notes: note });
+      await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, rir, notes: note });
       row.classList.remove('editing');
       haptic(20);
       toast('Updated');
@@ -745,7 +762,7 @@ async function confirmSet(row) {
         workout_id: workoutState.workout.id,
         exercise_id: exId,
         set_number: setNumber,
-        weight, weight_unit: unit, reps, rpe,
+        weight, weight_unit: unit, reps, rir,
         notes: note,
         is_warmup: isWarmup ? 1 : 0
       });
@@ -771,7 +788,7 @@ async function confirmSet(row) {
         }
       }
     }
-    updateRpeBadge(row);
+    updateRirBadge(row);
   } catch (err) {
     toast(err.message);
   } finally {
@@ -821,26 +838,39 @@ function checkExerciseComplete(exId) {
   }
 }
 
-async function persistRpeChange(row) {
+async function persistRirChange(row) {
   const setId = Number(row.dataset.setId);
   if (!setId) return;
-  const raw = row.dataset.rpe;
-  const rpe = raw === '' || raw == null ? null : Number(raw);
-  try { await API.updateSet(setId, { rpe }); } catch (err) { toast(err.message); }
+  const raw = row.dataset.rir;
+  const rir = raw === '' || raw == null ? null : Number(raw);
+  try { await API.updateSet(setId, { rir }); } catch (err) { toast(err.message); }
 }
 
-function updateRpeBadge(row) {
-  const existing = row.querySelector('[data-rpe-badge]');
-  const raw = row.dataset.rpe;
+function updateRirBadge(row) {
+  const existing = row.querySelector('[data-rir-badge]');
+  const raw = row.dataset.rir;
   if (raw === '' || raw == null) { existing?.remove(); return; }
-  if (existing) { existing.textContent = `RPE ${raw}`; }
+  if (existing) { existing.textContent = `RIR ${raw}`; }
   else {
     const badge = document.createElement('span');
     badge.className = 'set-row__rpe-badge';
-    badge.dataset.rpeBadge = '';
-    badge.textContent = `RPE ${raw}`;
+    badge.dataset.rirBadge = '';
+    badge.textContent = `RIR ${raw}`;
     row.appendChild(badge);
   }
+}
+
+async function undoLastSet(exId) {
+  const exSets = workoutState.loggedSets.filter((s) => s.exercise_id === exId);
+  if (!exSets.length) return;
+  const lastSet = exSets.reduce((a, b) => a.set_number > b.set_number ? a : b);
+  try {
+    await API.deleteSet(lastSet.id);
+    workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== lastSet.id);
+    haptic(20);
+    toast('Set undone');
+    renderWorkoutView();
+  } catch (err) { toast(err.message); }
 }
 
 async function deleteLoggedSet(row) {
@@ -884,6 +914,56 @@ function skipRemainingForExercise(exerciseId) {
   }
 
   toast(`Skipped ${unlogged.length} remaining set${unlogged.length > 1 ? 's' : ''}`);
+}
+
+const EQUIPMENT_OPTIONS = [
+  { value: 'barbell',    label: 'Barbell',    step: 'kg +5 / lbs +10' },
+  { value: 'dumbbell',   label: 'Dumbbell',   step: 'kg +2 / lbs +5' },
+  { value: 'cable',      label: 'Cable',      step: 'kg +2.5 / lbs +5' },
+  { value: 'machine',    label: 'Machine',    step: 'kg +2.5 / lbs +5' },
+  { value: 'bodyweight', label: 'Bodyweight', step: 'kg +1' },
+];
+
+async function openEquipmentPicker(exerciseId) {
+  const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exerciseId);
+  if (!ex) return;
+  const sheet = ensureSheet('equipment-picker-sheet');
+  const current = ex.equipment || 'barbell';
+
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Equipment — ${escapeHtml(ex.name)}</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:12px">Affects the +/− step size and weight recommendation.</div>
+        ${EQUIPMENT_OPTIONS.map((opt) => `
+          <button class="equip-option ${opt.value === current ? 'equip-option--active' : ''}" data-equip-pick="${opt.value}">
+            <div class="equip-option__label">${opt.label}</div>
+            <div class="equip-option__step">${opt.step}</div>
+          </button>`).join('')}
+      </div>
+    </div>`;
+
+  sheet.querySelector('[data-close-sheet]').onclick = () => hideSheet(sheet);
+  sheet.querySelectorAll('[data-equip-pick]').forEach((btn) => {
+    btn.onclick = async () => {
+      const newEquip = btn.dataset.equipPick;
+      if (newEquip === current) { hideSheet(sheet); return; }
+      try {
+        await API.updateExercise(exerciseId, { equipment: newEquip });
+        ex.equipment = newEquip;
+        haptic(20);
+        hideSheet(sheet);
+        renderWorkoutView();
+        toast(`Equipment updated to ${newEquip}`);
+      } catch (err) { toast(err.message); }
+    };
+  });
+
+  showSheet(sheet);
 }
 
 async function openSwapPicker(currentExerciseId) {
@@ -1278,6 +1358,7 @@ async function flushWorkoutNotes() {
 // onCreated: (ex) => void — what to do once exercise is created (add vs swap)
 function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
   const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  const EQUIPMENT = ['barbell','dumbbell','cable','machine','bodyweight'];
   picker.innerHTML = `
     <div class="sheet__inner">
       <div class="sheet__head">
@@ -1292,6 +1373,10 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
         <select class="input" id="wknew-muscle">
           ${GROUPS.map((g) => `<option value="${g}">${g}</option>`).join('')}
         </select>
+        <label class="form-label" style="margin-top:14px">Equipment</label>
+        <select class="input" id="wknew-equipment">
+          ${EQUIPMENT.map((e) => `<option value="${e}">${e}</option>`).join('')}
+        </select>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="wknew-notes" placeholder="Setup cue or variation"/>
         <button class="btn btn--primary btn--block" id="wknew-save" style="margin-top:20px">Create & add to workout</button>
@@ -1303,10 +1388,11 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
   document.getElementById('wknew-save').onclick = async () => {
     const name = document.getElementById('wknew-name').value.trim();
     const muscle = document.getElementById('wknew-muscle').value;
+    const equipment = document.getElementById('wknew-equipment').value;
     const notes = document.getElementById('wknew-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, notes });
+      const ex = await API.addExercise({ name, muscle_group: muscle, equipment, notes });
       haptic(20);
       onCreated(ex);
     } catch (err) { toast(err.message); }

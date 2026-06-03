@@ -70,6 +70,7 @@ router.post('/', (req, res) => {
     weight_unit = 'kg',
     reps,
     rpe = null,
+    rir = null,
     notes = null,
     is_warmup = 0
   } = req.body || {};
@@ -85,10 +86,10 @@ router.post('/', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO sets (workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, notes, is_warmup)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sets (workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, notes, is_warmup ? 1 : 0);
+    .run(workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup ? 1 : 0);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
   const isNewPR = is_warmup ? false : checkAndUpdatePR(exercise_id, weight, weight_unit, reps);
@@ -101,7 +102,7 @@ router.patch('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM sets WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'set not found' });
 
-  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'notes', 'set_number', 'is_warmup'];
+  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup'];
   const updates = [];
   const values = [];
   for (const f of fields) {
