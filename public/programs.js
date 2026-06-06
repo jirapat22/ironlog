@@ -550,9 +550,16 @@ function openEditExerciseForm(picker, ex, allExercises) {
     if (!name) return toast('Name required');
     try {
       const updated = await API.updateExercise(ex.id, { name, muscle_group: muscle, equipment, notes });
-      // Sync in-memory list so picker reflects changes immediately
       Object.assign(ex, updated);
       editDayState.allExercises = editDayState.allExercises.map((x) => x.id === ex.id ? updated : x);
+      for (const pde of editDayState.day.exercises) {
+        if (pde.exercise_id === ex.id) {
+          pde.name = updated.name;
+          pde.muscle_group = updated.muscle_group;
+          pde.equipment = updated.equipment;
+          pde.notes = updated.notes;
+        }
+      }
       haptic(10);
       toast('Saved');
       openPicker();

@@ -268,7 +268,7 @@ const CANONICAL_EXERCISES = [
   // Assisted machine versions — logged as counter-weight (more = easier)
   ['Assisted Pull-Up', 'back', 'Machine counter-weight; enter assistance weight'],
   ['Assisted Chin-Up', 'biceps', 'Machine counter-weight; enter assistance weight'],
-  ['Assisted Dip', 'triceps', 'Machine counter-weight; enter assistance weight'],
+  ['Assisted Dip', 'chest', 'Machine counter-weight; enter assistance weight'],
 
   // Legs
   ['Back Squat', 'legs', 'High or low bar'],
@@ -375,6 +375,7 @@ const CANONICAL_EXERCISES = [
 // Maps old/legacy muscle_group values → current canonical name. Run on every
 // boot so existing user databases pick up the split (arms → biceps/triceps).
 const GROUP_MIGRATION_BY_NAME = {
+  chest: ['Assisted Dip'],
   biceps: [
     'Barbell Curl', 'Dumbbell Curl', 'Hammer Curl', 'Preacher Curl',
     'Incline Dumbbell Curl', 'Cable Curl', 'Concentration Curl', 'Spider Curl'

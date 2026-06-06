@@ -1064,8 +1064,15 @@ async function openSwapPicker(currentExerciseId) {
       muscle_group: newEx.muscle_group,
       is_bodyweight: !!newEx.is_bodyweight,
       is_assisted: !!newEx.is_assisted,
+      equipment: newEx.equipment || 'barbell',
       notes: newEx.notes || null
     };
+    if (workoutState.draft.exerciseOrder?.length) {
+      workoutState.draft.exerciseOrder = workoutState.draft.exerciseOrder.map(
+        (id) => id === currentExerciseId ? newExId : id
+      );
+      saveDraft(workoutState.workout.id, workoutState.draft);
+    }
     hideSheet(picker);
     haptic(20);
     toast(`Swapped to ${newEx.name}`);

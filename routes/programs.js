@@ -72,13 +72,13 @@ router.post('/:id/duplicate', (req, res) => {
         'SELECT * FROM program_day_exercises WHERE program_day_id = ? ORDER BY order_index'
       );
       const insertEx = db.prepare(
-        'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)'
       );
 
       for (const d of days) {
         const newDayId = Number(insertDay.run(programId, d.day_label, d.day_order).lastInsertRowid);
         for (const e of srcEx.all(d.id)) {
-          insertEx.run(newDayId, e.exercise_id, e.target_sets, e.target_reps, e.order_index);
+          insertEx.run(newDayId, e.exercise_id, e.target_sets, e.target_reps, e.order_index, e.rest_seconds ?? null);
         }
       }
       return programId;
@@ -173,7 +173,7 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
 
   const row = db
     .prepare(
-      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index,
+      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
               e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight, e.is_assisted, e.equipment
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id
@@ -205,7 +205,7 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
 
   const row = db
     .prepare(
-      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index,
+      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
               e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight, e.is_assisted, e.equipment
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id

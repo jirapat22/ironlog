@@ -28,15 +28,17 @@ router.post('/', (req, res) => {
     // (matched by name, case-insensitive). Custom exercises in the backup
     // would otherwise leave their sets dangling on a fresh DB.
     const insExercise = db.prepare(
-      `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight)
-       VALUES (?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment)
+       VALUES (?, ?, ?, ?, ?, ?)`
     );
     for (const e of exercises) {
       const r = insExercise.run(
         e.name,
         e.muscle_group || 'chest',
         e.notes ?? null,
-        e.is_bodyweight ? 1 : 0
+        e.is_bodyweight ? 1 : 0,
+        e.is_assisted ? 1 : 0,
+        e.equipment || 'barbell'
       );
       if (r.changes) importedExercises++;
     }
@@ -47,20 +49,21 @@ router.post('/', (req, res) => {
 
     // --- 3. Workouts + sets
     const insWorkout = db.prepare(
-      `INSERT OR IGNORE INTO workouts (id, program_day_id, started_at, finished_at, notes, feel_rating)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO workouts (id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const insSet = db.prepare(
       `INSERT OR IGNORE INTO sets
-         (id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, notes, logged_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup, logged_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     for (const w of workouts) {
       const r = insWorkout.run(
         w.id, w.program_day_id ?? null,
         w.started_at, w.finished_at ?? null,
-        w.notes ?? null, w.feel_rating ?? null
+        w.notes ?? null, w.feel_rating ?? null,
+        w.bw_kg ?? null, w.calories_burned ?? null
       );
       if (r.changes) importedWorkouts++;
 
@@ -81,7 +84,8 @@ router.post('/', (req, res) => {
         const r2 = insSet.run(
           s.id, w.id, exId, s.set_number,
           s.weight, s.weight_unit, s.reps,
-          s.rpe ?? null, s.notes ?? null,
+          s.rpe ?? null, s.rir ?? null, s.notes ?? null,
+          s.is_warmup ? 1 : 0,
           s.logged_at
         );
         if (r2.changes) {
