@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, enableDragReorder, PICKER_GROUP_ORDER } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -19,7 +19,7 @@ async function renderPrograms() {
         <div class="empty"><div class="empty__icon">&#x1F4C5;</div><div style="margin-bottom:12px">No programs yet</div></div>
         <button class="btn btn--primary btn--block" data-new-program style="margin-top:8px">+ Create program</button>`;
       root.querySelector('[data-new-program]').addEventListener('click', async () => {
-        const name = prompt('Program name?', 'My Program');
+        const name = await promptSheet({ title: 'New program', label: 'Program name', value: 'My Program', confirmText: 'Create' });
         if (!name || !name.trim()) return;
         try {
           const p = await API.createProgram({ name: name.trim() });
@@ -43,7 +43,7 @@ async function renderPrograms() {
         const id = Number(dupBtn.dataset.dupProgram);
         const src = full.find((p) => p.id === id);
         const suggested = `My ${src?.name || 'Program'}`;
-        const name = prompt('Name for the new program?', suggested);
+        const name = await promptSheet({ title: 'Duplicate program', label: 'Name for the new program', value: suggested, confirmText: 'Duplicate' });
         if (!name || !name.trim()) return;
         try {
           await API.duplicateProgram(id, { name: name.trim() });
@@ -57,7 +57,7 @@ async function renderPrograms() {
         e.stopPropagation();
         const id = Number(renameBtn.dataset.renameProgram);
         const src = full.find((p) => p.id === id);
-        const name = prompt('Rename program to?', src?.name || '');
+        const name = await promptSheet({ title: 'Rename program', label: 'New name', value: src?.name || '', confirmText: 'Rename' });
         if (!name || !name.trim() || name.trim() === src?.name) return;
         try {
           await API.updateProgram(id, { name: name.trim() });
@@ -71,7 +71,8 @@ async function renderPrograms() {
         e.stopPropagation();
         const id = Number(deleteBtn.dataset.deleteProgram);
         const src = full.find((p) => p.id === id);
-        if (!confirm(`Delete "${src?.name || 'this program'}"? This cannot be undone.`)) return;
+        const ok = await confirmSheet({ title: 'Delete program', message: `Delete "${src?.name || 'this program'}"? This cannot be undone.`, confirmText: 'Delete', danger: true });
+        if (!ok) return;
         try {
           await API.deleteProgram(id);
           haptic(20); renderPrograms();
@@ -82,7 +83,8 @@ async function renderPrograms() {
       const deleteDayBtn = e.target.closest('[data-delete-day]');
       if (deleteDayBtn) {
         e.stopPropagation();
-        if (!confirm('Delete this day and all its exercises?')) return;
+        const ok = await confirmSheet({ title: 'Delete day', message: 'Delete this day and all its exercises?', confirmText: 'Delete', danger: true });
+        if (!ok) return;
         const dayId = Number(deleteDayBtn.dataset.deleteDay);
         const programId = Number(deleteDayBtn.dataset.programId);
         try {
@@ -106,7 +108,7 @@ async function renderPrograms() {
       if (addDayBtn) {
         e.stopPropagation();
         const programId = Number(addDayBtn.dataset.addDay);
-        const label = prompt('Day name?', 'Day');
+        const label = await promptSheet({ title: 'Add day', label: 'Day name', value: 'Day', confirmText: 'Add day' });
         if (!label || !label.trim()) return;
         try {
           const newDay = await API.addDay(programId, { day_label: label.trim() });
@@ -138,7 +140,7 @@ async function renderPrograms() {
 
     // Create new program button (outside the program list)
     root.querySelector('[data-new-program]')?.addEventListener('click', async () => {
-      const name = prompt('Program name?', 'My Program');
+      const name = await promptSheet({ title: 'New program', label: 'Program name', value: 'My Program', confirmText: 'Create' });
       if (!name || !name.trim()) return;
       try {
         const p = await API.createProgram({ name: name.trim() });
@@ -288,7 +290,7 @@ function renderEditSheet() {
       return;
     }
     if (e.target.closest('[data-rename-day]')) {
-      const newLabel = prompt('Rename day:', day.day_label);
+      const newLabel = await promptSheet({ title: 'Rename day', label: 'Day name', value: day.day_label, confirmText: 'Rename' });
       if (!newLabel || !newLabel.trim() || newLabel.trim() === day.day_label) return;
       try {
         await API.renameDay(programId, dayId, { day_label: newLabel.trim() });
@@ -332,7 +334,8 @@ function renderEditSheet() {
 
     const remove = e.target.closest('[data-remove]');
     if (remove) {
-      if (!confirm('Remove this exercise from the day?')) return;
+      const ok = await confirmSheet({ title: 'Remove exercise', message: 'Remove this exercise from the day?', confirmText: 'Remove', danger: true });
+      if (!ok) return;
       try {
         await API.removeDayExercise(programId, dayId, pdeId);
         editDayState.day.exercises = editDayState.day.exercises.filter((x) => x.id !== pdeId);
@@ -567,7 +570,8 @@ function openEditExerciseForm(picker, ex, allExercises) {
   };
 
   picker.querySelector('#edit-ex-delete').onclick = async () => {
-    if (!confirm(`Delete "${ex.name}"? This only works if it's not used in any program or workout.`)) return;
+    const ok = await confirmSheet({ title: 'Delete exercise', message: `Delete "${ex.name}"? This only works if it's not used in any program or workout.`, confirmText: 'Delete', danger: true });
+    if (!ok) return;
     try {
       await API.deleteExercise(ex.id);
       editDayState.allExercises = editDayState.allExercises.filter((x) => x.id !== ex.id);

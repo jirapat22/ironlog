@@ -1,4 +1,4 @@
-import { $, LS, haptic, toast, showSheet, hideSheet, ensureSheet, isStandalone } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, isStandalone } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 
@@ -93,6 +93,14 @@ async function openSettingsSheet() {
           <div class="card__subtitle" style="margin-top:4px">See how often each exercise has been used. Delete unused ones to keep the picker clean.</div>
         </div>
         <div class="settings-group">
+          <div class="settings-group__title">Ideas &amp; Bugs</div>
+          <div class="settings-row">
+            <span>Upgrade ideas &amp; bug list</span>
+            <button class="btn btn--ghost btn--sm" id="open-notes">Open</button>
+          </div>
+          <div class="card__subtitle" style="margin-top:4px">A checklist for things to build or fix. Tick items off when done.</div>
+        </div>
+        <div class="settings-group">
           <div class="settings-group__title">Data</div>
           <div class="settings-row"><span>Export everything to JSON</span><a class="btn btn--ghost btn--sm" href="/api/export" download>Download</a></div>
           <div class="settings-row">
@@ -142,7 +150,8 @@ async function openSettingsSheet() {
     }
 
     if (e.target.closest('#reset-pin')) {
-      if (!confirm('Clear saved PIN? You will be prompted to set a new one.')) return;
+      const ok = await confirmSheet({ title: 'Clear PIN', message: 'Clear saved PIN? You will be prompted to set a new one.', confirmText: 'Clear PIN', danger: true });
+      if (!ok) return;
       localStorage.removeItem(LS.pin);
       sessionStorage.removeItem(LS.pinUnlocked);
       hideSheet(sheet);
@@ -167,6 +176,8 @@ async function openSettingsSheet() {
     }
 
     if (e.target.closest('#open-ex-library')) { openExerciseLibrary(); return; }
+
+    if (e.target.closest('#open-notes')) { openNotesSheet(); return; }
 
     const prefUnitBtn = e.target.closest('[data-pref-unit]');
     if (prefUnitBtn) {
@@ -199,7 +210,8 @@ async function openSettingsSheet() {
       try {
         const text = await file.text();
         const json = JSON.parse(text);
-        if (!confirm(`Import ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Existing records are preserved.`)) return;
+        const ok = await confirmSheet({ title: 'Import backup', message: `Import ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Existing records are preserved.`, confirmText: 'Import' });
+        if (!ok) { fileInput.value = ''; return; }
         const result = await api('/api/import', { method: 'POST', body: json, timeoutMs: 60000 });
         toast(`Imported: ${result.imported_workouts} workouts, ${result.imported_sets} sets, ${result.imported_bodyweights} BW entries`);
         fileInput.value = '';
@@ -279,12 +291,120 @@ async function openExerciseLibrary() {
       const exId = Number(delBtn.dataset.delEx);
       const row = delBtn.closest('.ex-lib-row');
       const name = row?.querySelector('.ex-lib-row__name')?.textContent || 'this exercise';
-      if (!confirm(`Delete "${name}"?`)) return;
+      const ok = await confirmSheet({ title: 'Delete exercise', message: `Delete "${name}"?`, confirmText: 'Delete', danger: true });
+      if (!ok) return;
       try {
         await API.deleteExercise(exId);
         row.remove();
         haptic(20);
         toast(`Deleted ${name}`);
+      } catch (err) { toast(err.message); }
+    }
+  };
+}
+
+async function openNotesSheet() {
+  const sheet = ensureSheet('notes-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Ideas &amp; Bugs</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="note-add">
+          <div class="unit-pick" id="note-cat">
+            <button class="unit-btn unit-btn--active" data-note-cat="idea">💡 Idea</button>
+            <button class="unit-btn" data-note-cat="bug">🐞 Bug</button>
+          </div>
+          <div class="note-add__row">
+            <input class="input" id="note-input" placeholder="Add an idea or bug…" autocomplete="off"/>
+            <button class="btn btn--primary" id="note-add-btn">Add</button>
+          </div>
+        </div>
+        <div id="notes-list"><div class="skeleton" style="height:120px"></div></div>
+      </div>
+    </div>`;
+  showSheet(sheet);
+
+  let notes = [];
+  let category = 'idea';
+  const sortNotes = () => notes.sort((a, b) => (a.done - b.done) || (b.created_at < a.created_at ? -1 : 1));
+
+  const listHTML = () => {
+    if (!notes.length) {
+      return `<div class="empty" style="padding:24px 0"><div class="card__subtitle">No notes yet. Add your first idea or bug above.</div></div>`;
+    }
+    return notes.map((n) => `
+      <div class="note-row ${n.done ? 'note-row--done' : ''}" data-note-id="${n.id}">
+        <button class="note-row__check" data-note-toggle aria-label="Toggle done">${n.done ? '✓' : ''}</button>
+        <div class="note-row__body">
+          <span class="note-tag note-tag--${n.category === 'bug' ? 'bug' : 'idea'}">${n.category === 'bug' ? 'Bug' : 'Idea'}</span>
+          <span class="note-row__text">${escapeHtml(n.text)}</span>
+        </div>
+        <button class="btn--icon btn--icon-danger" data-note-del aria-label="Delete">×</button>
+      </div>`).join('');
+  };
+  const renderList = () => { const el = document.getElementById('notes-list'); if (el) el.innerHTML = listHTML(); };
+
+  try { notes = await API.notes(); }
+  catch (err) { const el = document.getElementById('notes-list'); if (el) el.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+  renderList();
+
+  const input = document.getElementById('note-input');
+  const addNote = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    try {
+      const note = await API.addNote({ text, category });
+      notes.unshift(note);
+      sortNotes();
+      input.value = '';
+      haptic(10);
+      renderList();
+    } catch (err) { toast(err.message); }
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addNote(); });
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+
+    const catBtn = e.target.closest('[data-note-cat]');
+    if (catBtn) {
+      category = catBtn.dataset.noteCat;
+      sheet.querySelectorAll('#note-cat .unit-btn').forEach((b) => b.classList.toggle('unit-btn--active', b === catBtn));
+      return;
+    }
+
+    if (e.target.closest('#note-add-btn')) return addNote();
+
+    const row = e.target.closest('.note-row');
+    if (!row) return;
+    const id = Number(row.dataset.noteId);
+    const note = notes.find((n) => n.id === id);
+    if (!note) return;
+
+    if (e.target.closest('[data-note-toggle]')) {
+      const done = note.done ? 0 : 1;
+      try {
+        await API.updateNote(id, { done });
+        note.done = done;
+        sortNotes();
+        haptic(10);
+        renderList();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
+    if (e.target.closest('[data-note-del]')) {
+      const ok = await confirmSheet({ title: 'Delete note', message: `Delete "${note.text}"?`, confirmText: 'Delete', danger: true });
+      if (!ok) return;
+      try {
+        await API.deleteNote(id);
+        notes = notes.filter((n) => n.id !== id);
+        haptic(15);
+        renderList();
       } catch (err) { toast(err.message); }
     }
   };

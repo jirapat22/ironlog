@@ -14,6 +14,8 @@ const settingsRouter = require('./routes/settings');
 const exportRouter = require('./routes/export');
 const importRouter = require('./routes/import');
 const platedRouter = require('./routes/plated');
+const notesRouter = require('./routes/notes');
+const { basicAuth } = require('./auth');
 const nudge = require('./nudge');
 
 init();
@@ -31,6 +33,42 @@ const app = express();
 // 50mb covers years of workout history in a single import. Server is
 // single-tenant so payload-flood DoS isn't a real concern here.
 app.use(express.json({ limit: '50mb' }));
+
+// Security headers. CSP locks scripts to same-origin (Chart.js is vendored
+// locally, no CDN). 'unsafe-inline' is needed only for style-src because the
+// UI renders inline style="" attributes; no inline <script> is used.
+app.use((req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "connect-src 'self'",
+      "manifest-src 'self'",
+      "worker-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'"
+    ].join('; ')
+  );
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
+
+// Unauthenticated: uptime probe.
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// Plated integration is machine-to-machine — mounted BEFORE the Basic Auth
+// gate so it can use its own API-key check instead of browser credentials.
+app.use('/api/plated', platedRouter);
+
+// Everything below this line requires Basic Auth when APP_PASSWORD is set.
+app.use(basicAuth);
 
 app.get('/api/orbit-summary', (req, res) => {
   const workout = db.prepare(
@@ -79,17 +117,29 @@ app.use('/api/push', pushRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/import', importRouter);
-app.use('/api/plated', platedRouter);
+app.use('/api/notes', notesRouter);
 app.use('/api', progressRouter);
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
+// Unknown API paths get a JSON 404 instead of falling through to the SPA
+// catch-all (which would otherwise return index.html with a 200).
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'not found' });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Global error handler — keeps API failures as JSON. Stack is hidden in
+// production (NODE_ENV=production is set in the Dockerfile).
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? 'internal server error' : err.message
+  });
 });
 
 const PORT = process.env.PORT || 3000;

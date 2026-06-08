@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet } from './utils.js';
+import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet } from './utils.js';
 import { API } from './api.js';
 
 const chartInstances = {};
@@ -119,7 +119,8 @@ async function renderProgress() {
     const del = e.target.closest('[data-del-bw]');
     if (del) {
       const id = Number(del.dataset.delBw);
-      if (!confirm('Delete this entry?')) return;
+      const ok = await confirmSheet({ title: 'Delete entry', message: 'Delete this body-weight entry?', confirmText: 'Delete', danger: true });
+      if (!ok) return;
       try {
         await API.deleteBodyweight(id);
         await renderBodyweightSection();

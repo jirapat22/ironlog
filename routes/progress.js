@@ -28,9 +28,11 @@ router.get('/progress/:exerciseId', (req, res) => {
 });
 
 router.get('/volume/weekly', (req, res) => {
-  const weeks = Number(req.query.weeks);
-  const whereClause =
-    weeks > 0 ? `WHERE s.logged_at >= datetime('now', '-${weeks} weeks')` : '';
+  const weeks = Number.parseInt(req.query.weeks, 10);
+  const hasWindow = Number.isFinite(weeks) && weeks > 0;
+  // Bind the window as a parameter rather than interpolating into the SQL.
+  const whereClause = hasWindow ? `WHERE s.logged_at >= datetime('now', ?)` : '';
+  const params = hasWindow ? [`-${weeks} weeks`] : [];
   const rows = db
     .prepare(
       `SELECT
@@ -43,21 +45,38 @@ router.get('/volume/weekly', (req, res) => {
        GROUP BY week, e.muscle_group
        ORDER BY week ASC`
     )
-    .all();
+    .all(...params);
   res.json(rows);
 });
 
 router.get('/calendar', (req, res) => {
+  // started_at is stored in UTC. Group by the user's LOCAL date so morning
+  // sessions in UTC+ timezones don't get pushed onto the previous day.
+  // Prefer the client's live offset (?tzOffset = minutes EAST of UTC, DST-aware);
+  // otherwise fall back to the saved nudge_tz_offset_minutes setting (which is
+  // Date.getTimezoneOffset() = minutes WEST of UTC, so negate it). This keeps
+  // grouping correct even for an older cached client that omits the param.
+  const tz = Number(req.query.tzOffset);
+  let offsetMin;
+  if (Number.isFinite(tz)) {
+    offsetMin = tz;
+  } else {
+    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'nudge_tz_offset_minutes'").get();
+    const west = Number(row?.value);
+    offsetMin = Number.isFinite(west) ? -west : 0;
+  }
+  offsetMin = Math.max(-840, Math.min(840, Math.trunc(offsetMin)));
+  const mod = `${offsetMin >= 0 ? '+' : ''}${offsetMin} minutes`;
   const rows = db
     .prepare(
-      `SELECT date(started_at) as date, COUNT(*) as count
+      `SELECT date(started_at, ?) as date, COUNT(*) as count
        FROM workouts
        WHERE finished_at IS NOT NULL
          AND started_at >= datetime('now', '-6 months')
-       GROUP BY date(started_at)
+       GROUP BY date(started_at, ?)
        ORDER BY date ASC`
     )
-    .all();
+    .all(mod, mod);
   res.json(rows);
 });
 

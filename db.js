@@ -117,6 +117,14 @@ function init() {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'idea',
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sets_workout ON sets(workout_id);
     CREATE INDEX IF NOT EXISTS idx_sets_exercise ON sets(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workouts_program_day ON workouts(program_day_id);
@@ -291,7 +299,6 @@ const CANONICAL_EXERCISES = [
   // Chest — cable and dumbbell variations
   ['Incline Cable Fly', 'chest', 'Low cable, angled upward — peak stretch at bottom'],
   ['Low-to-High Cable Fly', 'chest', 'Low cable to high, follows lower-pec fibre direction'],
-  ['Dumbbell Fly', 'chest', 'Flat bench, wide arc to stretch chest'],
 
   // Back — isolation and unilateral
   ['Straight-Arm Pulldown', 'back', 'Cable, arms straight — lat isolation without biceps'],
@@ -335,7 +342,6 @@ const CANONICAL_EXERCISES = [
   ['Hyperextension', 'back', '45-degree bench or GHD — lower back, glutes, hamstrings'],
   ['Reverse Hyperextension', 'back', 'Reverse hyper machine — glutes and spinal decompression'],
   ['Good Morning', 'back', 'Barbell on back, hip hinge — posterior chain and erectors'],
-  ['Cable Pullthrough', 'back', 'Rope between legs, hip hinge — glute and hamstring drive'],
 
   // Arms — forearms / grip
   ['Wrist Curl', 'arms', 'Barbell or dumbbell, forearm flexors'],

@@ -111,12 +111,31 @@ router.post('/', (req, res) => {
     try { recomputePrsForExercise(exId); } catch { /* ignore */ }
   }
 
+  // Anything not imported was skipped because a row with that primary key
+  // already existed (INSERT OR IGNORE). For a restore into an empty DB this is
+  // zero; for a merge it flags records that did NOT land so the result isn't
+  // silently partial.
+  // Exercises are matched by name — skipping ones that already exist is normal
+  // and not data loss, so they don't count toward the warning. Workouts, sets,
+  // and bodyweights are keyed by their original ID, so a skip there means a
+  // record genuinely failed to land.
+  const totalSets = workouts.reduce((n, w) => n + (w.sets?.length || 0), 0);
+  const skipped = {
+    workouts: Math.max(0, workouts.length - importedWorkouts),
+    sets: Math.max(0, totalSets - importedSets),
+    bodyweights: Math.max(0, bodyweights.length - importedBw)
+  };
+  const skippedTotal = skipped.workouts + skipped.sets + skipped.bodyweights;
+
   res.json({
     imported_exercises: importedExercises,
     imported_workouts: importedWorkouts,
     imported_sets: importedSets,
     imported_bodyweights: importedBw,
-    skipped: `Duplicate records skipped silently (safe to re-import).`
+    skipped,
+    warning: skippedTotal > 0
+      ? `${skippedTotal} record(s) already existed (matched by ID) and were not imported. Safe when re-importing the same backup; if you expected a full restore, import into an empty database.`
+      : null
   });
 });
 

@@ -57,7 +57,7 @@ const API = {
   deleteSet: (id) => api(`/api/sets/${id}`, { method: 'DELETE' }),
   progress: (exerciseId) => api(`/api/progress/${exerciseId}`),
   weeklyVolume: (weeks = 8) => api(`/api/volume/weekly${weeks > 0 ? `?weeks=${weeks}` : ''}`),
-  calendar: () => api('/api/calendar'),
+  calendar: () => api(`/api/calendar?tzOffset=${-new Date().getTimezoneOffset()}`),
   prs: () => api('/api/prs'),
   history: () => api('/api/workouts/history'),
   updateWorkout: (id, data) => api(`/api/workouts/${id}`, { method: 'PATCH', body: data }),
@@ -70,7 +70,11 @@ const API = {
   updateProgram: (id, data) => api(`/api/programs/${id}`, { method: 'PATCH', body: data }),
   deleteProgram: (id) => api(`/api/programs/${id}`, { method: 'DELETE' }),
   settings: () => api('/api/settings'),
-  updateSettings: (data) => api('/api/settings', { method: 'PUT', body: data })
+  updateSettings: (data) => api('/api/settings', { method: 'PUT', body: data }),
+  notes: () => api('/api/notes'),
+  addNote: (data) => api('/api/notes', { method: 'POST', body: data }),
+  updateNote: (id, data) => api(`/api/notes/${id}`, { method: 'PATCH', body: data }),
+  deleteNote: (id) => api(`/api/notes/${id}`, { method: 'DELETE' })
 };
 
 export { api, API, REST_SECONDS };

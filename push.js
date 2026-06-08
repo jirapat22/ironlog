@@ -4,7 +4,10 @@ const webpush = require('web-push');
 
 // VAPID keys come from env (Railway) or a local file (dev). Auto-generated if missing.
 const KEYS_FILE = process.env.VAPID_KEYS_FILE || path.join(__dirname, 'data', 'vapid.json');
-const CONTACT = process.env.VAPID_CONTACT || 'mailto:admin@example.com';
+// Push services use this as the JWT `sub` claim and can reject placeholder
+// domains like example.com. Defaults to the owner's address for this
+// single-tenant app; override with VAPID_CONTACT in any other deployment.
+const CONTACT = process.env.VAPID_CONTACT || 'mailto:jirapat.pp22@gmail.com';
 
 let keys = null;
 

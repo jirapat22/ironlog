@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 
@@ -49,10 +49,33 @@ function loadDraft(workoutId) {
     const raw = localStorage.getItem(draftKey(workoutId));
     if (!raw) return { setCounts: {}, inputs: {} };
     const parsed = JSON.parse(raw);
-    return { setCounts: parsed.setCounts || {}, inputs: parsed.inputs || {}, exerciseOrder: parsed.exerciseOrder, skipped: parsed.skipped || {} };
+    return { setCounts: parsed.setCounts || {}, inputs: parsed.inputs || {}, exerciseOrder: parsed.exerciseOrder, exerciseList: parsed.exerciseList, skipped: parsed.skipped || {} };
   } catch {
     return { setCounts: {}, inputs: {}, skipped: {} };
   }
+}
+
+// Persist the workout's current exercise list (after a swap / add / reorder) so
+// it survives navigation and reload. Without this, the list is rebuilt from the
+// server program template plus logged sets, which re-adds swapped-away
+// exercises and drops swaps/adds that have no logged sets yet.
+function persistExerciseList() {
+  if (!workoutState) return;
+  workoutState.draft.exerciseList = workoutState.programDay.exercises.map((e) => ({
+    id: e.id ?? null,
+    exercise_id: e.exercise_id,
+    name: e.name,
+    muscle_group: e.muscle_group,
+    notes: e.notes ?? null,
+    is_bodyweight: !!e.is_bodyweight,
+    is_assisted: !!e.is_assisted,
+    equipment: e.equipment || 'barbell',
+    target_sets: e.target_sets,
+    target_reps: e.target_reps,
+    rest_seconds: e.rest_seconds ?? null,
+    order_index: e.order_index
+  }));
+  saveDraft(workoutState.workout.id, workoutState.draft);
 }
 
 function saveDraft(workoutId, draft) {
@@ -194,7 +217,22 @@ async function renderWorkout() {
     }
     for (const ex of extraById.values()) workoutState.programDay.exercises.push(ex);
 
-    if (draft.exerciseOrder?.length) {
+    if (draft.exerciseList?.length) {
+      // The user modified this workout's exercises (swap/add/reorder), so the
+      // saved list is authoritative. Backfill only exercises that have logged
+      // sets but are missing from it — never re-add a swapped-away template one.
+      const built = workoutState.programDay.exercises;
+      const list = [...draft.exerciseList];
+      const inList = new Set(list.map((e) => e.exercise_id));
+      for (const ex of built) {
+        if (!inList.has(ex.exercise_id) &&
+            workoutState.loggedSets.some((s) => s.exercise_id === ex.exercise_id)) {
+          list.push(ex);
+          inList.add(ex.exercise_id);
+        }
+      }
+      workoutState.programDay.exercises = list;
+    } else if (draft.exerciseOrder?.length) {
       const order = draft.exerciseOrder;
       workoutState.programDay.exercises.sort((a, b) => {
         const ai = order.indexOf(a.exercise_id);
@@ -275,7 +313,7 @@ function renderWorkoutView() {
         .map((id) => workoutState.programDay.exercises.find((ex) => ex.exercise_id === Number(id)))
         .filter(Boolean);
       workoutState.draft.exerciseOrder = newOrder.map(Number);
-      saveDraft(workoutState.workout.id, workoutState.draft);
+      persistExerciseList();
     }, { rowSel: '.exercise-card', idKey: 'ex', draggingClass: 'exercise-card--dragging' });
   }
 }
@@ -705,20 +743,25 @@ function fireStep(btn, rowCtx) {
 }
 
 function attachHoldRepeat(container) {
-  let holdTimer = null, holdInterval = null, activeBtn = null;
-  const stop = () => { clearTimeout(holdTimer); clearInterval(holdInterval); holdTimer = null; holdInterval = null; activeBtn = null; };
+  let holdTimer = null, repeatTimer = null, activeBtn = null;
+  const stop = () => { clearTimeout(holdTimer); clearTimeout(repeatTimer); holdTimer = null; repeatTimer = null; activeBtn = null; };
   container.addEventListener('pointerdown', (e) => {
     const btn = e.target.closest('.num-input__btn');
     if (!btn) return;
     activeBtn = btn;
+    // Wait before auto-repeat so a normal tap never triggers it. Then ramp:
+    // start slow (~3.5/s) and accelerate to a floor (~9/s). A self-scheduling
+    // timeout is used because setInterval can't change its own period mid-run.
     holdTimer = setTimeout(() => {
-      let delay = 120;
-      holdInterval = setInterval(() => {
+      let delay = 280;
+      const tick = () => {
         if (!activeBtn) return stop();
         fireStep(activeBtn, activeBtn.closest('.set-row'));
-        delay = Math.max(40, delay - 10);
-      }, delay);
-    }, 400);
+        delay = Math.max(110, delay - 18);
+        repeatTimer = setTimeout(tick, delay);
+      };
+      tick();
+    }, 450);
   });
   container.addEventListener('pointerup', stop);
   container.addEventListener('pointercancel', stop);
@@ -1050,7 +1093,8 @@ async function openSwapPicker(currentExerciseId) {
     const logged = workoutState.loggedSets.filter((s) => s.exercise_id === currentExerciseId);
     if (logged.length) {
       const msg = `Delete ${logged.length} logged set${logged.length > 1 ? 's' : ''} for ${currentEx.name} and swap?`;
-      if (!confirm(msg)) return;
+      const ok = await confirmSheet({ title: 'Swap exercise', message: msg, confirmText: 'Delete & swap', danger: true });
+      if (!ok) return;
       try {
         await Promise.all(logged.map((s) => API.deleteSet(s.id)));
         workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.exercise_id !== currentExerciseId);
@@ -1071,8 +1115,8 @@ async function openSwapPicker(currentExerciseId) {
       workoutState.draft.exerciseOrder = workoutState.draft.exerciseOrder.map(
         (id) => id === currentExerciseId ? newExId : id
       );
-      saveDraft(workoutState.workout.id, workoutState.draft);
     }
+    persistExerciseList();
     hideSheet(picker);
     haptic(20);
     toast(`Swapped to ${newEx.name}`);
@@ -1147,6 +1191,7 @@ async function openWorkoutAddExercisePicker() {
         target_reps: 10,
         order_index: workoutState.programDay.exercises.length
       });
+      persistExerciseList();
       hideSheet(picker);
       toast(`Added ${ex.name}`);
       renderWorkoutView();
@@ -1174,6 +1219,7 @@ async function openWorkoutAddExercisePicker() {
       target_reps: 10,
       order_index: workoutState.programDay.exercises.length
     });
+    persistExerciseList();
     hideSheet(picker);
     haptic(20);
     toast(`Added ${newEx.name}`);
@@ -1193,7 +1239,8 @@ function startStickyTimer() {
 }
 
 async function cancelWorkout() {
-  if (!confirm('Cancel this workout? All logged sets will be deleted.')) return;
+  const ok = await confirmSheet({ title: 'Cancel workout', message: 'Cancel this workout? All logged sets will be deleted.', confirmText: 'Cancel workout', cancelText: 'Keep going', danger: true });
+  if (!ok) return;
   const id = workoutState?.workout?.id;
   if (id) {
     clearDraft(id);
@@ -1212,7 +1259,8 @@ async function finishWorkout() {
   const id = workoutState?.workout?.id;
   if (!id) return;
   if ((workoutState.loggedSets || []).length === 0) {
-    if (!confirm('No sets logged. Finish this workout anyway? It will show in History as empty.')) return;
+    const ok = await confirmSheet({ title: 'Finish workout', message: 'No sets logged. Finish this workout anyway? It will show in History as empty.', confirmText: 'Finish' });
+    if (!ok) return;
   }
   try {
     const finishedWorkout = await API.finishWorkout(id);
@@ -1329,7 +1377,12 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
 }
 
 async function saveAsTemplate(exercises, dayLabel) {
-  const name = prompt('Save as program?', dayLabel || 'My Program');
+  const name = await promptSheet({
+    title: 'Save as program',
+    label: 'Program name',
+    value: dayLabel || 'My Program',
+    confirmText: 'Save program'
+  });
   if (!name || !name.trim()) return;
   try {
     const prog = await API.createProgram({ name: name.trim() });

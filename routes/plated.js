@@ -32,20 +32,30 @@
 
 const express = require('express');
 const { db } = require('../db');
+const { platedAuth } = require('../auth');
 
 const router = express.Router();
 
 // ---------------------------------------------------------------------------
-// CORS — allow Plated (different Railway domain) to call these routes
+// CORS — allow Plated (different Railway domain) to call these routes.
+// Locked to PLATED_ORIGIN; we never emit a wildcard so a random site can't
+// read the user's health data cross-origin. Same-origin server calls work
+// regardless (no CORS header needed).
 // ---------------------------------------------------------------------------
 router.use((req, res, next) => {
-  const origin = process.env.PLATED_ORIGIN || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  const origin = process.env.PLATED_ORIGIN;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
+  }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+
+// API-key gate (after CORS/OPTIONS so preflight is never blocked).
+router.use(platedAuth);
 
 // ---------------------------------------------------------------------------
 // Helpers (mirror the TDEE logic from the frontend)

@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise } from './utils.js';
+import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise } from './utils.js';
 import { API } from './api.js';
 import { saveAsTemplate } from './workout.js';
 
@@ -79,7 +79,8 @@ async function renderHistory() {
       if (delWorkoutBtn) {
         e.stopPropagation();
         const card = delWorkoutBtn.closest('.history-card');
-        if (!confirm('Delete this workout and all its sets? This cannot be undone.')) return;
+        const ok = await confirmSheet({ title: 'Delete workout', message: 'Delete this workout and all its sets? This cannot be undone.', confirmText: 'Delete', danger: true });
+        if (!ok) return;
         try {
           await API.deleteWorkout(Number(card.dataset.id));
           renderHistory();
@@ -117,7 +118,8 @@ async function renderHistory() {
       _lpTimer = setTimeout(async () => {
         _lpTimer = null;
         haptic([30, 30, 60]);
-        if (!confirm('Delete this workout and all its sets? This cannot be undone.')) return;
+        const ok = await confirmSheet({ title: 'Delete workout', message: 'Delete this workout and all its sets? This cannot be undone.', confirmText: 'Delete', danger: true });
+        if (!ok) return;
         try { await API.deleteWorkout(Number(card.dataset.id)); card.remove(); haptic(30); }
         catch (err) { toast(err.message); }
       }, 600);
@@ -371,7 +373,8 @@ function renderSetEditSheet() {
       return;
     }
     if (e.target.closest('#se-delete')) {
-      if (!confirm('Delete this set?')) return;
+      const ok = await confirmSheet({ title: 'Delete set', message: 'Delete this set?', confirmText: 'Delete', danger: true });
+      if (!ok) return;
       try { await API.deleteSet(s.setId); hideSheet(sheet); haptic(20); await refreshHistoryCard(s.workoutId); }
       catch (err) { toast(err.message); }
     }

@@ -84,15 +84,29 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'weight_unit must be kg or lbs' });
   }
 
+  // Coerce + validate numerics so a stringy value can't silently corrupt
+  // volume/PR math later (SQLite is loosely typed and would store it as-is).
+  const nWeight = Number(weight);
+  const nReps = Number(reps);
+  const nSetNumber = Number(set_number);
+  const nRpe = rpe == null ? null : Number(rpe);
+  const nRir = rir == null ? null : Number(rir);
+  if (![nWeight, nReps, nSetNumber].every(Number.isFinite)) {
+    return res.status(400).json({ error: 'weight, reps, and set_number must be numbers' });
+  }
+  if ((nRpe != null && !Number.isFinite(nRpe)) || (nRir != null && !Number.isFinite(nRir))) {
+    return res.status(400).json({ error: 'rpe and rir must be numbers when provided' });
+  }
+
   const info = db
     .prepare(
       `INSERT INTO sets (workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup ? 1 : 0);
+    .run(workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, nRpe, nRir, notes, is_warmup ? 1 : 0);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
-  const isNewPR = is_warmup ? false : checkAndUpdatePR(exercise_id, weight, weight_unit, reps);
+  const isNewPR = is_warmup ? false : checkAndUpdatePR(exercise_id, nWeight, weight_unit, nReps);
   const row = db.prepare('SELECT * FROM sets WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ ...row, is_new_pr: isNewPR });
 });
@@ -101,6 +115,23 @@ router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM sets WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'set not found' });
+
+  if (req.body && 'weight_unit' in req.body && !['kg', 'lbs'].includes(req.body.weight_unit)) {
+    return res.status(400).json({ error: 'weight_unit must be kg or lbs' });
+  }
+  // Numeric fields must parse to finite numbers when present (null allowed for
+  // the optional rpe/rir).
+  const numericFields = ['weight', 'reps', 'set_number', 'rpe', 'rir'];
+  const nullableNumeric = new Set(['rpe', 'rir']);
+  for (const f of numericFields) {
+    if (req.body && f in req.body) {
+      const v = req.body[f];
+      if (nullableNumeric.has(f) && v == null) continue;
+      if (!Number.isFinite(Number(v))) {
+        return res.status(400).json({ error: `${f} must be a number` });
+      }
+    }
+  }
 
   const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup'];
   const updates = [];

@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v53';
+const VERSION = 'ironlog-v57';
 const SHELL = [
   '/',
   '/index.html',
@@ -12,6 +12,7 @@ const SHELL = [
   '/progress.js',
   '/history.js',
   '/settings.js',
+  '/chart.umd.min.js',
   '/manifest.json',
   '/icon.svg'
 ];
