@@ -39,6 +39,8 @@ const API = {
   program: (id) => api(`/api/programs/${id}`),
   addDayExercise: (programId, dayId, data) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises`, { method: 'POST', body: data }),
+  replaceDayExercises: (programId, dayId, data) =>
+    api(`/api/programs/${programId}/days/${dayId}/exercises`, { method: 'PUT', body: data }),
   updateDayExercise: (programId, dayId, pdeId, data) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'PATCH', body: data }),
   removeDayExercise: (programId, dayId, pdeId) =>

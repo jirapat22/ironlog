@@ -153,7 +153,7 @@ router.get('/:id', (req, res) => {
 // Add an exercise to a program day
 router.post('/:programId/days/:dayId/exercises', (req, res) => {
   const dayId = Number(req.params.dayId);
-  const { exercise_id, target_sets = 3, target_reps = 10, rest_seconds = null } = req.body || {};
+  const { exercise_id, target_sets = 3, target_reps = 8, rest_seconds = null } = req.body || {};
   if (!exercise_id) return res.status(400).json({ error: 'exercise_id is required' });
 
   const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(dayId);
@@ -181,6 +181,45 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
     )
     .get(Number(info.lastInsertRowid));
   res.status(201).json(row);
+});
+
+// Replace a day's entire exercise list atomically — used by "Save as template"
+// to overwrite the day with exactly what was done in a session.
+router.put('/:programId/days/:dayId/exercises', (req, res) => {
+  const dayId = Number(req.params.dayId);
+  const { exercises } = req.body || {};
+  if (!Array.isArray(exercises)) return res.status(400).json({ error: 'exercises array required' });
+
+  const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(dayId);
+  if (!day) return res.status(404).json({ error: 'program day not found' });
+
+  try {
+    tx(() => {
+      db.prepare('DELETE FROM program_day_exercises WHERE program_day_id = ?').run(dayId);
+      const ins = db.prepare(
+        `INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      exercises.forEach((e, i) => {
+        if (!e.exercise_id) return;
+        ins.run(dayId, e.exercise_id, e.target_sets ?? 3, e.target_reps ?? 10, i, e.rest_seconds ?? null);
+      });
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+              e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight, e.is_assisted, e.equipment
+       FROM program_day_exercises pde
+       JOIN exercises e ON e.id = pde.exercise_id
+       WHERE pde.program_day_id = ?
+       ORDER BY pde.order_index`
+    )
+    .all(dayId);
+  res.json({ day_id: dayId, exercises: rows });
 });
 
 // Update a program day exercise (sets, reps, swap exercise, reorder)

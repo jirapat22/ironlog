@@ -1303,6 +1303,12 @@ async function finishWorkout() {
         };
       });
 
+    // Capture program/day ids before workoutState is cleared so "Save as
+    // template" can overwrite the exact day that was trained (null for a
+    // quick workout, which falls back to creating a new program).
+    const tmplProgramId = workoutState.programDay.program_id ?? null;
+    const tmplDayId = workoutState.workout.program_day_id ?? workoutState.programDay.id ?? null;
+
     renderSummary({
       workoutId: id,
       sets: sets.length,
@@ -1311,7 +1317,9 @@ async function finishWorkout() {
       newPRs,
       dayLabel: workoutState.programDay.day_label,
       calories: finishedWorkout.calories_burned ?? null,
-      templateExercises
+      templateExercises,
+      programId: tmplProgramId,
+      dayId: tmplDayId
     });
 
     clearDraft(id);
@@ -1325,7 +1333,7 @@ async function finishWorkout() {
   }
 }
 
-function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises }) {
+function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises, programId, dayId }) {
   const root = $('#view-workout');
   const calTile = calories
     ? `<div class="summary__tile"><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value">${calories}&nbsp;kcal</div></div>`
@@ -1354,7 +1362,7 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
             </button>`).join('')}
         </div>
       </div>
-      ${templateExercises?.length ? `<button class="btn btn--ghost btn--block" data-save-template style="margin-top:8px">&#x1F4CB; Save as program template</button>` : ''}
+      ${templateExercises?.length ? `<button class="btn btn--ghost btn--block" data-save-template style="margin-top:8px">&#x1F4CB; ${dayId ? `Update “${escapeHtml(dayLabel)}” template` : 'Save as program template'}</button>` : ''}
       <button class="btn btn--primary btn--block" data-go-programs style="margin-top:8px">Done</button>
     </div>
   `;
@@ -1363,7 +1371,7 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
     if (e.target.closest('[data-go-programs]'))
       return document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
     if (e.target.closest('[data-save-template]'))
-      return saveAsTemplate(templateExercises, dayLabel);
+      return saveAsTemplate(templateExercises, dayLabel, programId, dayId);
     const feelBtn = e.target.closest('[data-feel]');
     if (feelBtn && workoutId) {
       const rating = Number(feelBtn.dataset.feel);
@@ -1376,7 +1384,33 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
   };
 }
 
-async function saveAsTemplate(exercises, dayLabel) {
+async function saveAsTemplate(exercises, dayLabel, programId, dayId) {
+  const payload = exercises.map((ex) => ({
+    exercise_id: ex.exercise_id,
+    target_sets: ex.target_sets,
+    target_reps: ex.target_reps,
+    rest_seconds: ex.rest_seconds
+  }));
+
+  // From a program day → overwrite that exact day to match this session.
+  if (programId && dayId) {
+    const ok = await confirmSheet({
+      title: 'Update template',
+      message: `Update “${dayLabel}” to match this session? This replaces its exercises, sets, reps and rest with what you just did.`,
+      confirmText: 'Update template'
+    });
+    if (!ok) return;
+    try {
+      await API.replaceDayExercises(programId, dayId, { exercises: payload });
+      haptic(20);
+      toast(`Updated “${dayLabel}”`);
+    } catch (err) {
+      toast(`Couldn't update: ${err.message}`);
+    }
+    return;
+  }
+
+  // Quick workout (no program day) → create a new program.
   const name = await promptSheet({
     title: 'Save as program',
     label: 'Program name',
@@ -1387,13 +1421,8 @@ async function saveAsTemplate(exercises, dayLabel) {
   try {
     const prog = await API.createProgram({ name: name.trim() });
     const day = await API.addDay(prog.id, { day_label: dayLabel || 'Day 1' });
-    for (const ex of exercises) {
-      await API.addDayExercise(prog.id, day.id, {
-        exercise_id: ex.exercise_id,
-        target_sets: ex.target_sets,
-        target_reps: ex.target_reps,
-        rest_seconds: ex.rest_seconds
-      });
+    for (const ex of payload) {
+      await API.addDayExercise(prog.id, day.id, ex);
     }
     haptic(20);
     toast(`Saved as "${name.trim()}" — find it in Programs`);

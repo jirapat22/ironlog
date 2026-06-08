@@ -441,7 +441,44 @@ function seed() {
   ];
   for (const sql of equipmentMigrations) db.exec(sql);
 
+  cleanupRemovedPrograms();
   seedPrograms();
+  setDefaultRepTargets();
+}
+
+// One-time: set every program exercise's rep target to 8 to match the user's
+// 6–8 progressive-overload focus. Guarded so it runs once and respects any
+// later manual edits (and lets new programs use whatever reps you train).
+function setDefaultRepTargets() {
+  const FLAG = 'reps_to_8_v1';
+  const done = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(FLAG);
+  if (done) return;
+  tx(() => {
+    db.prepare('UPDATE program_day_exercises SET target_reps = 8').run();
+    db.prepare(
+      'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(FLAG, '1');
+  });
+}
+
+// One-time removal of seed programs the user asked to drop. Guarded by a flag
+// so it runs once per DB and won't fight a program the user later recreates
+// with the same name. Deleting a program cascades to its days/exercises;
+// workouts keep their history (program_day_id is set to NULL on cascade).
+const REMOVED_PROGRAM_NAMES = ['Bro Split', 'Starting Strength', 'Minimalist Hypertrophy'];
+
+function cleanupRemovedPrograms() {
+  const FLAG = 'removed_programs_v1';
+  const done = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(FLAG);
+  if (done) return;
+  const del = db.prepare('DELETE FROM programs WHERE name = ?');
+  const setFlag = db.prepare(
+    'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  );
+  tx(() => {
+    for (const name of REMOVED_PROGRAM_NAMES) del.run(name);
+    setFlag.run(FLAG, '1');
+  });
 }
 
 const CANONICAL_PROGRAMS = [
@@ -567,126 +604,6 @@ const CANONICAL_PROGRAMS = [
       }
     ]
   },
-  {
-    name: 'Bro Split',
-    description: '5-day split — one muscle group per day',
-    days: [
-      {
-        label: 'Chest Day',
-        exercises: [
-          ['Bench Press', 4, 8],
-          ['Incline Dumbbell Press', 3, 10],
-          ['Cable Fly', 3, 12],
-          ['Pec Deck', 3, 12],
-          ['Push-Up', 3, 15]
-        ]
-      },
-      {
-        label: 'Back Day',
-        exercises: [
-          ['Deadlift', 3, 5],
-          ['Pull-Up', 4, 8],
-          ['Barbell Row', 3, 8],
-          ['Lat Pulldown', 3, 10],
-          ['Face Pull', 3, 15]
-        ]
-      },
-      {
-        label: 'Shoulder Day',
-        exercises: [
-          ['Overhead Press', 4, 8],
-          ['Lateral Raise', 4, 12],
-          ['Rear Delt Fly', 3, 12],
-          ['Upright Row', 3, 10],
-          ['Shrug', 3, 12]
-        ]
-      },
-      {
-        label: 'Arm Day',
-        exercises: [
-          ['Barbell Curl', 3, 10],
-          ['Hammer Curl', 3, 10],
-          ['Preacher Curl', 3, 12],
-          ['Tricep Pushdown', 3, 12],
-          ['Skull Crusher', 3, 10],
-          ['Overhead Tricep Extension', 3, 12]
-        ]
-      },
-      {
-        label: 'Leg Day',
-        exercises: [
-          ['Back Squat', 4, 8],
-          ['Romanian Deadlift', 3, 10],
-          ['Leg Press', 3, 12],
-          ['Lying Leg Curl', 3, 12],
-          ['Standing Calf Raise', 4, 15]
-        ]
-      }
-    ]
-  },
-  {
-    name: 'Starting Strength',
-    description: '3-day full-body for beginners — alternates A and B',
-    days: [
-      {
-        label: 'Workout A',
-        exercises: [
-          ['Back Squat', 3, 5],
-          ['Bench Press', 3, 5],
-          ['Deadlift', 1, 5]
-        ]
-      },
-      {
-        label: 'Workout B',
-        exercises: [
-          ['Back Squat', 3, 5],
-          ['Overhead Press', 3, 5],
-          ['Deadlift', 1, 5]
-        ]
-      }
-    ]
-  },
-
-  // ── Time-efficient hypertrophy templates (2–3 sets, 8–12 reps, rest times set) ──
-
-  {
-    name: 'Minimalist Hypertrophy',
-    description: '3-day PPL · 2–3 sets · 8–12 reps · rest times set · progressive overload focus',
-    days: [
-      {
-        label: 'Push',
-        exercises: [
-          // [name, sets, reps, rest_seconds]
-          ['Bench Press',            3, 8,  120],
-          ['Overhead Press',         2, 10, 120],
-          ['Incline Dumbbell Press', 2, 10, 90],
-          ['Lateral Raise',          2, 12, 60],
-          ['Rope Pushdown',          2, 12, 60]
-        ]
-      },
-      {
-        label: 'Pull',
-        exercises: [
-          ['Pull-Up',            3, 8,  120],
-          ['Seated Cable Row',   2, 10, 90],
-          ['Straight-Arm Pulldown', 2, 12, 60],
-          ['Face Pull',          2, 15, 60],
-          ['Barbell Curl',       2, 10, 60]
-        ]
-      },
-      {
-        label: 'Legs',
-        exercises: [
-          ['Back Squat',         3, 8,  150],
-          ['Romanian Deadlift',  2, 10, 120],
-          ['Lying Leg Curl',     2, 12, 60],
-          ['Hip Thrust',         2, 12, 90],
-          ['Standing Calf Raise',2, 15, 60]
-        ]
-      }
-    ]
-  },
-
   {
     name: 'Full Body 3×',
     description: '3-day full-body · hits every pattern each session · 2–3 sets · progressive overload',
