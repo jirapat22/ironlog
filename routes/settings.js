@@ -21,28 +21,28 @@ const DEFAULTS = {
   preferred_unit: 'kg' // 'kg' | 'lbs'
 };
 
-function getAll() {
-  const rows = db.prepare('SELECT key, value FROM app_settings').all();
+function getAll(profileId) {
+  const rows = db.prepare('SELECT key, value FROM app_settings WHERE profile_id = ?').all(profileId);
   const out = { ...DEFAULTS };
   for (const r of rows) out[r.key] = r.value;
   return out;
 }
 
 router.get('/', (req, res) => {
-  res.json(getAll());
+  res.json(getAll(req.profileId));
 });
 
 router.put('/', (req, res) => {
   const body = req.body || {};
   const allowed = Object.keys(DEFAULTS).concat(['nudge_last_sent_at', 'weekly_summary_last_sent']);
   const stmt = db.prepare(
-    'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    'INSERT INTO app_settings (profile_id, key, value) VALUES (?, ?, ?) ON CONFLICT(profile_id, key) DO UPDATE SET value = excluded.value'
   );
   for (const [k, v] of Object.entries(body)) {
     if (!allowed.includes(k)) continue;
-    stmt.run(k, String(v));
+    stmt.run(req.profileId, k, String(v));
   }
-  res.json(getAll());
+  res.json(getAll(req.profileId));
 });
 
 router.getSettings = getAll;

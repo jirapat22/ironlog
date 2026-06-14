@@ -47,7 +47,7 @@ router.use((req, res, next) => {
   if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -70,8 +70,10 @@ const ACTIVITY_MULTIPLIERS = {
 
 const GOAL_OFFSETS = { cut: -500, maintain: 0, bulk: 300 };
 
-function getSetting(key) {
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+function getSetting(profileId, key) {
+  const row = db
+    .prepare('SELECT value FROM app_settings WHERE profile_id = ? AND key = ?')
+    .get(profileId, key);
   return row?.value ?? null;
 }
 
@@ -101,8 +103,10 @@ function computeMacros(goalKcal, weightKg, goal) {
   return { proteinG, carbG, fatG, fiberG, proteinPerKg };
 }
 
-// Conservative kcal/min estimate for resistance training (no heart-rate data).
-const KCAL_PER_MIN = 5;
+// Fallback kcal/min for the rare workout with no bodyweight snapshot to drive
+// the per-exercise model. Finished workouts normally carry a precomputed
+// calories_burned, so this is only a backstop.
+const KCAL_PER_MIN = 4;
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -118,6 +122,7 @@ router.get('/', (req, res) => {
       endpoints: [
         'GET /api/plated/profile',
         'GET /api/plated/bodyweight',
+        'POST /api/plated/bodyweight',
         'GET /api/plated/workouts/calories',
         'GET /api/plated/workouts/recent'
       ]
@@ -131,16 +136,17 @@ router.get('/', (req, res) => {
  */
 router.get('/profile', (req, res) => {
   try {
+    const pid = req.profileId;
     const bwRow = db
-      .prepare('SELECT weight, weight_unit FROM bodyweights ORDER BY logged_at DESC LIMIT 1')
-      .get();
+      .prepare('SELECT weight, weight_unit FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT 1')
+      .get(pid);
 
-    const heightCm   = Number(getSetting('profile_height_cm') || 0);
-    const age        = Number(getSetting('profile_age')        || 0);
-    const activityKey = getSetting('profile_activity') || 'moderate';
-    const sex        = getSetting('strength_standard_gender') === 'female' ? 'female' : 'male';
-    const goal       = ['cut', 'maintain', 'bulk'].includes(getSetting('profile_goal'))
-      ? getSetting('profile_goal')
+    const heightCm   = Number(getSetting(pid, 'profile_height_cm') || 0);
+    const age        = Number(getSetting(pid, 'profile_age')        || 0);
+    const activityKey = getSetting(pid, 'profile_activity') || 'moderate';
+    const sex        = getSetting(pid, 'strength_standard_gender') === 'female' ? 'female' : 'male';
+    const goal       = ['cut', 'maintain', 'bulk'].includes(getSetting(pid, 'profile_goal'))
+      ? getSetting(pid, 'profile_goal')
       : 'maintain';
 
     const weightKg = bwRow ? +toKg(bwRow.weight, bwRow.weight_unit).toFixed(2) : null;
@@ -194,9 +200,9 @@ router.get('/bodyweight', (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
     const rows = db
       .prepare(
-        'SELECT logged_at, weight, weight_unit FROM bodyweights ORDER BY logged_at DESC LIMIT ?'
+        'SELECT logged_at, weight, weight_unit FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT ?'
       )
-      .all(limit);
+      .all(req.profileId, limit);
 
     res.json({
       success: true,
@@ -205,6 +211,66 @@ router.get('/bodyweight', (req, res) => {
         weight_kg: +toKg(r.weight, r.weight_unit).toFixed(2)
       }))
     });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/plated/bodyweight
+ * Lets Plated push a bodyweight entry into IronLog (two-way sync).
+ * Body: { weight_kg, date? } — date defaults to today (YYYY-MM-DD).
+ * Manual weigh-ins are never touched: we only collapse a *previous Plated push*
+ * for the same day (so re-syncing the same day stays idempotent instead of
+ * piling up). Any hand-entered logs for that day are kept alongside.
+ */
+router.post('/bodyweight', (req, res) => {
+  try {
+    const { weight_kg, weight, weight_unit, date } = req.body || {};
+    let kg = weight_kg != null ? Number(weight_kg)
+      : weight != null ? toKg(Number(weight), weight_unit) : null;
+    if (kg == null || !Number.isFinite(kg) || kg <= 0 || kg > 700) {
+      return res.status(400).json({ success: false, error: 'weight_kg must be a positive number' });
+    }
+    kg = +kg.toFixed(2);
+
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'date must be YYYY-MM-DD' });
+    }
+    const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      ? date
+      : new Date().toISOString().slice(0, 10);
+
+    // Plated sends only a calendar date. Anchor it at the user's LOCAL noon
+    // (expressed in UTC) so it displays on `day` in the app — otherwise a naive
+    // "noon" reads as UTC and tips onto the next day in far-east zones
+    // (e.g. UTC+12/+13 Auckland: noon-UTC shows as the following day).
+    // The app persists Date.getTimezoneOffset() (minutes WEST of UTC) as
+    // nudge_tz_offset_minutes on every load; UTC = local + west.
+    let west = Number(getSetting(req.profileId, 'nudge_tz_offset_minutes')) || 0;
+    west = Math.max(-840, Math.min(840, Math.trunc(west)));
+    const [y, m, d] = day.split('-').map(Number);
+    const loggedAt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0) + west * 60000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
+
+    // Dedupe by the user's LOCAL date (logged_at shifted back by the offset),
+    // and only against a prior Plated push — manual weigh-ins are always kept.
+    const localMod = `${-west} minutes`;
+    const existing = db
+      .prepare("SELECT id FROM bodyweights WHERE profile_id = ? AND notes = 'via Plated' AND date(logged_at, ?) = ?")
+      .get(req.profileId, localMod, day);
+
+    if (existing) {
+      db.prepare("UPDATE bodyweights SET weight = ?, weight_unit = 'kg', logged_at = ? WHERE id = ?")
+        .run(kg, loggedAt, existing.id);
+    } else {
+      db.prepare("INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes) VALUES (?, ?, 'kg', ?, 'via Plated')")
+        .run(req.profileId, kg, loggedAt);
+    }
+
+    res.json({ success: true, data: { date: day, weight_kg: kg, updated: !!existing } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -238,10 +304,11 @@ router.get('/workouts/calories', (req, res) => {
            END AS duration_minutes
          FROM workouts w
          LEFT JOIN program_days pd ON pd.id = w.program_day_id
-         WHERE date(w.started_at) = ?
+         WHERE w.profile_id = ?
+           AND date(w.started_at) = ?
            AND w.finished_at IS NOT NULL`
       )
-      .all(date);
+      .all(req.profileId, date);
 
     const sessions = rows.map((w) => {
       const burned =
@@ -265,7 +332,7 @@ router.get('/workouts/calories', (req, res) => {
         date,
         calories_burned: totalBurned,
         sessions,
-        note: 'calories_burned estimated at 5 kcal/min for sessions without explicit calorie data. Set workouts.calories_burned directly to override.'
+        note: 'calories_burned estimated at 4 kcal/min for sessions without explicit calorie data. Set workouts.calories_burned directly to override.'
       }
     });
   } catch (err) {
@@ -299,12 +366,13 @@ router.get('/workouts/recent', (req, res) => {
              )
            ) AS calories_burned
          FROM workouts
-         WHERE finished_at IS NOT NULL
+         WHERE profile_id = ?
+           AND finished_at IS NOT NULL
          GROUP BY date(started_at)
          ORDER BY date(started_at) DESC
          LIMIT ?`
       )
-      .all(KCAL_PER_MIN, limit);
+      .all(KCAL_PER_MIN, req.profileId, limit);
 
     res.json({
       success: true,
@@ -317,6 +385,18 @@ router.get('/workouts/recent', (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+/**
+ * GET /api/plated/whoami
+ * Confirms which profile owns the presented API key. Used to verify the
+ * Plated <-> IronLog link. Never returns the key itself.
+ */
+router.get('/whoami', (req, res) => {
+  res.json({
+    success: true,
+    data: { profile_id: req.profile.id, name: req.profile.name }
+  });
 });
 
 module.exports = router;

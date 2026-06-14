@@ -14,11 +14,13 @@ router.post('/subscribe', (req, res) => {
     return res.status(400).json({ error: 'invalid subscription' });
   }
   const ua = req.get('user-agent') || null;
+  // A device endpoint is globally unique; if it was previously registered to
+  // another profile, reassign it to whoever is logged in now.
   db.prepare(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent`
-  ).run(sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua);
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, profile_id)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent, profile_id = excluded.profile_id`
+  ).run(sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua, req.profileId);
   res.status(201).json({ ok: true });
 });
 
@@ -31,7 +33,7 @@ router.post('/unsubscribe', (req, res) => {
 
 router.post('/test', async (req, res) => {
   const { title = 'IronLog', body = 'Push notifications are working!' } = req.body || {};
-  const rows = db.prepare('SELECT * FROM push_subscriptions').all();
+  const rows = db.prepare('SELECT * FROM push_subscriptions WHERE profile_id = ?').all(req.profileId);
   if (!rows.length) return res.status(404).json({ error: 'no subscriptions' });
 
   const payload = { title, body, tag: 'ironlog-test' };
@@ -57,28 +59,31 @@ router.post('/test', async (req, res) => {
 
 // Schedule a rest-timer push to fire server-side N seconds from now.
 // Used as backup when the main-thread setTimeout can't run (tab closed, OS throttled).
-// Single-process design: one pending timer at a time — starting a new rest
-// cancels any existing one, and /rest-timer/cancel clears it outright.
-let pendingRestTimer = null;
+// One pending timer PER PROFILE — starting a new rest cancels that profile's
+// existing one, and /rest-timer/cancel clears it. Keyed by profile so two
+// people resting at once don't cancel each other.
+const pendingRestTimers = new Map();
 
-function cancelRestTimer() {
-  if (pendingRestTimer) {
-    clearTimeout(pendingRestTimer);
-    pendingRestTimer = null;
+function cancelRestTimer(profileId) {
+  const t = pendingRestTimers.get(profileId);
+  if (t) {
+    clearTimeout(t);
+    pendingRestTimers.delete(profileId);
   }
 }
 
 router.post('/rest-timer', (req, res) => {
+  const profileId = req.profileId;
   const { seconds = 180 } = req.body || {};
   const delayMs = Math.max(5, Math.min(600, Number(seconds))) * 1000;
-  const rows = db.prepare('SELECT * FROM push_subscriptions').all();
+  const rows = db.prepare('SELECT * FROM push_subscriptions WHERE profile_id = ?').all(profileId);
   if (!rows.length) return res.status(404).json({ error: 'no subscriptions' });
 
-  cancelRestTimer();
-  pendingRestTimer = setTimeout(async () => {
-    pendingRestTimer = null;
+  cancelRestTimer(profileId);
+  const timer = setTimeout(async () => {
+    pendingRestTimers.delete(profileId);
     const payload = { title: 'Rest done', body: 'Time for your next set', tag: 'ironlog-rest' };
-    const fresh = db.prepare('SELECT * FROM push_subscriptions').all();
+    const fresh = db.prepare('SELECT * FROM push_subscriptions WHERE profile_id = ?').all(profileId);
     await Promise.allSettled(
       fresh.map((row) =>
         push
@@ -94,13 +99,14 @@ router.post('/rest-timer', (req, res) => {
       )
     );
   }, delayMs);
+  pendingRestTimers.set(profileId, timer);
 
   res.json({ scheduled: true, delayMs });
 });
 
 router.post('/rest-timer/cancel', (req, res) => {
-  const wasPending = !!pendingRestTimer;
-  cancelRestTimer();
+  const wasPending = pendingRestTimers.has(req.profileId);
+  cancelRestTimer(req.profileId);
   res.json({ cancelled: wasPending });
 });
 

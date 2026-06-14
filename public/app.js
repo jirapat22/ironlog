@@ -43,10 +43,30 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// ---------- PIN lock ----------
-let pinBuffer = '', pinMode = 'enter', pinFirst = '';
+// ---------- Profile auth / lock screen ----------
+// Server-backed per-profile login (replaces the old local-only PIN). The numpad
+// resolves a 4-digit passcode to a profile; an unknown code offers to create a
+// new profile with that code.
+let currentProfile = null;
+let lockBuffer = '';
+let pendingCode = '';   // passcode captured for the create-a-profile flow
+let lockBusy = false;
 
-function renderPinKeypad() {
+const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
+
+function renderProfilePill() {
+  const pill = $('#profile-pill');
+  if (!pill) return;
+  if (currentProfile) {
+    pill.textContent = currentProfile.name;
+    pill.style.background = currentProfile.accent_color || '#e8643c';
+    pill.classList.remove('hidden');
+  } else {
+    pill.classList.add('hidden');
+  }
+}
+
+function renderLockKeypad() {
   const pad = $('#pin-keypad');
   const keys = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
   pad.innerHTML = keys.map((k) =>
@@ -54,83 +74,90 @@ function renderPinKeypad() {
   ).join('');
   pad.onclick = (e) => {
     const btn = e.target.closest('.pin-key');
-    if (!btn) return;
+    if (!btn || lockBusy) return;
     haptic(15);
     const k = btn.dataset.key;
-    if (k === '⌫') pinBuffer = pinBuffer.slice(0, -1);
-    else if (pinBuffer.length < 4) pinBuffer += k;
-    renderPinDots();
-    if (pinBuffer.length === 4) setTimeout(onPinComplete, 120);
+    if (k === '⌫') lockBuffer = lockBuffer.slice(0, -1);
+    else if (lockBuffer.length < 4) lockBuffer += k;
+    renderLockDots();
+    if (lockBuffer.length === 4) setTimeout(onCodeComplete, 120);
   };
 }
 
-function renderPinDots() {
-  $$('#pin-dots span').forEach((d, i) => d.classList.toggle('filled', i < pinBuffer.length));
+function renderLockDots() {
+  $$('#pin-dots span').forEach((d, i) => d.classList.toggle('filled', i < lockBuffer.length));
 }
 
-function onPinComplete() {
-  const saved = localStorage.getItem(LS.pin);
-  const lockEl = $('#pin-lock');
-  if (!saved || saved === 'none') {
-    if (pinMode === 'set') {
-      pinFirst = pinBuffer; pinBuffer = ''; pinMode = 'confirm';
-      $('#pin-subtitle').textContent = 'Confirm PIN';
-      renderPinDots(); return;
-    }
-    if (pinMode === 'confirm') {
-      if (pinBuffer === pinFirst) {
-        localStorage.setItem(LS.pin, pinBuffer);
-        sessionStorage.setItem(LS.pinUnlocked, '1');
-        hidePinLock(); return;
-      }
-      pinFirst = ''; pinBuffer = ''; pinMode = 'set';
-      $('#pin-subtitle').textContent = 'PINs did not match — set a new PIN';
-      lockEl.classList.add('error');
-      setTimeout(() => lockEl.classList.remove('error'), 400);
-      renderPinDots(); return;
-    }
-  }
-  if (saved && saved !== 'none' && pinBuffer === saved) {
-    sessionStorage.setItem(LS.pinUnlocked, '1');
-    hidePinLock();
-  } else {
-    pinBuffer = '';
-    lockEl.classList.add('error');
-    setTimeout(() => lockEl.classList.remove('error'), 400);
-    renderPinDots();
+async function onCodeComplete() {
+  const code = lockBuffer;
+  lockBusy = true;
+  try {
+    const { profile } = await API.login(code);
+    currentProfile = profile;
+    hideLock();
+  } catch {
+    // Unknown code (or network) → offer to create a profile with it.
+    pendingCode = code;
+    showCreateForm();
+  } finally {
+    lockBusy = false;
   }
 }
 
-function showPinLock() {
-  const saved = localStorage.getItem(LS.pin);
-  const hasPIN = saved && saved !== 'none';
-  pinBuffer = ''; pinFirst = '';
-  pinMode = hasPIN ? 'enter' : 'set';
-  $('#pin-subtitle').textContent = hasPIN ? 'Enter PIN' : 'Set a 4-digit PIN';
-  renderPinKeypad();
-  renderPinDots();
-
-  // Show "Skip" only on first-time PIN setup (not on the enter screen)
-  let skipBtn = document.getElementById('pin-skip');
-  if (!skipBtn) {
-    skipBtn = document.createElement('button');
-    skipBtn.id = 'pin-skip';
-    skipBtn.className = 'btn btn--ghost';
-    skipBtn.style.cssText = 'margin-top:16px;opacity:.7;font-size:13px';
-    skipBtn.textContent = 'Skip — use without PIN';
-    $('#pin-lock .pin-lock__inner').appendChild(skipBtn);
-  }
-  skipBtn.style.display = hasPIN ? 'none' : '';
-  skipBtn.onclick = () => {
-    localStorage.setItem(LS.pin, 'none');
-    hidePinLock();
-  };
-
+function showLock() {
+  currentProfile = null;
+  renderProfilePill();
+  lockBuffer = '';
+  pendingCode = '';
+  $('#pin-subtitle').textContent = 'Enter your passcode';
+  $('#pin-keypad').classList.remove('hidden');
+  $('#pin-dots').classList.remove('hidden');
+  $('#pin-create').classList.add('hidden');
+  renderLockKeypad();
+  renderLockDots();
   $('#pin-lock').classList.remove('hidden');
 }
 
-function hidePinLock() {
+function showCreateForm() {
+  $('#pin-subtitle').textContent = 'New passcode — create a profile';
+  $('#pin-keypad').classList.add('hidden');
+  $('#pin-dots').classList.add('hidden');
+  const box = $('#pin-create');
+  box.innerHTML = `
+    <input class="input" id="create-name" placeholder="Your name" autocomplete="off" maxlength="24" />
+    <div class="accent-row" id="create-accents">
+      ${ACCENTS.map((c, i) => `<button class="accent-dot ${i === 0 ? 'accent-dot--active' : ''}" data-accent="${c}" style="background:${c}" aria-label="accent colour"></button>`).join('')}
+    </div>
+    <button class="btn btn--primary btn--block" id="create-go" style="margin-top:14px">Create profile</button>
+    <button class="btn btn--ghost btn--block" id="create-back" style="margin-top:8px">Back</button>
+    <div class="pin-lock__err" id="create-err"></div>`;
+  box.classList.remove('hidden');
+  let accent = ACCENTS[0];
+  box.querySelector('#create-accents').onclick = (e) => {
+    const dot = e.target.closest('[data-accent]');
+    if (!dot) return;
+    accent = dot.dataset.accent;
+    box.querySelectorAll('.accent-dot').forEach((d) => d.classList.toggle('accent-dot--active', d === dot));
+  };
+  box.querySelector('#create-back').onclick = () => showLock();
+  box.querySelector('#create-go').onclick = async () => {
+    const name = box.querySelector('#create-name').value.trim();
+    const errEl = box.querySelector('#create-err');
+    if (!name) { errEl.textContent = 'Enter a name'; return; }
+    try {
+      const { profile } = await API.createProfile({ name, passcode: pendingCode, accent_color: accent });
+      currentProfile = profile;
+      hideLock();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  };
+  setTimeout(() => box.querySelector('#create-name')?.focus(), 60);
+}
+
+function hideLock() {
   $('#pin-lock').classList.add('hidden');
+  renderProfilePill();
   boot();
 }
 
@@ -187,14 +214,32 @@ function boot() {
   syncTimezoneOffset();
 }
 
-// PIN gate — 'none' means user explicitly skipped setup
-const _pin = localStorage.getItem(LS.pin);
-if (!_pin) {
-  showPinLock(); // first launch: offer setup or skip
-} else if (_pin === 'none') {
-  boot(); // skipped PIN
-} else if (sessionStorage.getItem(LS.pinUnlocked) !== '1') {
-  showPinLock(); // has PIN, needs to enter it
-} else {
-  boot();
-}
+// A guarded API call returned 401 (session expired/invalid) — bounce to lock.
+document.addEventListener('ironlog:unauthorized', () => {
+  if ($('#pin-lock').classList.contains('hidden')) showLock();
+});
+
+// Settings asks us to re-lock (log out / delete profile).
+document.addEventListener('ironlog:lock', () => showLock());
+
+// Settings changed the profile name/colour — refresh the header pill.
+document.addEventListener('ironlog:profile-updated', (e) => {
+  currentProfile = e.detail;
+  renderProfilePill();
+});
+
+// ---------- Startup: resolve session, then lock or boot ----------
+(async function start() {
+  try {
+    const status = await API.authStatus();
+    if (status.authenticated) {
+      currentProfile = status.profile;
+      renderProfilePill();
+      boot();
+    } else {
+      showLock();
+    }
+  } catch {
+    showLock();
+  }
+})();

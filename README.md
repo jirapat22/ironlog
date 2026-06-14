@@ -9,7 +9,7 @@ A mobile-first PWA gym tracker. Log workouts with sweaty hands, follow Day A/B p
 - **Progressive overload nudges** — if you hit all your reps last time, the app suggests +2.5 kg
 - **Progress charts** — strength curve per exercise (PRs starred), weekly volume by muscle group, GitHub-style consistency calendar
 - **History** — expandable workout log with per-set detail and filter
-- **PIN lock** — 4-digit PIN so nobody reads your data over your shoulder
+- **Multi-user** — each person logs in with a 4-digit passcode and gets their own workouts, body weight, profile and Plated API key; the exercise library and program templates are shared
 - **Installable PWA** — add to home screen, works offline for the app shell
 
 ## Tech
@@ -51,13 +51,25 @@ curl -X POST https://<your-app>.up.railway.app/api/exercises \
 
 `muscle_group` is free-form, but stick to `chest`, `back`, `shoulders`, `arms`, `legs` if you want them color-coded in the weekly volume chart.
 
+## Accounts & auth
+
+- `profiles` — one per person: name, accent colour, scrypt-hashed passcode, and a unique API key
+- Logging in with a 4-digit passcode mints a 30-day session (random token in an HttpOnly cookie). Every `/api/*` route requires it and is scoped to `req.profileId`.
+- Each profile's API key authenticates the Plated integration (`X-API-Key` or `Authorization: Bearer`) and returns only that profile's data. Manage / regenerate it in Settings → Plated API key.
+- On upgrade from the old single-user database, the first profile created adopts all existing data and inherits the previously active Plated key, so the integration keeps working with no changes on Plated's side.
+
 ## Data model
 
-- `exercises` — library of movements
-- `programs` → `program_days` → `program_day_exercises` — your training splits
-- `workouts` — one per session, with `started_at` / `finished_at`
-- `sets` — weight/reps/unit for each logged set
-- `personal_records` — auto-updated on every set (keyed on exercise + reps)
+- `exercises` — shared library of movements; each carries a `sub_muscle` (e.g. upper/mid/lower pec, front/side/rear delt, lats vs upper back) and a `met` used for the calorie estimate
+- `programs` → `program_days` → `program_day_exercises` — per-profile training-split templates; every account is seeded its own editable copy of the defaults on signup
+- `workouts` — one per session (per profile), with `started_at` / `finished_at`. `calories_burned` is estimated per-exercise: Σ MET × bodyweight × effective set time (not session duration)
+- `sets` — weight/reps/unit for each logged set (per profile)
+- `personal_records` — auto-updated on every set (keyed on profile + exercise + reps)
+
+### Plated integration endpoints (per-profile, API-key auth)
+
+- `GET /api/plated/profile` · `GET /api/plated/bodyweight` · `GET /api/plated/workouts/calories` · `GET /api/plated/workouts/recent` · `GET /api/plated/whoami`
+- `POST /api/plated/bodyweight {weight_kg, date?}` — two-way sync: Plated can push body weight into IronLog. Re-syncing the same day updates that day's Plated-sourced entry (idempotent); manual weigh-ins are always kept alongside
 
 ## Health check
 

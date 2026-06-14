@@ -5,7 +5,7 @@ const router = express.Router();
 
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted, equipment FROM exercises ORDER BY muscle_group, name')
+    .prepare('SELECT id, name, muscle_group, sub_muscle, notes, is_bodyweight, is_assisted, equipment FROM exercises ORDER BY muscle_group, name')
     .all();
   res.json(rows);
 });
@@ -18,11 +18,11 @@ router.get('/stats', (req, res) => {
       COUNT(DISTINCT s.workout_id) AS workout_count,
       MAX(w.started_at)            AS last_used_at
     FROM exercises e
-    LEFT JOIN sets     s ON s.exercise_id = e.id
+    LEFT JOIN sets     s ON s.exercise_id = e.id AND s.profile_id = ?
     LEFT JOIN workouts w ON w.id = s.workout_id AND w.finished_at IS NOT NULL
     GROUP BY e.id
     ORDER BY e.muscle_group ASC, workout_count DESC, e.name ASC
-  `).all();
+  `).all(req.profileId);
   res.json(rows);
 });
 
@@ -43,7 +43,7 @@ router.patch('/:id', (req, res) => {
     if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'exercise name already exists' });
     throw err;
   }
-  res.json(db.prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(id));
+  res.json(db.prepare('SELECT id, name, muscle_group, sub_muscle, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(id));
 });
 
 router.delete('/:id', (req, res) => {
@@ -70,7 +70,7 @@ router.post('/', (req, res) => {
     const info = db
       .prepare('INSERT INTO exercises (name, muscle_group, notes, equipment) VALUES (?, ?, ?, ?)')
       .run(name.trim(), muscle_group.trim(), notes || null, equip);
-    const row = db.prepare('SELECT id, name, muscle_group, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(info.lastInsertRowid);
+    const row = db.prepare('SELECT id, name, muscle_group, sub_muscle, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json(row);
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) {

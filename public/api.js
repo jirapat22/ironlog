@@ -12,6 +12,14 @@ async function api(path, opts = {}) {
       ...opts,
       body: opts.body ? JSON.stringify(opts.body) : undefined
     });
+    if (res.status === 401) {
+      // Session expired or missing — bounce to the lock screen. Swallow the
+      // throw at call sites by surfacing a tagged error.
+      document.dispatchEvent(new CustomEvent('ironlog:unauthorized'));
+      const err = new Error('authentication required');
+      err.unauthorized = true;
+      throw err;
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || `HTTP ${res.status}`);
@@ -48,6 +56,7 @@ const API = {
   lastWorkout: (programDayId) => api(`/api/workouts/last/${programDayId}`),
   recentWorkouts: (programDayId, n = 3) => api(`/api/workouts/recent/${programDayId}?n=${n}`),
   muscleFrequency: () => api('/api/muscle-frequency'),
+  subMuscleFrequency: () => api('/api/sub-muscle-frequency'),
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),
   startWorkout: (programDayId) =>
@@ -76,7 +85,18 @@ const API = {
   notes: () => api('/api/notes'),
   addNote: (data) => api('/api/notes', { method: 'POST', body: data }),
   updateNote: (id, data) => api(`/api/notes/${id}`, { method: 'PATCH', body: data }),
-  deleteNote: (id) => api(`/api/notes/${id}`, { method: 'DELETE' })
+  deleteNote: (id) => api(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  // ---- Auth / profiles ----
+  authStatus: () => api('/api/auth/status'),
+  login: (passcode) => api('/api/auth/login', { method: 'POST', body: { passcode } }),
+  createProfile: (data) => api('/api/auth/profiles', { method: 'POST', body: data }),
+  me: () => api('/api/auth/me'),
+  updateMe: (data) => api('/api/auth/me', { method: 'PATCH', body: data }),
+  changePasscode: (passcode) => api('/api/auth/me/passcode', { method: 'POST', body: { passcode } }),
+  regenerateApiKey: () => api('/api/auth/me/api-key', { method: 'POST' }),
+  deleteMe: () => api('/api/auth/me', { method: 'DELETE' }),
+  logout: () => api('/api/auth/logout', { method: 'POST' })
 };
 
 export { api, API, REST_SECONDS };

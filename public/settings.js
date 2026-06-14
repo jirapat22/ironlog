@@ -1,12 +1,18 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, isStandalone } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
+
+// Keep in sync with the lock-screen palette in app.js.
+const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
 
 async function openSettingsSheet() {
   const sheet = ensureSheet('settings-sheet');
   const perm = notifPermission();
   const enabled = localStorage.getItem(LS.notifEnabled) === '1';
   const canNotif = 'Notification' in window && 'serviceWorker' in navigator;
+
+  let me = null;
+  try { me = (await API.me()).profile; } catch { /* not logged in */ }
 
   let serverSettings = {};
   try { serverSettings = await API.settings(); }
@@ -33,9 +39,32 @@ async function openSettingsSheet() {
       <div class="card__subtitle" style="margin-top:8px">On iOS, notifications require adding the app to the Home Screen first.</div>`;
   }
 
-  const _p = localStorage.getItem(LS.pin);
-  const pinSet = !!_p && _p !== 'none';
   const standalone = isStandalone();
+
+  const accountGroup = me ? `
+        <div class="settings-group">
+          <div class="settings-group__title">Profile</div>
+          <div class="settings-row">
+            <span>Signed in as</span>
+            <span class="profile-pill" style="background:${escapeHtml(me.accent_color || '#e8643c')}">${escapeHtml(me.name)}</span>
+          </div>
+          <div class="settings-row"><span>Display name</span><button class="btn btn--ghost btn--sm" id="edit-name">Edit</button></div>
+          <div class="settings-row"><span>Accent colour</span>
+            <div class="accent-row" id="settings-accents">
+              ${ACCENTS.map((c) => `<button class="accent-dot ${c === me.accent_color ? 'accent-dot--active' : ''}" data-accent="${c}" style="background:${c}" aria-label="accent colour"></button>`).join('')}
+            </div>
+          </div>
+          <div class="settings-row"><span>Passcode</span><button class="btn btn--ghost btn--sm" id="change-pass">Change</button></div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group__title">Plated API key</div>
+          <div class="card__subtitle" style="margin-bottom:8px">Paste this into your Plated profile so it can read your IronLog data.</div>
+          <div class="apikey-box" id="apikey-box">${escapeHtml(me.api_key)}</div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn--ghost btn--sm" id="copy-key" style="flex:1">Copy</button>
+            <button class="btn btn--ghost btn--sm" id="regen-key" style="flex:1">Regenerate</button>
+          </div>
+        </div>` : '';
 
   sheet.innerHTML = `
     <div class="sheet__inner">
@@ -45,6 +74,7 @@ async function openSettingsSheet() {
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body">
+        ${accountGroup}
         <div class="settings-group">
           <div class="settings-group__title">Notifications</div>
           ${notifBody}
@@ -82,8 +112,14 @@ async function openSettingsSheet() {
         <div class="settings-group">
           <div class="settings-group__title">App</div>
           <div class="settings-row"><span>Installed as PWA</span><span class="settings-row__val">${standalone ? 'Yes' : 'No'}</span></div>
-          <div class="settings-row"><span>PIN lock</span><button class="btn btn--ghost btn--sm" id="reset-pin">${pinSet ? 'Change / reset PIN' : 'Set PIN'}</button></div>
         </div>
+        ${me ? `
+        <div class="settings-group">
+          <div class="settings-group__title">Account</div>
+          <button class="btn btn--ghost btn--block" id="logout-btn">Log out</button>
+          <button class="btn btn--danger btn--block" id="delete-profile" style="margin-top:8px">Delete profile</button>
+          <div class="card__subtitle" style="margin-top:6px">Deleting removes this profile and all its workouts, body weight and settings. This cannot be undone.</div>
+        </div>` : ''}
         <div class="settings-group">
           <div class="settings-group__title">Exercises</div>
           <div class="settings-row">
@@ -149,13 +185,74 @@ async function openSettingsSheet() {
       return;
     }
 
-    if (e.target.closest('#reset-pin')) {
-      const ok = await confirmSheet({ title: 'Clear PIN', message: 'Clear saved PIN? You will be prompted to set a new one.', confirmText: 'Clear PIN', danger: true });
+    if (e.target.closest('#edit-name')) {
+      const name = await promptSheet({ title: 'Display name', label: 'Your name', value: me?.name || '', confirmText: 'Save' });
+      if (name == null || !name.trim()) return;
+      try {
+        const { profile } = await API.updateMe({ name: name.trim() });
+        document.dispatchEvent(new CustomEvent('ironlog:profile-updated', { detail: profile }));
+        toast('Name updated');
+        openSettingsSheet();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
+    const accentDot = e.target.closest('#settings-accents [data-accent]');
+    if (accentDot) {
+      try {
+        const { profile } = await API.updateMe({ accent_color: accentDot.dataset.accent });
+        document.dispatchEvent(new CustomEvent('ironlog:profile-updated', { detail: profile }));
+        haptic(10);
+        openSettingsSheet();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
+    if (e.target.closest('#change-pass')) {
+      const code = await promptSheet({ title: 'Change passcode', label: 'New 4-digit passcode', placeholder: '••••', confirmText: 'Save' });
+      if (code == null) return;
+      if (!/^\d{4}$/.test(code.trim())) { toast('Passcode must be 4 digits'); return; }
+      try { await API.changePasscode(code.trim()); toast('Passcode changed'); }
+      catch (err) { toast(err.message); }
+      return;
+    }
+
+    if (e.target.closest('#copy-key')) {
+      try {
+        await navigator.clipboard.writeText(me.api_key);
+        toast('API key copied');
+      } catch { toast('Copy failed — select it manually'); }
+      return;
+    }
+
+    if (e.target.closest('#regen-key')) {
+      const ok = await confirmSheet({ title: 'Regenerate API key', message: 'Your old key stops working immediately. You must paste the new key into Plated.', confirmText: 'Regenerate', danger: true });
       if (!ok) return;
-      localStorage.removeItem(LS.pin);
-      sessionStorage.removeItem(LS.pinUnlocked);
+      try {
+        const { api_key } = await API.regenerateApiKey();
+        me.api_key = api_key;
+        const box = sheet.querySelector('#apikey-box');
+        if (box) box.textContent = api_key;
+        toast('New key generated — update Plated');
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
+    if (e.target.closest('#logout-btn')) {
+      try { await API.logout(); } catch { /* ignore */ }
       hideSheet(sheet);
-      setTimeout(() => location.reload(), 200);
+      document.dispatchEvent(new CustomEvent('ironlog:lock'));
+      return;
+    }
+
+    if (e.target.closest('#delete-profile')) {
+      const ok = await confirmSheet({ title: 'Delete profile', message: `Permanently delete "${me?.name}" and all its data?`, confirmText: 'Delete forever', danger: true });
+      if (!ok) return;
+      try {
+        await API.deleteMe();
+        hideSheet(sheet);
+        document.dispatchEvent(new CustomEvent('ironlog:lock'));
+      } catch (err) { toast(err.message); }
       return;
     }
 

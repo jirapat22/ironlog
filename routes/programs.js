@@ -3,12 +3,29 @@ const { db, tx } = require('../db');
 
 const router = express.Router();
 
+// Ownership guards — programs are per-profile; days and day-exercises inherit
+// ownership through their program. Each returns a row (truthy) or undefined.
+const ownsProgram = (profileId, programId) =>
+  db.prepare('SELECT id FROM programs WHERE id = ? AND profile_id = ?').get(programId, profileId);
+const ownsDay = (profileId, dayId) =>
+  db.prepare(
+    `SELECT pd.id FROM program_days pd JOIN programs p ON p.id = pd.program_id
+     WHERE pd.id = ? AND p.profile_id = ?`
+  ).get(dayId, profileId);
+const ownsPde = (profileId, pdeId) =>
+  db.prepare(
+    `SELECT pde.id FROM program_day_exercises pde
+     JOIN program_days pd ON pd.id = pde.program_day_id
+     JOIN programs p ON p.id = pd.program_id
+     WHERE pde.id = ? AND p.profile_id = ?`
+  ).get(pdeId, profileId);
+
 // Create a blank program
 router.post('/', (req, res) => {
   const { name, description = '' } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
-  const info = db.prepare('INSERT INTO programs (name, description) VALUES (?, ?)')
-    .run(String(name).trim(), description || '');
+  const info = db.prepare('INSERT INTO programs (profile_id, name, description) VALUES (?, ?, ?)')
+    .run(req.profileId, String(name).trim(), description || '');
   const row = db.prepare('SELECT id, name, description FROM programs WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(row);
 });
@@ -18,7 +35,7 @@ router.post('/:id/days', (req, res) => {
   const programId = Number(req.params.id);
   const { day_label } = req.body || {};
   if (!day_label || !String(day_label).trim()) return res.status(400).json({ error: 'day_label is required' });
-  const program = db.prepare('SELECT id FROM programs WHERE id = ?').get(programId);
+  const program = ownsProgram(req.profileId, programId);
   if (!program) return res.status(404).json({ error: 'program not found' });
   const { m } = db.prepare('SELECT COALESCE(MAX(day_order), -1) as m FROM program_days WHERE program_id = ?').get(programId);
   const info = db.prepare('INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)')
@@ -33,16 +50,16 @@ router.patch('/:id/days/:dayId', (req, res) => {
   const dayId = Number(req.params.dayId);
   const { day_label } = req.body || {};
   if (!day_label || !String(day_label).trim()) return res.status(400).json({ error: 'day_label is required' });
-  const result = db.prepare('UPDATE program_days SET day_label = ? WHERE id = ?').run(String(day_label).trim(), dayId);
-  if (result.changes === 0) return res.status(404).json({ error: 'day not found' });
+  if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'day not found' });
+  db.prepare('UPDATE program_days SET day_label = ? WHERE id = ?').run(String(day_label).trim(), dayId);
   res.json(db.prepare('SELECT * FROM program_days WHERE id = ?').get(dayId));
 });
 
 // Delete a day (cascades to exercises)
 router.delete('/:id/days/:dayId', (req, res) => {
   const dayId = Number(req.params.dayId);
-  const result = db.prepare('DELETE FROM program_days WHERE id = ?').run(dayId);
-  if (result.changes === 0) return res.status(404).json({ error: 'day not found' });
+  if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'day not found' });
+  db.prepare('DELETE FROM program_days WHERE id = ?').run(dayId);
   res.json({ deleted: true });
 });
 
@@ -50,7 +67,7 @@ router.delete('/:id/days/:dayId', (req, res) => {
 router.post('/:id/duplicate', (req, res) => {
   const srcId = Number(req.params.id);
   const { name } = req.body || {};
-  const src = db.prepare('SELECT * FROM programs WHERE id = ?').get(srcId);
+  const src = db.prepare('SELECT * FROM programs WHERE id = ? AND profile_id = ?').get(srcId, req.profileId);
   if (!src) return res.status(404).json({ error: 'program not found' });
 
   const newName = (name && String(name).trim()) || `Copy of ${src.name}`;
@@ -58,8 +75,8 @@ router.post('/:id/duplicate', (req, res) => {
   try {
     const newId = tx(() => {
       const info = db
-        .prepare('INSERT INTO programs (name, description) VALUES (?, ?)')
-        .run(newName, src.description);
+        .prepare('INSERT INTO programs (profile_id, name, description) VALUES (?, ?, ?)')
+        .run(req.profileId, newName, src.description);
       const programId = Number(info.lastInsertRowid);
 
       const days = db
@@ -93,7 +110,7 @@ router.post('/:id/duplicate', (req, res) => {
 // Rename / update a program
 router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM programs WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'program not found' });
   const fields = ['name', 'description'];
   const updates = [];
@@ -114,19 +131,19 @@ router.patch('/:id', (req, res) => {
 // Delete a program (cascades to days + pde rows)
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const result = db.prepare('DELETE FROM programs WHERE id = ?').run(id);
+  const result = db.prepare('DELETE FROM programs WHERE id = ? AND profile_id = ?').run(id, req.profileId);
   if (result.changes === 0) return res.status(404).json({ error: 'program not found' });
   res.json({ deleted: true });
 });
 
 router.get('/', (req, res) => {
-  const rows = db.prepare('SELECT id, name, description FROM programs ORDER BY id').all();
+  const rows = db.prepare('SELECT id, name, description FROM programs WHERE profile_id = ? ORDER BY id').all(req.profileId);
   res.json(rows);
 });
 
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const program = db.prepare('SELECT * FROM programs WHERE id = ?').get(id);
+  const program = db.prepare('SELECT * FROM programs WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!program) return res.status(404).json({ error: 'program not found' });
 
   const days = db
@@ -156,8 +173,7 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
   const { exercise_id, target_sets = 3, target_reps = 8, rest_seconds = null } = req.body || {};
   if (!exercise_id) return res.status(400).json({ error: 'exercise_id is required' });
 
-  const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(dayId);
-  if (!day) return res.status(404).json({ error: 'program day not found' });
+  if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'program day not found' });
 
   const maxOrder =
     db
@@ -190,8 +206,7 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
   const { exercises } = req.body || {};
   if (!Array.isArray(exercises)) return res.status(400).json({ error: 'exercises array required' });
 
-  const day = db.prepare('SELECT id FROM program_days WHERE id = ?').get(dayId);
-  if (!day) return res.status(404).json({ error: 'program day not found' });
+  if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'program day not found' });
 
   try {
     tx(() => {
@@ -226,7 +241,7 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
 router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   const pdeId = Number(req.params.pdeId);
   const existing = db.prepare('SELECT * FROM program_day_exercises WHERE id = ?').get(pdeId);
-  if (!existing) return res.status(404).json({ error: 'entry not found' });
+  if (!existing || !ownsPde(req.profileId, pdeId)) return res.status(404).json({ error: 'entry not found' });
 
   const fields = ['target_sets', 'target_reps', 'exercise_id', 'order_index', 'rest_seconds'];
   const updates = [];
@@ -257,8 +272,8 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
 // Remove an exercise from a program day
 router.delete('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   const pdeId = Number(req.params.pdeId);
-  const result = db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(pdeId);
-  if (result.changes === 0) return res.status(404).json({ error: 'entry not found' });
+  if (!ownsPde(req.profileId, pdeId)) return res.status(404).json({ error: 'entry not found' });
+  db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(pdeId);
   res.json({ deleted: true });
 });
 

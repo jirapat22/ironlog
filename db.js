@@ -25,8 +25,47 @@ function tx(fn) {
   }
 }
 
+function tableExists(name) {
+  return !!db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name);
+}
+
+function columnExists(table, column) {
+  if (!tableExists(table)) return false;
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((c) => c.name === column);
+}
+
 function init() {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      accent_color TEXT NOT NULL DEFAULT '#e8643c',
+      pass_hash TEXT NOT NULL,
+      pass_salt TEXT NOT NULL,
+      api_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      profile_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_profiles_api_key ON profiles(api_key);
+    CREATE INDEX IF NOT EXISTS idx_sessions_profile ON sessions(profile_id);
+
     CREATE TABLE IF NOT EXISTS exercises (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -37,6 +76,7 @@ function init() {
 
     CREATE TABLE IF NOT EXISTS programs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER NOT NULL DEFAULT 0,
       name TEXT NOT NULL,
       description TEXT
     );
@@ -86,13 +126,14 @@ function init() {
 
     CREATE TABLE IF NOT EXISTS personal_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER NOT NULL DEFAULT 0,
       exercise_id INTEGER NOT NULL,
       weight REAL NOT NULL,
       weight_unit TEXT NOT NULL DEFAULT 'kg',
       reps INTEGER NOT NULL,
       achieved_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE,
-      UNIQUE(exercise_id, reps)
+      UNIQUE(profile_id, exercise_id, reps)
     );
 
     CREATE TABLE IF NOT EXISTS bodyweights (
@@ -113,8 +154,10 @@ function init() {
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
+      profile_id INTEGER NOT NULL DEFAULT 0,
+      key TEXT NOT NULL,
+      value TEXT,
+      PRIMARY KEY (profile_id, key)
     );
 
     CREATE TABLE IF NOT EXISTS notes (
@@ -189,7 +232,100 @@ function init() {
     if (!/duplicate column/i.test(err.message)) throw err;
   }
 
+  migrateMultiUser();
   seed();
+  recalcAllCalories();
+}
+
+// ---------------------------------------------------------------------------
+// Multi-user migration. Adds profile_id to every per-user table and rebuilds
+// the two tables whose primary/unique key must change. Existing single-user
+// rows get profile_id = 0 (the orphan sentinel); the first profile created
+// adopts them (see accounts.createProfile). Idempotent — safe on every boot.
+// ---------------------------------------------------------------------------
+function migrateMultiUser() {
+  // 1. Simple ADD COLUMN tables. NOT NULL DEFAULT 0 tags legacy rows as orphans.
+  //    `programs` is now per-profile too (each account owns its own templates);
+  //    program_days / program_day_exercises stay keyed via their program.
+  for (const table of ['workouts', 'sets', 'bodyweights', 'push_subscriptions', 'notes', 'programs']) {
+    if (!columnExists(table, 'profile_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN profile_id INTEGER NOT NULL DEFAULT 0`);
+    }
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_${table}_profile ON ${table}(profile_id)`
+    );
+  }
+
+  // Per-exercise calorie + muscle-detail columns. met drives the calorie
+  // estimate; sub_muscle drives finer analytics/recommendations.
+  if (!columnExists('exercises', 'met')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN met REAL NOT NULL DEFAULT 5');
+  }
+  if (!columnExists('exercises', 'sub_muscle')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN sub_muscle TEXT');
+  }
+
+  // 2. app_settings: primary key must become (profile_id, key). Rebuild.
+  if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
+    tx(() => {
+      db.exec(`
+        CREATE TABLE app_settings_new (
+          profile_id INTEGER NOT NULL DEFAULT 0,
+          key TEXT NOT NULL,
+          value TEXT,
+          PRIMARY KEY (profile_id, key)
+        );
+        INSERT INTO app_settings_new (profile_id, key, value)
+          SELECT 0, key, value FROM app_settings;
+        DROP TABLE app_settings;
+        ALTER TABLE app_settings_new RENAME TO app_settings;
+      `);
+    });
+  }
+
+  // 3. personal_records: unique key must become (profile_id, exercise_id, reps).
+  if (tableExists('personal_records') && !columnExists('personal_records', 'profile_id')) {
+    tx(() => {
+      db.exec(`
+        CREATE TABLE personal_records_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          profile_id INTEGER NOT NULL DEFAULT 0,
+          exercise_id INTEGER NOT NULL,
+          weight REAL NOT NULL,
+          weight_unit TEXT NOT NULL DEFAULT 'kg',
+          reps INTEGER NOT NULL,
+          achieved_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE,
+          UNIQUE(profile_id, exercise_id, reps)
+        );
+        INSERT INTO personal_records_new (id, profile_id, exercise_id, weight, weight_unit, reps, achieved_at)
+          SELECT id, 0, exercise_id, weight, weight_unit, reps, achieved_at FROM personal_records;
+        DROP TABLE personal_records;
+        ALTER TABLE personal_records_new RENAME TO personal_records;
+      `);
+    });
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_personal_records_profile ON personal_records(profile_id)');
+
+  // 4. Move global seed flags out of (now per-profile) app_settings into meta,
+  //    so they aren't adopted by the first profile and never re-trigger.
+  for (const flag of ['reps_to_8_v1', 'removed_programs_v1']) {
+    const row = db
+      .prepare('SELECT value FROM app_settings WHERE profile_id = 0 AND key = ?')
+      .get(flag);
+    if (row && !getMeta(flag)) setMeta(flag, row.value);
+    if (row) db.prepare('DELETE FROM app_settings WHERE profile_id = 0 AND key = ?').run(flag);
+  }
+}
+
+function getMeta(key) {
+  return db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
+}
+
+function setMeta(key, value) {
+  db.prepare(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, String(value));
 }
 
 // Bodyweight exercises: effective load = bodyweight + added_weight
@@ -441,9 +577,130 @@ function seed() {
   ];
   for (const sql of equipmentMigrations) db.exec(sql);
 
+  populateMuscleAndMet();
   cleanupRemovedPrograms();
-  seedPrograms();
   setDefaultRepTargets();
+  // NOTE: programs are no longer seeded globally here — each profile gets its
+  // own copy of the defaults via seedDefaultPrograms() at creation time.
+}
+
+// ---------------------------------------------------------------------------
+// Sub-muscle + MET assignment. sub_muscle drives finer analytics /
+// recommendations; met drives the calorie estimate. Both are filled in
+// idempotently: sub_muscle is only set when still NULL, and met only when still
+// at the column default (5) — so manual edits are never clobbered.
+// ---------------------------------------------------------------------------
+const SUB_MUSCLE_BY_NAME = {
+  // Chest
+  'Bench Press': 'mid chest', 'Incline Bench Press': 'upper chest', 'Decline Bench Press': 'lower chest',
+  'Incline Dumbbell Press': 'upper chest', 'Flat Dumbbell Press': 'mid chest', 'Dumbbell Fly': 'mid chest',
+  'Cable Fly': 'mid chest', 'Cable Crossover': 'lower chest', 'Machine Chest Press': 'mid chest',
+  'Pec Deck': 'mid chest', 'Chest Dip': 'lower chest', 'Push-Up': 'mid chest',
+  'Incline Cable Fly': 'upper chest', 'Low-to-High Cable Fly': 'upper chest', 'Assisted Dip': 'lower chest',
+  // Back
+  'Deadlift': 'lower back', 'Sumo Deadlift': 'lower back', 'Rack Pull': 'traps',
+  'Pull-Up': 'lats', 'Chin-Up': 'lats', 'Lat Pulldown': 'lats', 'Wide-Grip Lat Pulldown': 'lats',
+  'Barbell Row': 'upper back', 'Pendlay Row': 'upper back', 'One-Arm Dumbbell Row': 'lats',
+  'T-Bar Row': 'upper back', 'Seated Cable Row': 'upper back', 'Chest-Supported Row': 'upper back',
+  'Face Pull': 'upper back', 'Shrug': 'traps', 'Straight-Arm Pulldown': 'lats',
+  'Dumbbell Pullover': 'lats', 'Seal Row': 'upper back', 'Close-Grip Lat Pulldown': 'lats',
+  'Machine Row': 'upper back', 'Landmine Row': 'lats', 'Hyperextension': 'lower back',
+  'Reverse Hyperextension': 'lower back', 'Good Morning': 'lower back',
+  // Shoulders
+  'Overhead Press': 'front delt', 'Seated Dumbbell Press': 'front delt', 'Arnold Press': 'front delt',
+  'Machine Shoulder Press': 'front delt', 'Lateral Raise': 'side delt', 'Cable Lateral Raise': 'side delt',
+  'Rear Delt Fly': 'rear delt', 'Reverse Pec Deck': 'rear delt', 'Upright Row': 'side delt',
+  'Landmine Press': 'front delt', 'Seated Cable Lateral Raise': 'side delt', 'Band Pull-Apart': 'rear delt',
+  'External Rotation': 'rear delt', 'Y-T-W Raise': 'rear delt',
+  // Biceps
+  'Barbell Curl': 'biceps', 'Dumbbell Curl': 'biceps', 'Hammer Curl': 'brachialis', 'Preacher Curl': 'biceps',
+  'Incline Dumbbell Curl': 'biceps', 'Cable Curl': 'biceps', 'Concentration Curl': 'biceps',
+  'Spider Curl': 'biceps', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
+  'Machine Curl': 'biceps', 'Bayesian Curl': 'biceps', 'Zottman Curl': 'brachialis',
+  // Triceps
+  'Tricep Pushdown': 'triceps', 'Rope Pushdown': 'triceps', 'Overhead Tricep Extension': 'triceps',
+  'Skull Crusher': 'triceps', 'Close-Grip Bench Press': 'triceps', 'Tricep Dip': 'triceps',
+  'Tricep Kickback': 'triceps', 'Diamond Push-Up': 'triceps', 'Cable Overhead Tricep Extension': 'triceps',
+  'Machine Tricep Extension': 'triceps', 'Assisted Chin-Up': 'biceps', 'Assisted Pull-Up': 'lats',
+  // Legs
+  'Back Squat': 'quads', 'Front Squat': 'quads', 'Goblet Squat': 'quads', 'Romanian Deadlift': 'hamstrings',
+  'Stiff-Leg Deadlift': 'hamstrings', 'Leg Press': 'quads', 'Hack Squat': 'quads',
+  'Bulgarian Split Squat': 'quads', 'Walking Lunge': 'quads', 'Leg Extension': 'quads',
+  'Lying Leg Curl': 'hamstrings', 'Seated Leg Curl': 'hamstrings', 'Standing Calf Raise': 'calves',
+  'Seated Calf Raise': 'calves', 'Hip Thrust': 'glutes', 'Glute Bridge': 'glutes',
+  'Nordic Hamstring Curl': 'hamstrings', 'Hip Abduction Machine': 'abductors', 'Hip Adduction Machine': 'adductors',
+  'Cable Pullthrough': 'glutes', 'Step-Up': 'quads', 'Reverse Lunge': 'glutes', 'Single-Leg Press': 'quads',
+  'Glute Kickback': 'glutes', 'Sissy Squat': 'quads', 'Kettlebell Swing': 'glutes', 'Box Squat': 'quads',
+  'Pause Squat': 'quads', 'Smith Machine Squat': 'quads', 'Reverse Nordic Curl': 'quads',
+  'Cable Kickback': 'glutes', 'Donkey Calf Raise': 'calves',
+  // Core
+  'Hanging Leg Raise': 'abs', 'Cable Crunch': 'abs', 'Ab Wheel Rollout': 'abs', 'Plank': 'abs',
+  'Side Plank': 'obliques', 'Russian Twist': 'obliques', 'Crunch': 'abs', 'Bicycle Crunch': 'obliques',
+  'Sit-Up': 'abs', 'Dead Bug': 'abs', 'Mountain Climber': 'abs', 'Leg Raise': 'abs',
+  'Pallof Press': 'obliques', 'Hollow Body Hold': 'abs', 'L-Sit': 'abs', 'Toes to Bar': 'abs',
+  'Cable Woodchop': 'obliques',
+  // Arms / forearms
+  'Wrist Curl': 'forearms', 'Reverse Curl': 'forearms', 'Farmer Carry': 'forearms'
+};
+
+// Big multi-joint lifts — highest energy cost.
+const MET_HEAVY = new Set([
+  'Deadlift', 'Sumo Deadlift', 'Rack Pull', 'Back Squat', 'Front Squat', 'Box Squat', 'Pause Squat',
+  'Smith Machine Squat', 'Bench Press', 'Incline Bench Press', 'Decline Bench Press',
+  'Overhead Press', 'Barbell Row', 'Pendlay Row', 'T-Bar Row', 'Romanian Deadlift', 'Stiff-Leg Deadlift',
+  'Good Morning', 'Hip Thrust', 'Pull-Up', 'Chin-Up', 'Kettlebell Swing', 'Farmer Carry'
+]);
+
+// Single-joint isolation — lowest energy cost. (Core is handled by group.)
+const MET_ISO = new Set([
+  'Lateral Raise', 'Cable Lateral Raise', 'Rear Delt Fly', 'Reverse Pec Deck', 'Seated Cable Lateral Raise',
+  'Band Pull-Apart', 'External Rotation', 'Y-T-W Raise', 'Face Pull', 'Upright Row', 'Shrug',
+  'Dumbbell Fly', 'Cable Fly', 'Cable Crossover', 'Pec Deck', 'Incline Cable Fly', 'Low-to-High Cable Fly',
+  'Straight-Arm Pulldown', 'Dumbbell Pullover',
+  'Barbell Curl', 'Dumbbell Curl', 'Hammer Curl', 'Preacher Curl', 'Incline Dumbbell Curl', 'Cable Curl',
+  'Concentration Curl', 'Spider Curl', 'EZ Bar Curl', 'Cable Hammer Curl', 'Machine Curl', 'Bayesian Curl',
+  'Zottman Curl', 'Reverse Curl', 'Wrist Curl',
+  'Tricep Pushdown', 'Rope Pushdown', 'Overhead Tricep Extension', 'Skull Crusher', 'Tricep Kickback',
+  'Cable Overhead Tricep Extension', 'Machine Tricep Extension',
+  'Leg Extension', 'Lying Leg Curl', 'Seated Leg Curl', 'Standing Calf Raise', 'Seated Calf Raise',
+  'Donkey Calf Raise', 'Hip Abduction Machine', 'Hip Adduction Machine', 'Glute Kickback', 'Cable Kickback',
+  'Glute Bridge', 'Reverse Nordic Curl', 'Nordic Hamstring Curl', 'Sissy Squat'
+]);
+
+function populateMuscleAndMet() {
+  const setSub = db.prepare('UPDATE exercises SET sub_muscle = ? WHERE name = ? AND sub_muscle IS NULL');
+  const setMet = db.prepare('UPDATE exercises SET met = ? WHERE name = ? AND met = 5');
+  tx(() => {
+    for (const [name, sub] of Object.entries(SUB_MUSCLE_BY_NAME)) setSub.run(sub, name);
+    for (const name of MET_HEAVY) setMet.run(6.0, name);
+    for (const name of MET_ISO) setMet.run(3.7, name);
+    // Core work is low-load; set by group for anything still at the default.
+    db.prepare("UPDATE exercises SET met = 3.3 WHERE muscle_group = 'core' AND met = 5").run();
+  });
+}
+
+// Recompute calories_burned for every finished workout that has a bodyweight
+// snapshot, using the per-exercise active-time model. One-time fixup so old
+// sessions (estimated with the inflated MET-on-total-duration model) display
+// realistic numbers. Guarded by a meta flag.
+function recalcAllCalories() {
+  const FLAG = 'recalc_calories_v2';
+  if (getMeta(FLAG)) return;
+  const { caloriesFromSets } = require('./calories');
+  const workouts = db
+    .prepare('SELECT id, bw_kg FROM workouts WHERE finished_at IS NOT NULL AND bw_kg IS NOT NULL')
+    .all();
+  const setStmt = db.prepare(
+    'SELECT s.reps, s.is_warmup, e.met FROM sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ?'
+  );
+  const upd = db.prepare('UPDATE workouts SET calories_burned = ? WHERE id = ?');
+  tx(() => {
+    for (const w of workouts) {
+      const cal = caloriesFromSets(setStmt.all(w.id), w.bw_kg);
+      if (cal != null) upd.run(cal, w.id);
+    }
+    setMeta(FLAG, '1');
+  });
 }
 
 // One-time: set every program exercise's rep target to 8 to match the user's
@@ -451,13 +708,10 @@ function seed() {
 // later manual edits (and lets new programs use whatever reps you train).
 function setDefaultRepTargets() {
   const FLAG = 'reps_to_8_v1';
-  const done = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(FLAG);
-  if (done) return;
+  if (getMeta(FLAG)) return;
   tx(() => {
     db.prepare('UPDATE program_day_exercises SET target_reps = 8').run();
-    db.prepare(
-      'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-    ).run(FLAG, '1');
+    setMeta(FLAG, '1');
   });
 }
 
@@ -469,15 +723,11 @@ const REMOVED_PROGRAM_NAMES = ['Bro Split', 'Starting Strength', 'Minimalist Hyp
 
 function cleanupRemovedPrograms() {
   const FLAG = 'removed_programs_v1';
-  const done = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(FLAG);
-  if (done) return;
+  if (getMeta(FLAG)) return;
   const del = db.prepare('DELETE FROM programs WHERE name = ?');
-  const setFlag = db.prepare(
-    'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  );
   tx(() => {
     for (const name of REMOVED_PROGRAM_NAMES) del.run(name);
-    setFlag.run(FLAG, '1');
+    setMeta(FLAG, '1');
   });
 }
 
@@ -669,9 +919,14 @@ const CANONICAL_PROGRAMS = [
   }
 ];
 
-function seedPrograms() {
-  const findProgram = db.prepare('SELECT id FROM programs WHERE name = ?');
-  const insertProgram = db.prepare('INSERT INTO programs (name, description) VALUES (?, ?)');
+// Seed the default recommended programs into ONE profile's library. Called
+// when a profile is created (unless it adopted legacy single-user programs).
+// Skips any program the profile already has by name, so it's safe to re-run.
+// Runs in the caller's transaction (accounts.createProfile already wraps the
+// whole creation in one), so it does not open its own.
+function seedDefaultPrograms(profileId) {
+  const findProgram = db.prepare('SELECT id FROM programs WHERE profile_id = ? AND name = ?');
+  const insertProgram = db.prepare('INSERT INTO programs (profile_id, name, description) VALUES (?, ?, ?)');
   const insertDay = db.prepare(
     'INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)'
   );
@@ -680,24 +935,21 @@ function seedPrograms() {
   );
   const findEx = db.prepare('SELECT id FROM exercises WHERE name = ?');
 
-  tx(() => {
-    for (const program of CANONICAL_PROGRAMS) {
-      const existing = findProgram.get(program.name);
-      if (existing) continue; // respect user customizations; never overwrite an existing program
-      const programId = Number(
-        insertProgram.run(program.name, program.description).lastInsertRowid
+  for (const program of CANONICAL_PROGRAMS) {
+    if (findProgram.get(profileId, program.name)) continue;
+    const programId = Number(
+      insertProgram.run(profileId, program.name, program.description).lastInsertRowid
+    );
+    program.days.forEach((day, dayIdx) => {
+      const dayId = Number(
+        insertDay.run(programId, day.label, dayIdx + 1).lastInsertRowid
       );
-      program.days.forEach((day, dayIdx) => {
-        const dayId = Number(
-          insertDay.run(programId, day.label, dayIdx + 1).lastInsertRowid
-        );
-        day.exercises.forEach(([name, sets, reps, rest = null], i) => {
-          const ex = findEx.get(name);
-          if (ex) insertDayEx.run(dayId, ex.id, sets, reps, i, rest);
-        });
+      day.exercises.forEach(([name, sets, reps, rest = null], i) => {
+        const ex = findEx.get(name);
+        if (ex) insertDayEx.run(dayId, ex.id, sets, reps, i, rest);
       });
-    }
-  });
+    });
+  }
 }
 
-module.exports = { db, init, tx };
+module.exports = { db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms };

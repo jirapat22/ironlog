@@ -12,6 +12,7 @@ router.post('/', (req, res) => {
   }
 
   const { exercises = [], workouts = [], bodyweights = [] } = data;
+  const profileId = req.profileId;
 
   let importedExercises = 0;
   let importedWorkouts = 0;
@@ -25,8 +26,8 @@ router.post('/', (req, res) => {
 
   tx(() => {
     // --- 1. Insert any exercises from the backup that don't already exist
-    // (matched by name, case-insensitive). Custom exercises in the backup
-    // would otherwise leave their sets dangling on a fresh DB.
+    // (matched by name, case-insensitive). The exercise catalog is shared
+    // across profiles, so this just tops up missing entries.
     const insExercise = db.prepare(
       `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -47,30 +48,48 @@ router.post('/', (req, res) => {
     const currentExRows = db.prepare('SELECT id, name FROM exercises').all();
     const exByName = new Map(currentExRows.map((e) => [e.name.toLowerCase(), e.id]));
 
-    // --- 3. Workouts + sets
+    // Program days referenced by a backup may not exist in this DB (programs
+    // are shared, not exported per-profile). Keep only valid references so we
+    // never insert a dangling FK.
+    const validProgramDays = new Set(
+      db.prepare(
+        `SELECT pd.id FROM program_days pd JOIN programs p ON p.id = pd.program_id
+         WHERE p.profile_id = ?`
+      ).all(profileId).map((d) => d.id)
+    );
+
+    // --- 3. Workouts + sets. IDs are NOT preserved: a backup carries IDs from
+    // a single global sequence, so reusing them could clobber another profile's
+    // rows. We let SQLite assign fresh IDs and remap sets onto them.
     const insWorkout = db.prepare(
-      `INSERT OR IGNORE INTO workouts (id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned)
+      `INSERT INTO workouts (profile_id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const insSet = db.prepare(
-      `INSERT OR IGNORE INTO sets
-         (id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup, logged_at)
+      `INSERT INTO sets
+         (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup, logged_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     for (const w of workouts) {
-      const r = insWorkout.run(
-        w.id, w.program_day_id ?? null,
-        w.started_at, w.finished_at ?? null,
-        w.notes ?? null, w.feel_rating ?? null,
-        w.bw_kg ?? null, w.calories_burned ?? null
+      const programDayId =
+        w.program_day_id != null && validProgramDays.has(w.program_day_id)
+          ? w.program_day_id
+          : null;
+      const newWorkoutId = Number(
+        insWorkout.run(
+          profileId, programDayId,
+          w.started_at, w.finished_at ?? null,
+          w.notes ?? null, w.feel_rating ?? null,
+          w.bw_kg ?? null, w.calories_burned ?? null
+        ).lastInsertRowid
       );
-      if (r.changes) importedWorkouts++;
+      importedWorkouts++;
 
       for (const s of (w.sets || [])) {
         // Resolve exercise by NAME first (most resilient), falling back to
-        // the backup's exercise table by ID, then the raw ID. If the final
-        // ID doesn't exist, skip so we never insert a dangling FK.
+        // the backup's exercise table by ID. If unresolved, skip so we never
+        // insert a dangling FK.
         let exId = null;
         if (s.exercise_name) {
           exId = exByName.get(s.exercise_name.toLowerCase()) ?? null;
@@ -81,51 +100,44 @@ router.post('/', (req, res) => {
         }
         if (!exId) continue;
 
-        const r2 = insSet.run(
-          s.id, w.id, exId, s.set_number,
+        insSet.run(
+          profileId, newWorkoutId, exId, s.set_number,
           s.weight, s.weight_unit, s.reps,
           s.rpe ?? null, s.rir ?? null, s.notes ?? null,
           s.is_warmup ? 1 : 0,
           s.logged_at
         );
-        if (r2.changes) {
-          importedSets++;
-          affectedExercises.add(exId);
-        }
+        importedSets++;
+        affectedExercises.add(exId);
       }
     }
 
-    // --- 4. Body weights
+    // --- 4. Body weights (fresh IDs, scoped to this profile)
     const insBw = db.prepare(
-      `INSERT OR IGNORE INTO bodyweights (id, weight, weight_unit, logged_at, notes)
+      `INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes)
        VALUES (?, ?, ?, ?, ?)`
     );
     for (const b of bodyweights) {
-      const r = insBw.run(b.id, b.weight, b.weight_unit, b.logged_at, b.notes ?? null);
-      if (r.changes) importedBw++;
+      insBw.run(profileId, b.weight, b.weight_unit, b.logged_at, b.notes ?? null);
+      importedBw++;
     }
   });
 
   // Recompute PRs for every exercise touched by the import
   for (const exId of affectedExercises) {
-    try { recomputePrsForExercise(exId); } catch { /* ignore */ }
+    try { recomputePrsForExercise(profileId, exId); } catch { /* ignore */ }
   }
 
-  // Anything not imported was skipped because a row with that primary key
-  // already existed (INSERT OR IGNORE). For a restore into an empty DB this is
-  // zero; for a merge it flags records that did NOT land so the result isn't
-  // silently partial.
-  // Exercises are matched by name — skipping ones that already exist is normal
-  // and not data loss, so they don't count toward the warning. Workouts, sets,
-  // and bodyweights are keyed by their original ID, so a skip there means a
-  // record genuinely failed to land.
+  // Every workout/bodyweight is inserted fresh under the current profile, so
+  // the only thing that can be "skipped" is a set whose exercise couldn't be
+  // resolved by name or backup ID. Surfaced so a partial import isn't silent.
+  // NOTE: import always ADDS — re-importing the same backup duplicates rows.
   const totalSets = workouts.reduce((n, w) => n + (w.sets?.length || 0), 0);
   const skipped = {
-    workouts: Math.max(0, workouts.length - importedWorkouts),
+    workouts: 0,
     sets: Math.max(0, totalSets - importedSets),
-    bodyweights: Math.max(0, bodyweights.length - importedBw)
+    bodyweights: 0
   };
-  const skippedTotal = skipped.workouts + skipped.sets + skipped.bodyweights;
 
   res.json({
     imported_exercises: importedExercises,
@@ -133,8 +145,8 @@ router.post('/', (req, res) => {
     imported_sets: importedSets,
     imported_bodyweights: importedBw,
     skipped,
-    warning: skippedTotal > 0
-      ? `${skippedTotal} record(s) already existed (matched by ID) and were not imported. Safe when re-importing the same backup; if you expected a full restore, import into an empty database.`
+    warning: skipped.sets > 0
+      ? `${skipped.sets} set(s) were skipped because their exercise could not be matched. Import adds records — re-importing the same backup will create duplicates.`
       : null
   });
 });

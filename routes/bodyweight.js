@@ -5,8 +5,8 @@ const router = express.Router();
 
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, weight, weight_unit, logged_at, notes FROM bodyweights ORDER BY logged_at DESC')
-    .all();
+    .prepare('SELECT id, weight, weight_unit, logged_at, notes FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC')
+    .all(req.profileId);
   res.json(rows);
 });
 
@@ -22,12 +22,12 @@ router.post('/', (req, res) => {
   let info;
   if (logged_at) {
     info = db
-      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, logged_at) VALUES (?, ?, ?, ?)')
-      .run(Number(weight), weight_unit, notes, logged_at);
+      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, logged_at, profile_id) VALUES (?, ?, ?, ?, ?)')
+      .run(Number(weight), weight_unit, notes, logged_at, req.profileId);
   } else {
     info = db
-      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes) VALUES (?, ?, ?)')
-      .run(Number(weight), weight_unit, notes);
+      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, profile_id) VALUES (?, ?, ?, ?)')
+      .run(Number(weight), weight_unit, notes, req.profileId);
   }
   const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(Number(info.lastInsertRowid));
   res.status(201).json(row);
@@ -35,7 +35,7 @@ router.post('/', (req, res) => {
 
 router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM bodyweights WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'entry not found' });
 
   const fields = ['weight', 'weight_unit', 'notes', 'logged_at'];
@@ -56,7 +56,7 @@ router.patch('/:id', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const result = db.prepare('DELETE FROM bodyweights WHERE id = ?').run(id);
+  const result = db.prepare('DELETE FROM bodyweights WHERE id = ? AND profile_id = ?').run(id, req.profileId);
   if (result.changes === 0) return res.status(404).json({ error: 'entry not found' });
   res.json({ deleted: true });
 });

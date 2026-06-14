@@ -8,8 +8,8 @@ const CATEGORIES = ['idea', 'bug'];
 // List notes: open items first (newest first), completed ones at the bottom.
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, text, category, done, created_at FROM notes ORDER BY done ASC, created_at DESC')
-    .all();
+    .prepare('SELECT id, text, category, done, created_at FROM notes WHERE profile_id = ? ORDER BY done ASC, created_at DESC')
+    .all(req.profileId);
   res.json(rows);
 });
 
@@ -18,15 +18,15 @@ router.post('/', (req, res) => {
   if (!text || !String(text).trim()) return res.status(400).json({ error: 'text is required' });
   const cat = CATEGORIES.includes(category) ? category : 'idea';
   const info = db
-    .prepare('INSERT INTO notes (text, category) VALUES (?, ?)')
-    .run(String(text).trim(), cat);
+    .prepare('INSERT INTO notes (text, category, profile_id) VALUES (?, ?, ?)')
+    .run(String(text).trim(), cat, req.profileId);
   const row = db.prepare('SELECT id, text, category, done, created_at FROM notes WHERE id = ?').get(Number(info.lastInsertRowid));
   res.status(201).json(row);
 });
 
 router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM notes WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM notes WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'note not found' });
 
   const updates = [];
@@ -50,7 +50,7 @@ router.patch('/:id', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const result = db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  const result = db.prepare('DELETE FROM notes WHERE id = ? AND profile_id = ?').run(id, req.profileId);
   if (result.changes === 0) return res.status(404).json({ error: 'note not found' });
   res.json({ deleted: true });
 });

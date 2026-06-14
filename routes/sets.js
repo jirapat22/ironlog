@@ -8,7 +8,7 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
-function checkAndUpdatePR(exerciseId, weight, unit, reps) {
+function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
   const newKg = toKg(weight, unit);
   const newE1RM = newKg * (1 + reps / 30);
 
@@ -21,8 +21,8 @@ function checkAndUpdatePR(exerciseId, weight, unit, reps) {
   let beatPreviousBest = false;
   if (isBwUnloaded) {
     const row = db.prepare(
-      `SELECT MAX(reps) as max FROM personal_records WHERE exercise_id = ? AND weight = 0`
-    ).get(exerciseId);
+      `SELECT MAX(reps) as max FROM personal_records WHERE profile_id = ? AND exercise_id = ? AND weight = 0`
+    ).get(profileId, exerciseId);
     const prevMaxReps = row?.max || 0;
     beatPreviousBest = reps > prevMaxReps;
   } else {
@@ -30,8 +30,8 @@ function checkAndUpdatePR(exerciseId, weight, unit, reps) {
       `SELECT MAX(
          (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END)
          * (1.0 + reps / 30.0)
-       ) as best FROM personal_records WHERE exercise_id = ?`
-    ).get(exerciseId);
+       ) as best FROM personal_records WHERE profile_id = ? AND exercise_id = ?`
+    ).get(profileId, exerciseId);
     const prevBestE1RM = row?.best || 0;
     // 0.1% threshold to avoid float-noise PRs from tiny rounding
     beatPreviousBest = newE1RM > prevBestE1RM * 1.001;
@@ -40,13 +40,13 @@ function checkAndUpdatePR(exerciseId, weight, unit, reps) {
   // Always keep the per-rep-count cache up to date — used by the PR list and
   // by recomputePrsForExercise after edits/deletes.
   const existing = db
-    .prepare('SELECT * FROM personal_records WHERE exercise_id = ? AND reps = ?')
-    .get(exerciseId, reps);
+    .prepare('SELECT * FROM personal_records WHERE profile_id = ? AND exercise_id = ? AND reps = ?')
+    .get(profileId, exerciseId, reps);
   if (!existing) {
     db.prepare(
-      `INSERT INTO personal_records (exercise_id, weight, weight_unit, reps, achieved_at)
-       VALUES (?, ?, ?, ?, datetime('now'))`
-    ).run(exerciseId, weight, unit, reps);
+      `INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+    ).run(profileId, exerciseId, weight, unit, reps);
   } else {
     const existingKg = toKg(existing.weight, existing.weight_unit);
     if (newKg > existingKg) {
@@ -98,22 +98,28 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'rpe and rir must be numbers when provided' });
   }
 
+  // The set must attach to a workout owned by the current profile.
+  const workout = db
+    .prepare('SELECT id FROM workouts WHERE id = ? AND profile_id = ?')
+    .get(workout_id, req.profileId);
+  if (!workout) return res.status(404).json({ error: 'workout not found' });
+
   const info = db
     .prepare(
-      `INSERT INTO sets (workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, nRpe, nRir, notes, is_warmup ? 1 : 0);
+    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, nRpe, nRir, notes, is_warmup ? 1 : 0);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
-  const isNewPR = is_warmup ? false : checkAndUpdatePR(exercise_id, nWeight, weight_unit, nReps);
+  const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps);
   const row = db.prepare('SELECT * FROM sets WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ ...row, is_new_pr: isNewPR });
 });
 
 router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM sets WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM sets WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'set not found' });
 
   if (req.body && 'weight_unit' in req.body && !['kg', 'lbs'].includes(req.body.weight_unit)) {
@@ -151,16 +157,16 @@ router.patch('/:id', (req, res) => {
   // A PATCH may lower weight or reps, so a fresh recompute is the only way
   // to keep PRs honest. Covers the rare case where the edited set used to
   // be the PR for some rep count.
-  recomputePrsForExercise(row.exercise_id);
+  recomputePrsForExercise(req.profileId, row.exercise_id);
   res.json(row);
 });
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare('SELECT exercise_id FROM sets WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT exercise_id FROM sets WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'set not found' });
   db.prepare('DELETE FROM sets WHERE id = ?').run(id);
-  recomputePrsForExercise(existing.exercise_id);
+  recomputePrsForExercise(req.profileId, existing.exercise_id);
   res.json({ deleted: true });
 });
 

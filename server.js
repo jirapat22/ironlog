@@ -14,8 +14,10 @@ const settingsRouter = require('./routes/settings');
 const exportRouter = require('./routes/export');
 const importRouter = require('./routes/import');
 const platedRouter = require('./routes/plated');
+const orbitRouter = require('./routes/orbit');
 const notesRouter = require('./routes/notes');
-const { basicAuth } = require('./auth');
+const authRouter = require('./routes/auth');
+const { requireProfile } = require('./auth');
 const nudge = require('./nudge');
 
 init();
@@ -30,8 +32,9 @@ nudge.start();
 console.log('Nudge cron started');
 
 const app = express();
-// 50mb covers years of workout history in a single import. Server is
-// single-tenant so payload-flood DoS isn't a real concern here.
+// 50mb covers years of workout history in a single import. This is a small
+// private multi-user app (a handful of trusted profiles), so payload-flood DoS
+// isn't a real concern here.
 app.use(express.json({ limit: '50mb' }));
 
 // Security headers. CSP locks scripts to same-origin (Chart.js is vendored
@@ -63,17 +66,29 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-// Plated integration is machine-to-machine — mounted BEFORE the Basic Auth
-// gate so it can use its own API-key check instead of browser credentials.
+// Auth endpoints (login / profile creation / status) must be reachable
+// WITHOUT a session, so they are mounted before the requireProfile gate. The
+// /me, /logout, /passcode routes guard themselves with requireProfile.
+app.use('/api/auth', authRouter);
+
+// Plated integration is machine-to-machine — mounted BEFORE the session gate
+// so it can authenticate by per-profile API key instead of a browser session.
 app.use('/api/plated', platedRouter);
 
-// Everything below this line requires Basic Auth when APP_PASSWORD is set.
-app.use(basicAuth);
+// Orbit admin feed — read-only cross-profile dashboard. Has its own optional
+// API-key gate (ORBIT_API_KEY), so it is mounted before the session gate too.
+app.use('/api/orbit', orbitRouter);
+
+// Everything below this line requires a valid per-profile session. The gate is
+// scoped to /api so the static app shell + lock screen still load unauthenticated
+// (the cookie-based login can't render otherwise). It sets req.profileId for all
+// downstream API routes.
+app.use('/api', requireProfile);
 
 app.get('/api/orbit-summary', (req, res) => {
   const workout = db.prepare(
-    `SELECT id, finished_at FROM workouts WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1`
-  ).get();
+    `SELECT id, finished_at FROM workouts WHERE profile_id = ? AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1`
+  ).get(req.profileId);
 
   if (!workout) {
     return res.json({

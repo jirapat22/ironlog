@@ -20,18 +20,22 @@
     <div id="pin-lock" class="pin-lock hidden">
       <div class="pin-lock__inner">
         <div class="pin-lock__title">IronLog</div>
-        <div class="pin-lock__subtitle" id="pin-subtitle">Enter PIN</div>
+        <div class="pin-lock__subtitle" id="pin-subtitle">Enter your passcode</div>
         <div class="pin-lock__dots" id="pin-dots">
           <span></span><span></span><span></span><span></span>
         </div>
         <div class="pin-lock__keypad" id="pin-keypad"></div>
+        <div class="pin-lock__create hidden" id="pin-create"></div>
       </div>
     </div>
 
     <main id="app" class="app">
       <header class="app__header" id="app-header">
         <div class="app__header-top">
-          <div class="app__title" id="app-title">IronLog</div>
+          <div class="app__title-wrap">
+            <div class="app__title" id="app-title">IronLog</div>
+            <span class="profile-pill hidden" id="profile-pill"></span>
+          </div>
           <button id="settings-btn" class="app__settings" aria-label="Settings">&#x2699;</button>
         </div>
         <div class="app__subtitle" id="app-subtitle"></div>

@@ -67,7 +67,7 @@ async function renderProgress() {
     </div>
     <div class="progress-section" id="ps-muscle-freq">
       <div class="progress-section__head">
-        <div class="progress-section__title" style="margin:0">Muscle Frequency</div>
+        <div class="progress-section__title" style="margin:0">Muscle Detail</div>
         <button class="ps-toggle" data-ps-toggle="ps-muscle-freq">▾</button>
       </div>
       <div class="ps-body">
@@ -161,41 +161,75 @@ function localDateStr(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Group order + the sub-muscles we expect under each, so untrained regions show
+// up (not just ones that already have logged sets).
+const SUB_MUSCLE_MAP = {
+  chest: ['upper chest', 'mid chest', 'lower chest'],
+  back: ['lats', 'upper back', 'lower back', 'traps'],
+  shoulders: ['front delt', 'side delt', 'rear delt'],
+  biceps: ['biceps', 'brachialis'],
+  triceps: ['triceps'],
+  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
+  core: ['abs', 'obliques'],
+  arms: ['forearms']
+};
+
+function freqColor(days) {
+  if (days == null) return '#8a8a8a';
+  return days >= 7 ? '#ff8a8a' : days >= 4 ? '#ffb347' : days >= 2 ? '#9effa8' : 'var(--accent)';
+}
+
 async function renderMuscleFrequency() {
   const root = $('#muscle-frequency');
   if (!root) return;
-  root.innerHTML = `<div class="skeleton" style="height:80px"></div>`;
+  root.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
   try {
-    const rows = await API.muscleFrequency();
-    if (!rows.length) { root.innerHTML = `<div class="bw-current__empty">No workouts logged yet.</div>`; return; }
-
+    const rows = await API.subMuscleFrequency();
     const now = Date.now();
-    const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
-    const byGroup = new Map(rows.map((r) => [r.muscle_group, r]));
+    const daysSince = (iso) => iso == null ? null : Math.floor((now - new Date(iso.replace(' ', 'T') + 'Z').getTime()) / 86400000);
 
-    // All known groups — add any never-trained ones at the end
-    const allGroups = [...new Set([...GROUPS, ...rows.map((r) => r.muscle_group)])];
+    // Index logged rows by group → sub-muscle
+    const byKey = new Map();
+    for (const r of rows) byKey.set(`${r.muscle_group}|${r.sub_muscle}`, r);
 
-    root.innerHTML = allGroups.map((g) => {
-      const row = byGroup.get(g);
-      let label, color;
-      if (!row) {
-        label = 'Never'; color = '#8a8a8a';
-      } else {
-        const ms = new Date(row.last_trained_at.replace(' ', 'T') + 'Z').getTime();
-        const days = Math.floor((now - ms) / 86400000);
-        label = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
-        color = days >= 7 ? '#ff8a8a' : days >= 4 ? '#ffb347' : days >= 2 ? '#9effa8' : 'var(--accent)';
-      }
+    const GROUPS = Object.keys(SUB_MUSCLE_MAP);
+    // Include any group/sub-muscle that appears in data but isn't in the static map
+    for (const r of rows) {
+      if (!SUB_MUSCLE_MAP[r.muscle_group]) SUB_MUSCLE_MAP[r.muscle_group] = [];
+      if (!SUB_MUSCLE_MAP[r.muscle_group].includes(r.sub_muscle)) SUB_MUSCLE_MAP[r.muscle_group].push(r.sub_muscle);
+    }
+    const groupOrder = [...new Set([...GROUPS, ...rows.map((r) => r.muscle_group)])];
+
+    // "Train next": sub-muscles never trained or 7+ days stale.
+    const stale = [];
+
+    const html = groupOrder.map((g) => {
+      const subs = SUB_MUSCLE_MAP[g] || [];
+      const subRows = subs.map((sub) => {
+        const row = byKey.get(`${g}|${sub}`);
+        const days = row ? daysSince(row.last_trained_at) : null;
+        if (days == null || days >= 7) stale.push(sub);
+        const label = days == null ? 'Never' : days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
+        const color = freqColor(days);
+        return `
+          <div class="mfreq-row mfreq-row--sub">
+            <span class="mfreq-sub-name">${escapeHtml(sub)}</span>
+            <div class="mfreq-bar-wrap"><div class="mfreq-bar" style="background:${color}"></div></div>
+            <span class="mfreq-label" style="color:${color}">${label}</span>
+          </div>`;
+      }).join('');
       return `
-        <div class="mfreq-row">
+        <div class="mfreq-group">
           <span class="badge badge--group badge--g-${g}">${g}</span>
-          <div class="mfreq-bar-wrap">
-            <div class="mfreq-bar" style="background:${color}"></div>
-          </div>
-          <span class="mfreq-label" style="color:${color}">${label}</span>
+          <div class="mfreq-group__subs">${subRows}</div>
         </div>`;
     }).join('');
+
+    const hint = stale.length
+      ? `<div class="mfreq-hint">Train next: ${stale.slice(0, 5).map((s) => escapeHtml(s)).join(', ')}${stale.length > 5 ? '…' : ''}</div>`
+      : '';
+
+    root.innerHTML = (rows.length ? '' : `<div class="bw-current__empty" style="margin-bottom:8px">No workouts logged yet — defaults shown.</div>`) + hint + html;
   } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
 }
 
@@ -592,7 +626,11 @@ function renderBwChart(rows) {
 function openBodyweightSheet() {
   const sheet = ensureSheet('bw-sheet');
   const today = new Date();
-  const iso = today.toISOString().slice(0, 16);
+  // Prefill with the device's LOCAL date/time, not UTC. toISOString() would
+  // shift by the timezone offset (e.g. UTC+7 prefills 7h behind), so the picker
+  // would show the wrong "now". datetime-local expects a local wall-clock string.
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}T${pad(today.getHours())}:${pad(today.getMinutes())}`;
   sheet.innerHTML = `
     <div class="sheet__inner">
       <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">Log body weight</div><span style="width:40px"></span></div>

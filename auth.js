@@ -1,50 +1,84 @@
-const crypto = require('crypto');
+'use strict';
 
-// Constant-time comparison that tolerates differing lengths by hashing first.
-// (crypto.timingSafeEqual throws on length mismatch and would otherwise leak
-// length through an early return.)
-function safeEqual(a, b) {
-  const ha = crypto.createHash('sha256').update(String(a)).digest();
-  const hb = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(ha, hb);
-}
+const accounts = require('./accounts');
 
-// HTTP Basic Auth gate for the human-facing app + API. The browser handles the
-// credential prompt natively, so no login UI is needed and same-origin PWA
-// fetches carry the header automatically. Enabled only when APP_PASSWORD is
-// set, so local dev stays frictionless and existing deploys can opt in.
-function basicAuth(req, res, next) {
-  const password = process.env.APP_PASSWORD;
-  if (!password) return next(); // auth disabled
-  const user = process.env.APP_USER || 'admin';
+const SESSION_COOKIE = 'il_session';
 
-  const [scheme, encoded] = (req.headers.authorization || '').split(' ');
-  if (scheme === 'Basic' && encoded) {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
-    const idx = decoded.indexOf(':');
-    const u = decoded.slice(0, idx);
-    const p = decoded.slice(idx + 1);
-    // Evaluate both halves before returning so timing doesn't reveal which failed.
-    const ok = safeEqual(u, user) & safeEqual(p, password);
-    if (ok) return next();
+// Minimal cookie parser — avoids pulling in cookie-parser for one cookie.
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (k) out[k] = decodeURIComponent(v);
   }
-  res.set('WWW-Authenticate', 'Basic realm="IronLog", charset="UTF-8"');
-  return res.status(401).json({ error: 'Authentication required' });
+  return out;
 }
 
-// Machine-to-machine key check for the Plated integration. Accepts either an
-// `Authorization: Bearer <key>` or `X-API-Key` header. Enabled only when
-// PLATED_API_KEY is set. Must run AFTER the CORS/OPTIONS handler so preflight
-// requests are never rejected.
+function setSessionCookie(res, token) {
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${accounts.SESSION_MAX_AGE_DAYS * 24 * 60 * 60}`
+  ];
+  if (process.env.NODE_ENV === 'production') parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearSessionCookie(res) {
+  const parts = [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+  if (process.env.NODE_ENV === 'production') parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function getSessionToken(req) {
+  return parseCookies(req)[SESSION_COOKIE] || null;
+}
+
+// Gate for the human-facing app + API. Validates the session cookie and sets
+// req.profileId / req.profile. Replaces the old HTTP Basic Auth gate.
+function requireProfile(req, res, next) {
+  const token = getSessionToken(req);
+  const profile = token ? accounts.getProfileBySession(token) : null;
+  if (!profile) {
+    return res.status(401).json({ error: 'authentication required' });
+  }
+  req.profileId = profile.id;
+  req.profile = profile;
+  next();
+}
+
+// Machine-to-machine key check for the Plated integration and any other
+// API-key caller. Reads `X-API-Key` (preferred) or `Authorization: Bearer`,
+// resolves it to a profile, and sets req.profileId. Never reads the query
+// string. Missing/unknown key -> 401 with the exact Plated error contract.
 function platedAuth(req, res, next) {
-  const key = process.env.PLATED_API_KEY;
-  if (!key) return next(); // not configured → no key required (back-compat)
-  const provided =
-    (req.headers.authorization || '').replace(/^Bearer\s+/i, '') ||
+  const provided = (
     req.headers['x-api-key'] ||
-    '';
-  if (provided && safeEqual(provided, key)) return next();
-  return res.status(401).json({ success: false, error: 'invalid or missing API key' });
+    (req.headers.authorization || '').replace(/^Bearer\s+/i, '') ||
+    ''
+  ).trim();
+  const profile = provided ? accounts.findProfileByApiKey(provided) : null;
+  if (!profile) {
+    return res.status(401).json({ success: false, error: 'invalid or missing API key' });
+  }
+  req.profileId = profile.id;
+  req.profile = profile;
+  next();
 }
 
-module.exports = { basicAuth, platedAuth, safeEqual };
+module.exports = {
+  SESSION_COOKIE,
+  parseCookies,
+  setSessionCookie,
+  clearSessionCookie,
+  getSessionToken,
+  requireProfile,
+  platedAuth
+};
