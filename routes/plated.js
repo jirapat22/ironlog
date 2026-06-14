@@ -14,14 +14,16 @@
  *      Recent bodyweight log entries normalised to kg so Plated can overlay
  *      body-composition trends on top of nutrition data.
  *
- *  GET /api/plated/workouts/calories?date=YYYY-MM-DD
- *      Estimated calories burned from strength sessions on a given date.
+ *  GET /api/plated/workouts/calories?date=YYYY-MM-DD&tz=<minutes>
+ *      Estimated calories burned from strength sessions on a given LOCAL date.
  *      Uses the explicit calories_burned column when set, otherwise estimates
- *      at 5 kcal/min (conservative for resistance training).
+ *      at 4 kcal/min (conservative for resistance training). `tz` is
+ *      Date.getTimezoneOffset() minutes (e.g. NZ at UTC+12 sends -720);
+ *      missing/invalid tz defaults to UTC.
  *
- *  GET /api/plated/workouts/recent?limit=7
- *      Last N distinct workout days — useful for Plated to bump the calorie
- *      target on training days automatically.
+ *  GET /api/plated/workouts/recent?limit=7&tz=<minutes>
+ *      Last N distinct LOCAL workout days — useful for Plated to bump the
+ *      calorie target on training days automatically. Same `tz` convention.
  *
  * All responses: { success: true, data: {...} } | { success: false, error: "..." }
  * CORS is fully open (*) — Plated handles its own auth.
@@ -107,6 +109,35 @@ function computeMacros(goalKcal, weightKg, goal) {
 // the per-exercise model. Finished workouts normally carry a precomputed
 // calories_burned, so this is only a backstop.
 const KCAL_PER_MIN = 4;
+
+// ---------------------------------------------------------------------------
+// Timezone helpers — workouts are stored with started_at in UTC, but Plated
+// wants calories bucketed by the user's LOCAL calendar day (otherwise a
+// morning session in NZ, UTC+12, files under the previous UTC day).
+//
+// `tz` follows JS's Date.getTimezoneOffset() convention: minutes UTC is AHEAD
+// of local (NZ at UTC+12 sends tz = -720). So localMs = utcMs - tz * 60000.
+// Missing/invalid tz defaults to 0 (UTC), matching the old behaviour.
+// ---------------------------------------------------------------------------
+function getTzOffsetMinutes(req) {
+  const tz = Number(req.query.tz);
+  if (!Number.isFinite(tz)) return 0;
+  return Math.max(-840, Math.min(840, Math.trunc(tz)));
+}
+
+// SQLite `date(started_at, modifier)` modifier that converts a UTC timestamp
+// to the user's local calendar date. shift = -tz minutes (NZ tz=-720 -> +720).
+function localDateModifier(tzOffsetMin) {
+  const shift = -tzOffsetMin;
+  return `${shift >= 0 ? '+' : ''}${shift} minutes`;
+}
+
+// Format a UTC epoch as the local YYYY-MM-DD for the given tz offset.
+function localDateStr(utcMs, tzOffsetMin) {
+  const d = new Date(utcMs - tzOffsetMin * 60000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+}
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -277,12 +308,16 @@ router.post('/bodyweight', (req, res) => {
 });
 
 /**
- * GET /api/plated/workouts/calories?date=YYYY-MM-DD
- * Calories burned from strength sessions on a given date (defaults to today).
+ * GET /api/plated/workouts/calories?date=YYYY-MM-DD&tz=<minutes>
+ * Calories burned from strength sessions on a given LOCAL date (defaults to
+ * today in the caller's timezone). `tz` is Date.getTimezoneOffset() minutes;
+ * missing/invalid tz defaults to UTC.
  */
 router.get('/workouts/calories', (req, res) => {
   try {
-    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const tz = getTzOffsetMinutes(req);
+    const mod = localDateModifier(tz);
+    const date = req.query.date || localDateStr(Date.now(), tz);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ success: false, error: 'date must be YYYY-MM-DD' });
     }
@@ -305,10 +340,10 @@ router.get('/workouts/calories', (req, res) => {
          FROM workouts w
          LEFT JOIN program_days pd ON pd.id = w.program_day_id
          WHERE w.profile_id = ?
-           AND date(w.started_at) = ?
+           AND date(w.started_at, ?) = ?
            AND w.finished_at IS NOT NULL`
       )
-      .all(req.profileId, date);
+      .all(req.profileId, mod, date);
 
     const sessions = rows.map((w) => {
       const burned =
@@ -341,18 +376,22 @@ router.get('/workouts/calories', (req, res) => {
 });
 
 /**
- * GET /api/plated/workouts/recent?limit=7
- * Recent distinct workout days with session counts and estimated calories burned.
+ * GET /api/plated/workouts/recent?limit=7&tz=<minutes>
+ * Recent distinct workout days (in the caller's LOCAL timezone) with session
+ * counts and estimated calories burned. `tz` is Date.getTimezoneOffset()
+ * minutes; missing/invalid tz defaults to UTC.
  */
 router.get('/workouts/recent', (req, res) => {
   try {
+    const tz = getTzOffsetMinutes(req);
+    const mod = localDateModifier(tz);
     const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 7));
 
     const rows = db
       .prepare(
         `SELECT
-           date(started_at) AS date,
-           COUNT(*)         AS session_count,
+           date(started_at, ?) AS date,
+           COUNT(*)            AS session_count,
            SUM(
              COALESCE(
                calories_burned,
@@ -368,11 +407,11 @@ router.get('/workouts/recent', (req, res) => {
          FROM workouts
          WHERE profile_id = ?
            AND finished_at IS NOT NULL
-         GROUP BY date(started_at)
-         ORDER BY date(started_at) DESC
+         GROUP BY date(started_at, ?)
+         ORDER BY date(started_at, ?) DESC
          LIMIT ?`
       )
-      .all(KCAL_PER_MIN, req.profileId, limit);
+      .all(mod, KCAL_PER_MIN, req.profileId, mod, mod, limit);
 
     res.json({
       success: true,

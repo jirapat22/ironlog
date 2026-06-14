@@ -70,6 +70,7 @@ curl -X POST https://<your-app>.up.railway.app/api/exercises \
 
 - `GET /api/plated/profile` · `GET /api/plated/bodyweight` · `GET /api/plated/workouts/calories` · `GET /api/plated/workouts/recent` · `GET /api/plated/whoami`
 - `POST /api/plated/bodyweight {weight_kg, date?}` — two-way sync: Plated can push body weight into IronLog. Re-syncing the same day updates that day's Plated-sourced entry (idempotent); manual weigh-ins are always kept alongside
+- `GET /api/plated/workouts/calories` and `GET /api/plated/workouts/recent` accept an optional `tz=<minutes>` param (JS `Date.getTimezoneOffset()` convention, e.g. NZ at UTC+12 sends `tz=-720`) so workouts are bucketed by the caller's LOCAL calendar day instead of UTC. Missing/invalid `tz` defaults to UTC, unchanged for existing callers.
 
 ## Health check
 
