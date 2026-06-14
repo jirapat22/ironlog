@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet } from './utils.js';
+import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES } from './utils.js';
 import { API } from './api.js';
 
 const chartInstances = {};
@@ -162,17 +162,10 @@ function localDateStr(d) {
 }
 
 // Group order + the sub-muscles we expect under each, so untrained regions show
-// up (not just ones that already have logged sets).
-const SUB_MUSCLE_MAP = {
-  chest: ['upper chest', 'mid chest', 'lower chest'],
-  back: ['lats', 'upper back', 'lower back', 'traps'],
-  shoulders: ['front delt', 'side delt', 'rear delt'],
-  biceps: ['biceps', 'brachialis'],
-  triceps: ['triceps'],
-  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
-  core: ['abs', 'obliques'],
-  arms: ['forearms']
-};
+// up (not just ones that already have logged sets). Cloned from the canonical
+// SUB_MUSCLES (utils.js) because we augment it at runtime with any sub-muscle
+// found in the data that isn't in the static list.
+const SUB_MUSCLE_MAP = JSON.parse(JSON.stringify(SUB_MUSCLES));
 
 function freqColor(days) {
   if (days == null) return '#8a8a8a';

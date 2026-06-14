@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -478,8 +478,12 @@ function openNewExerciseForm(picker) {
           <option value="chest">chest</option><option value="back">back</option>
           <option value="shoulders">shoulders</option><option value="biceps">biceps</option>
           <option value="triceps">triceps</option><option value="legs">legs</option>
-          <option value="core">core</option>
+          <option value="arms">arms</option><option value="core">core</option>
         </select>
+        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
+        <select class="input" id="new-ex-sub">${subMuscleOptions('chest', '')}</select>
+        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
+        <div class="sub2-list" id="new-ex-sub2"></div>
         <label class="form-label" style="margin-top:14px">Equipment</label>
         <select class="input" id="new-ex-equipment">
           <option value="barbell">Barbell</option>
@@ -496,14 +500,25 @@ function openNewExerciseForm(picker) {
   `;
 
   picker.querySelector('[data-back-picker]').onclick = () => openPicker();
+  const subSel = picker.querySelector('#new-ex-sub');
+  const sub2 = createSecondaryPicker(picker.querySelector('#new-ex-sub2'), () => subSel.value, []);
+  // Repopulate the sub-muscle dropdown whenever the muscle group changes, then
+  // refresh the "also works" list to exclude the new primary.
+  picker.querySelector('#new-ex-muscle').onchange = (e) => {
+    subSel.innerHTML = subMuscleOptions(e.target.value, '');
+    sub2.render();
+  };
+  subSel.onchange = () => sub2.render();
   picker.querySelector('#new-ex-save').onclick = async () => {
     const name = picker.querySelector('#new-ex-name').value.trim();
     const muscle = picker.querySelector('#new-ex-muscle').value;
+    const sub_muscle = subSel.value || null;
+    const secondary_muscles = sub2.getSelected();
     const equipment = picker.querySelector('#new-ex-equipment').value;
     const notes = picker.querySelector('#new-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, equipment, notes });
+      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, notes });
       editDayState.allExercises.push(ex);
       const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
         exercise_id: ex.id, target_sets: 3, target_reps: 10
@@ -532,6 +547,10 @@ function openEditExerciseForm(picker, ex, allExercises) {
         <select class="input" id="edit-ex-muscle">
           ${GROUPS.map((g) => `<option value="${g}" ${ex.muscle_group === g ? 'selected' : ''}>${g}</option>`).join('')}
         </select>
+        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
+        <select class="input" id="edit-ex-sub">${subMuscleOptions(ex.muscle_group, ex.sub_muscle)}</select>
+        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
+        <div class="sub2-list" id="edit-ex-sub2"></div>
         <label class="form-label" style="margin-top:14px">Equipment</label>
         <select class="input" id="edit-ex-equipment">
           ${EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${e}</option>`).join('')}
@@ -544,15 +563,27 @@ function openEditExerciseForm(picker, ex, allExercises) {
     </div>`;
 
   picker.querySelector('[data-back-picker]').onclick = () => openPicker();
+  const subSel = picker.querySelector('#edit-ex-sub');
+  const sub2 = createSecondaryPicker(picker.querySelector('#edit-ex-sub2'), () => subSel.value, ex.secondary_muscles || []);
+  // When the group changes, reset the sub-muscle dropdown to that group's
+  // regions, then refresh the "also works" list to exclude the new primary.
+  picker.querySelector('#edit-ex-muscle').onchange = (e) => {
+    const keep = e.target.value === ex.muscle_group ? ex.sub_muscle : '';
+    subSel.innerHTML = subMuscleOptions(e.target.value, keep);
+    sub2.render();
+  };
+  subSel.onchange = () => sub2.render();
 
   picker.querySelector('#edit-ex-save').onclick = async () => {
     const name = picker.querySelector('#edit-ex-name').value.trim();
     const muscle = picker.querySelector('#edit-ex-muscle').value;
+    const sub_muscle = subSel.value || null;
+    const secondary_muscles = sub2.getSelected();
     const equipment = picker.querySelector('#edit-ex-equipment').value;
     const notes = picker.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const updated = await API.updateExercise(ex.id, { name, muscle_group: muscle, equipment, notes });
+      const updated = await API.updateExercise(ex.id, { name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, notes });
       Object.assign(ex, updated);
       editDayState.allExercises = editDayState.allExercises.map((x) => x.id === ex.id ? updated : x);
       for (const pde of editDayState.day.exercises) {

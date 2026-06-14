@@ -264,6 +264,11 @@ function migrateMultiUser() {
   if (!columnExists('exercises', 'sub_muscle')) {
     db.exec('ALTER TABLE exercises ADD COLUMN sub_muscle TEXT');
   }
+  // secondary_muscles: JSON array of regions a (compound) exercise *also* works.
+  // Drives recency only ("last trained" / Train next), never volume.
+  if (!columnExists('exercises', 'secondary_muscles')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN secondary_muscles TEXT');
+  }
 
   // 2. app_settings: primary key must become (profile_id, key). Rebuild.
   if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
@@ -578,6 +583,7 @@ function seed() {
   for (const sql of equipmentMigrations) db.exec(sql);
 
   populateMuscleAndMet();
+  populateSecondaryMuscles();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
   // NOTE: programs are no longer seeded globally here — each profile gets its
@@ -676,6 +682,88 @@ function populateMuscleAndMet() {
     for (const name of MET_ISO) setMet.run(3.7, name);
     // Core work is low-load; set by group for anything still at the default.
     db.prepare("UPDATE exercises SET met = 3.3 WHERE muscle_group = 'core' AND met = 5").run();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Canonical region -> muscle-group lookup. Region names are unique across the
+// taxonomy, so a secondary tag only needs the region name; the group is derived.
+// Mirrors SUB_MUSCLES in public/utils.js (frontend) — keep the two in sync.
+// ---------------------------------------------------------------------------
+const GROUP_SUB_MUSCLES = {
+  chest: ['upper chest', 'mid chest', 'lower chest'],
+  back: ['lats', 'upper back', 'lower back', 'traps'],
+  shoulders: ['front delt', 'side delt', 'rear delt'],
+  biceps: ['biceps', 'brachialis'],
+  triceps: ['triceps'],
+  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
+  core: ['abs', 'obliques'],
+  arms: ['forearms']
+};
+const REGION_TO_GROUP = {};
+for (const [g, subs] of Object.entries(GROUP_SUB_MUSCLES)) {
+  for (const s of subs) REGION_TO_GROUP[s] = g;
+}
+
+// Secondary muscles for the seeded compound lifts. Primary stays in
+// SUB_MUSCLE_BY_NAME (it gets the volume); these only feed recency. Applied
+// once (meta-flag guarded) so user edits are never clobbered.
+const SECONDARY_BY_NAME = {
+  // Chest presses -> front delt + triceps
+  'Bench Press': ['front delt', 'triceps'], 'Incline Bench Press': ['front delt', 'triceps'],
+  'Decline Bench Press': ['front delt', 'triceps'], 'Incline Dumbbell Press': ['front delt', 'triceps'],
+  'Flat Dumbbell Press': ['front delt', 'triceps'], 'Machine Chest Press': ['front delt', 'triceps'],
+  'Chest Dip': ['front delt', 'triceps'], 'Assisted Dip': ['front delt', 'triceps'],
+  'Push-Up': ['front delt', 'triceps'], 'Close-Grip Bench Press': ['mid chest', 'front delt'],
+  'Diamond Push-Up': ['mid chest', 'front delt'], 'Tricep Dip': ['lower chest', 'front delt'],
+  // Back pulls
+  'Deadlift': ['glutes', 'hamstrings', 'traps', 'upper back'],
+  'Sumo Deadlift': ['glutes', 'hamstrings', 'quads', 'traps'],
+  'Rack Pull': ['lower back', 'glutes', 'lats'],
+  'Pull-Up': ['biceps', 'upper back', 'rear delt'], 'Chin-Up': ['biceps', 'upper back'],
+  'Assisted Pull-Up': ['biceps', 'upper back'], 'Assisted Chin-Up': ['lats', 'upper back'],
+  'Lat Pulldown': ['biceps', 'upper back'], 'Wide-Grip Lat Pulldown': ['biceps', 'upper back'],
+  'Close-Grip Lat Pulldown': ['biceps', 'upper back'],
+  'Barbell Row': ['lats', 'biceps', 'rear delt'], 'Pendlay Row': ['lats', 'biceps', 'rear delt'],
+  'T-Bar Row': ['lats', 'biceps', 'rear delt'], 'Seated Cable Row': ['lats', 'biceps', 'rear delt'],
+  'Chest-Supported Row': ['lats', 'biceps', 'rear delt'], 'One-Arm Dumbbell Row': ['upper back', 'biceps'],
+  'Machine Row': ['lats', 'biceps'], 'Landmine Row': ['upper back', 'biceps'], 'Seal Row': ['lats', 'biceps'],
+  'Good Morning': ['hamstrings', 'glutes'], 'Hyperextension': ['glutes', 'hamstrings'],
+  'Face Pull': ['rear delt'],
+  // Shoulder presses -> side delt + triceps
+  'Overhead Press': ['side delt', 'triceps'], 'Seated Dumbbell Press': ['side delt', 'triceps'],
+  'Arnold Press': ['side delt', 'triceps'], 'Machine Shoulder Press': ['side delt', 'triceps'],
+  'Landmine Press': ['side delt', 'triceps', 'upper chest'], 'Upright Row': ['traps', 'front delt'],
+  'Y-T-W Raise': ['upper back'],
+  // Legs
+  'Back Squat': ['glutes', 'hamstrings', 'lower back'], 'Front Squat': ['glutes', 'upper back'],
+  'Box Squat': ['glutes', 'hamstrings'], 'Pause Squat': ['glutes', 'hamstrings'],
+  'Smith Machine Squat': ['glutes', 'hamstrings'], 'Goblet Squat': ['glutes'], 'Hack Squat': ['glutes'],
+  'Leg Press': ['glutes', 'hamstrings'], 'Single-Leg Press': ['glutes', 'hamstrings'],
+  'Romanian Deadlift': ['glutes', 'lower back'], 'Stiff-Leg Deadlift': ['glutes', 'lower back'],
+  'Bulgarian Split Squat': ['glutes', 'hamstrings'], 'Walking Lunge': ['glutes', 'hamstrings'],
+  'Reverse Lunge': ['quads', 'hamstrings'], 'Step-Up': ['glutes', 'hamstrings'],
+  'Hip Thrust': ['hamstrings'], 'Cable Pullthrough': ['hamstrings'],
+  'Kettlebell Swing': ['hamstrings', 'lower back'], 'Nordic Hamstring Curl': ['glutes'],
+  // Core / carries
+  'Hanging Leg Raise': ['obliques'], 'Toes to Bar': ['obliques'], 'Ab Wheel Rollout': ['obliques'],
+  'Mountain Climber': ['obliques'], 'Farmer Carry': ['traps']
+};
+
+// Apply the seed secondaries once. Idempotent via meta flag + the IS NULL guard
+// so re-deploys and later user edits are preserved.
+function populateSecondaryMuscles() {
+  const FLAG = 'seed_secondary_v1';
+  if (getMeta(FLAG)) return;
+  const upd = db.prepare(
+    'UPDATE exercises SET secondary_muscles = ? WHERE name = ? AND secondary_muscles IS NULL'
+  );
+  tx(() => {
+    for (const [name, regions] of Object.entries(SECONDARY_BY_NAME)) {
+      const clean = regions.filter((r) => REGION_TO_GROUP[r]);
+      if (clean.length) upd.run(JSON.stringify(clean), name);
+    }
+    setMeta(FLAG, '1');
   });
 }
 
@@ -952,4 +1040,4 @@ function seedDefaultPrograms(profileId) {
   }
 }
 
-module.exports = { db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms };
+module.exports = { db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP };

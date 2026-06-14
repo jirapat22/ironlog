@@ -1,13 +1,35 @@
 const express = require('express');
-const { db } = require('../db');
+const { db, REGION_TO_GROUP } = require('../db');
 
 const router = express.Router();
 
+const SELECT_COLS =
+  'id, name, muscle_group, sub_muscle, secondary_muscles, notes, is_bodyweight, is_assisted, equipment';
+
+// Parse the stored JSON secondary_muscles into an array for the API response.
+function shapeExercise(row) {
+  if (!row) return row;
+  let secondary = [];
+  if (row.secondary_muscles) {
+    try { secondary = JSON.parse(row.secondary_muscles); } catch { secondary = []; }
+  }
+  return { ...row, secondary_muscles: Array.isArray(secondary) ? secondary : [] };
+}
+
+// Validate/clean a secondary_muscles array: keep known regions, drop the
+// primary and duplicates. Returns a JSON string to store, or null if empty.
+function cleanSecondary(input, primarySub) {
+  if (!Array.isArray(input)) return null;
+  const out = [...new Set(input.map((r) => String(r).trim()))]
+    .filter((r) => REGION_TO_GROUP[r] && r !== primarySub);
+  return out.length ? JSON.stringify(out) : null;
+}
+
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, name, muscle_group, sub_muscle, notes, is_bodyweight, is_assisted, equipment FROM exercises ORDER BY muscle_group, name')
+    .prepare(`SELECT ${SELECT_COLS} FROM exercises ORDER BY muscle_group, name`)
     .all();
-  res.json(rows);
+  res.json(rows.map(shapeExercise));
 });
 
 // Usage stats — how many finished workouts each exercise appears in + last used
@@ -30,10 +52,23 @@ router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'exercise not found' });
-  const fields = ['name', 'muscle_group', 'notes', 'equipment'];
+  const fields = ['name', 'muscle_group', 'notes', 'equipment', 'sub_muscle'];
   const updates = [], values = [];
   for (const f of fields) {
-    if (f in (req.body || {})) { updates.push(`${f} = ?`); values.push(req.body[f]); }
+    if (f in (req.body || {})) {
+      let v = req.body[f];
+      // Empty/blank sub_muscle means "whole muscle" — store NULL.
+      if (f === 'sub_muscle') v = (v && String(v).trim()) ? String(v).trim() : null;
+      updates.push(`${f} = ?`); values.push(v);
+    }
+  }
+  if ('secondary_muscles' in (req.body || {})) {
+    // Primary to exclude = the new sub_muscle if being set, else the existing one.
+    const primary = 'sub_muscle' in req.body
+      ? (req.body.sub_muscle && String(req.body.sub_muscle).trim()) || null
+      : existing.sub_muscle;
+    updates.push('secondary_muscles = ?');
+    values.push(cleanSecondary(req.body.secondary_muscles, primary));
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
   values.push(id);
@@ -43,7 +78,7 @@ router.patch('/:id', (req, res) => {
     if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'exercise name already exists' });
     throw err;
   }
-  res.json(db.prepare('SELECT id, name, muscle_group, sub_muscle, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(id));
+  res.json(shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)));
 });
 
 router.delete('/:id', (req, res) => {
@@ -60,18 +95,20 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, muscle_group, notes, equipment = 'barbell' } = req.body || {};
+  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles } = req.body || {};
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
   const validEquipment = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
   const equip = validEquipment.includes(equipment) ? equipment : 'barbell';
+  const sub = (sub_muscle && String(sub_muscle).trim()) ? String(sub_muscle).trim() : null;
+  const secondary = cleanSecondary(secondary_muscles, sub);
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, notes, equipment) VALUES (?, ?, ?, ?)')
-      .run(name.trim(), muscle_group.trim(), notes || null, equip);
-    const row = db.prepare('SELECT id, name, muscle_group, sub_muscle, notes, is_bodyweight, is_assisted, equipment FROM exercises WHERE id = ?').get(info.lastInsertRowid);
-    res.status(201).json(row);
+      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), muscle_group.trim(), sub, secondary, notes || null, equip);
+    const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
+    res.status(201).json(shapeExercise(row));
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) {
       return res.status(409).json({ error: 'exercise name already exists' });

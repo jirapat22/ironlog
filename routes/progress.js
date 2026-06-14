@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../db');
+const { db, REGION_TO_GROUP } = require('../db');
 
 const router = express.Router();
 
@@ -102,6 +102,7 @@ router.get('/muscle-frequency', (req, res) => {
 // lats vs upper back, etc.). Only counts working sets toward volume. Drives the
 // sub-muscle frequency view and the "train next" recommendation.
 router.get('/sub-muscle-frequency', (req, res) => {
+  // Primary attribution: volume + recency from each exercise's own sub_muscle.
   const rows = db.prepare(
     `SELECT e.muscle_group,
             COALESCE(e.sub_muscle, e.muscle_group) AS sub_muscle,
@@ -117,6 +118,47 @@ router.get('/sub-muscle-frequency', (req, res) => {
      GROUP BY e.muscle_group, COALESCE(e.sub_muscle, e.muscle_group)
      ORDER BY e.muscle_group, last_trained_at DESC`
   ).all(req.profileId);
+
+  // Secondary attribution: a compound's secondary regions only refresh recency
+  // (no volume). Aggregate the latest training date per secondary region, then
+  // fold it into the primary rows (creating a row for any region that has only
+  // ever been hit indirectly so it stops showing "Never").
+  const byKey = new Map();
+  for (const r of rows) byKey.set(`${r.muscle_group}|${r.sub_muscle}`, r);
+
+  const secRaw = db.prepare(
+    `SELECT e.secondary_muscles AS secs, MAX(w.started_at) AS last_at
+     FROM sets s
+     JOIN workouts  w ON w.id = s.workout_id AND w.finished_at IS NOT NULL
+     JOIN exercises e ON e.id = s.exercise_id
+     WHERE s.profile_id = ? AND s.is_warmup = 0 AND e.secondary_muscles IS NOT NULL
+     GROUP BY e.secondary_muscles`
+  ).all(req.profileId);
+
+  const secLast = new Map(); // region -> latest started_at (UTC string, lexically comparable)
+  for (const row of secRaw) {
+    let regions;
+    try { regions = JSON.parse(row.secs); } catch { regions = []; }
+    if (!Array.isArray(regions)) continue;
+    for (const region of regions) {
+      const prev = secLast.get(region);
+      if (!prev || row.last_at > prev) secLast.set(region, row.last_at);
+    }
+  }
+
+  for (const [region, lastAt] of secLast) {
+    const group = REGION_TO_GROUP[region];
+    if (!group) continue;
+    const key = `${group}|${region}`;
+    let r = byKey.get(key);
+    if (!r) {
+      r = { muscle_group: group, sub_muscle: region, last_trained_at: null, total_workouts: 0, volume_kg: 0 };
+      byKey.set(key, r);
+      rows.push(r);
+    }
+    if (!r.last_trained_at || lastAt > r.last_trained_at) r.last_trained_at = lastAt;
+  }
+
   res.json(rows);
 });
 

@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 
@@ -1464,6 +1464,10 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
         <select class="input" id="wknew-muscle">
           ${GROUPS.map((g) => `<option value="${g}">${g}</option>`).join('')}
         </select>
+        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
+        <select class="input" id="wknew-sub">${subMuscleOptions(GROUPS[0], '')}</select>
+        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
+        <div class="sub2-list" id="wknew-sub2"></div>
         <label class="form-label" style="margin-top:14px">Equipment</label>
         <select class="input" id="wknew-equipment">
           ${EQUIPMENT.map((e) => `<option value="${e}">${e}</option>`).join('')}
@@ -1475,15 +1479,24 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
     </div>`;
 
   document.getElementById('wknew-back').onclick = () => onBack();
+  const subSel = document.getElementById('wknew-sub');
+  const sub2 = createSecondaryPicker(document.getElementById('wknew-sub2'), () => subSel.value, []);
+  document.getElementById('wknew-muscle').onchange = (e) => {
+    subSel.innerHTML = subMuscleOptions(e.target.value, '');
+    sub2.render();
+  };
+  subSel.onchange = () => sub2.render();
 
   document.getElementById('wknew-save').onclick = async () => {
     const name = document.getElementById('wknew-name').value.trim();
     const muscle = document.getElementById('wknew-muscle').value;
+    const sub_muscle = subSel.value || null;
+    const secondary_muscles = sub2.getSelected();
     const equipment = document.getElementById('wknew-equipment').value;
     const notes = document.getElementById('wknew-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, equipment, notes });
+      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, notes });
       haptic(20);
       onCreated(ex);
     } catch (err) { toast(err.message); }

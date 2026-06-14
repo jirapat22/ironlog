@@ -383,6 +383,70 @@ function feelEmoji(rating) {
   return FEEL_OPTIONS.find((o) => o.v === rating)?.emoji || '';
 }
 
+// ---------- Sub-muscle taxonomy ----------
+// Canonical regions per muscle group. Single source of truth for the
+// sub-muscle picker on the exercise add/edit forms AND the Muscle Detail
+// analytics (progress.js clones this). An empty choice ('') = whole muscle,
+// stored as null.
+const SUB_MUSCLES = {
+  chest: ['upper chest', 'mid chest', 'lower chest'],
+  back: ['lats', 'upper back', 'lower back', 'traps'],
+  shoulders: ['front delt', 'side delt', 'rear delt'],
+  biceps: ['biceps', 'brachialis'],
+  triceps: ['triceps'],
+  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
+  core: ['abs', 'obliques'],
+  arms: ['forearms']
+};
+
+// Build <option> markup for a group's sub-muscle dropdown. `selected` is the
+// currently-saved sub_muscle (may be null/''). A saved value outside the
+// canonical list (legacy/custom) is preserved as its own option.
+function subMuscleOptions(group, selected) {
+  const subs = SUB_MUSCLES[group] || [];
+  const sel = selected || '';
+  const opts = [`<option value="">— whole ${escapeHtml(group || 'muscle')} —</option>`];
+  for (const s of subs) {
+    opts.push(`<option value="${s}" ${sel === s ? 'selected' : ''}>${s}</option>`);
+  }
+  if (sel && !subs.includes(sel)) {
+    opts.push(`<option value="${escapeHtml(sel)}" selected>${escapeHtml(sel)}</option>`);
+  }
+  return opts.join('');
+}
+
+// Checklist markup for the "also works" secondary muscles: every region across
+// all groups except the chosen primary, with current selections checked.
+function secondaryChecklistHTML(primaryRegion, selectedSet) {
+  const sel = selectedSet instanceof Set ? selectedSet : new Set(selectedSet || []);
+  return Object.entries(SUB_MUSCLES).map(([g, subs]) => {
+    const items = subs
+      .filter((s) => s !== primaryRegion)
+      .map((s) => `<label class="sub2-item"><input type="checkbox" value="${s}" ${sel.has(s) ? 'checked' : ''}/><span>${s}</span></label>`)
+      .join('');
+    return items ? `<div class="sub2-group"><div class="sub2-group__title">${g}</div>${items}</div>` : '';
+  }).join('');
+}
+
+// Mount a self-managing secondary-muscle picker into containerEl. `getPrimary`
+// returns the current primary region (excluded from the list). Call .render()
+// after the primary changes; .getSelected() returns the chosen regions.
+function createSecondaryPicker(containerEl, getPrimary, initial = []) {
+  const selected = new Set(initial || []);
+  function render() {
+    const primary = getPrimary();
+    if (primary) selected.delete(primary);
+    containerEl.innerHTML = secondaryChecklistHTML(primary, selected);
+  }
+  containerEl.addEventListener('change', (e) => {
+    const cb = e.target.closest('input[type=checkbox]');
+    if (!cb) return;
+    if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+  });
+  render();
+  return { render, getSelected: () => [...selected] };
+}
+
 // ---------- iOS helpers ----------
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -403,5 +467,6 @@ export {
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
+  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker,
   isIOS, isStandalone
 };
