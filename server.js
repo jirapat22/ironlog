@@ -17,7 +17,9 @@ const platedRouter = require('./routes/plated');
 const orbitRouter = require('./routes/orbit');
 const notesRouter = require('./routes/notes');
 const authRouter = require('./routes/auth');
-const { requireProfile } = require('./auth');
+const bugReportRouter = require('./routes/bugReport');
+const { requireProfile, optionalProfile } = require('./auth');
+const { sendBugReportToOrbit } = require('./lib/orbitReport');
 const nudge = require('./nudge');
 
 init();
@@ -78,6 +80,11 @@ app.use('/api/plated', platedRouter);
 // Orbit admin feed — read-only cross-profile dashboard. Has its own optional
 // API-key gate (ORBIT_API_KEY), so it is mounted before the session gate too.
 app.use('/api/orbit', orbitRouter);
+
+// Bug reports — must work even pre-login (lock-screen errors), so mounted
+// before the session gate. optionalProfile attaches profile_id if a valid
+// session exists, but never rejects.
+app.use('/api/bug-report', optionalProfile, bugReportRouter);
 
 // Everything below this line requires a valid per-profile session. The gate is
 // scoped to /api so the static app shell + lock screen still load unauthenticated
@@ -151,6 +158,19 @@ app.get('*', (req, res) => {
 // production (NODE_ENV=production is set in the Dockerfile).
 app.use((err, req, res, next) => {
   console.error(err);
+  if (!err.status || err.status >= 500) {
+    db.prepare(
+      'INSERT INTO bug_reports (profile_id, source, message, stack, context) VALUES (?, ?, ?, ?, ?)'
+    ).run(req.profileId || null, 'backend', err.message || 'unknown error', err.stack || null,
+      JSON.stringify({ method: req.method, path: req.originalUrl }));
+    sendBugReportToOrbit({
+      source: 'backend',
+      message: err.message || 'unknown error',
+      stack: err.stack || null,
+      context: { method: req.method, path: req.originalUrl },
+      created_at: new Date().toISOString()
+    }).catch(() => {});
+  }
   if (res.headersSent) return next(err);
   res.status(err.status || 500).json({
     error: process.env.NODE_ENV === 'production' ? 'internal server error' : err.message

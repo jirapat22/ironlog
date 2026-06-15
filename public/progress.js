@@ -196,25 +196,35 @@ async function renderMuscleFrequency() {
     // "Train next": sub-muscles never trained or 7+ days stale.
     const stale = [];
 
+    const collapsedKey = 'ironlog.mfreqCollapsed';
+    let collapsedGroups = [];
+    try { collapsedGroups = JSON.parse(localStorage.getItem(collapsedKey) || '[]'); } catch { collapsedGroups = []; }
+    const collapsedSet = new Set(collapsedGroups);
+
     const html = groupOrder.map((g) => {
       const subs = SUB_MUSCLE_MAP[g] || [];
       const subRows = subs.map((sub) => {
         const row = byKey.get(`${g}|${sub}`);
         const days = row ? daysSince(row.last_trained_at) : null;
-        if (days == null || days >= 7) stale.push(sub);
+        const displayName = sub === g ? 'Unspecified' : sub;
+        if (days == null || days >= 7) stale.push(displayName === 'Unspecified' ? `${g} (unspecified)` : displayName);
         const label = days == null ? 'Never' : days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
         const color = freqColor(days);
         return `
           <div class="mfreq-row mfreq-row--sub">
-            <span class="mfreq-sub-name">${escapeHtml(sub)}</span>
+            <span class="mfreq-sub-name">${escapeHtml(displayName)}</span>
             <div class="mfreq-bar-wrap"><div class="mfreq-bar" style="background:${color}"></div></div>
             <span class="mfreq-label" style="color:${color}">${label}</span>
           </div>`;
       }).join('');
+      const collapsed = collapsedSet.has(g);
       return `
-        <div class="mfreq-group">
-          <span class="badge badge--group badge--g-${g}">${g}</span>
-          <div class="mfreq-group__subs">${subRows}</div>
+        <div class="mfreq-group ${collapsed ? 'mfreq-group--collapsed' : ''}" data-mfreq-group="${escapeHtml(g)}">
+          <button class="mfreq-group__head" data-toggle-group="${escapeHtml(g)}">
+            <span class="badge badge--group badge--g-${g}">${g}</span>
+            <span class="mfreq-group__chevron">&#9656;</span>
+          </button>
+          <div class="mfreq-group__subs" ${collapsed ? 'hidden' : ''}>${subRows}</div>
         </div>`;
     }).join('');
 
@@ -223,6 +233,22 @@ async function renderMuscleFrequency() {
       : '';
 
     root.innerHTML = (rows.length ? '' : `<div class="bw-current__empty" style="margin-bottom:8px">No workouts logged yet — defaults shown.</div>`) + hint + html;
+
+    root.querySelectorAll('[data-toggle-group]').forEach((btn) => {
+      btn.onclick = () => {
+        const g = btn.dataset.toggleGroup;
+        const groupEl = btn.closest('.mfreq-group');
+        const subsEl = groupEl.querySelector('.mfreq-group__subs');
+        const willCollapse = !groupEl.classList.contains('mfreq-group--collapsed');
+        groupEl.classList.toggle('mfreq-group--collapsed', willCollapse);
+        if (willCollapse) subsEl.setAttribute('hidden', ''); else subsEl.removeAttribute('hidden');
+        const next = willCollapse
+          ? [...new Set([...collapsedGroups, g])]
+          : collapsedGroups.filter((x) => x !== g);
+        collapsedGroups = next;
+        localStorage.setItem(collapsedKey, JSON.stringify(collapsedGroups));
+      };
+    });
   } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
 }
 

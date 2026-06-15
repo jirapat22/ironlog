@@ -36,7 +36,8 @@ router.get('/', (req, res) => {
 router.get('/stats', (req, res) => {
   const rows = db.prepare(`
     SELECT
-      e.id, e.name, e.muscle_group, e.is_bodyweight, e.is_assisted,
+      e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles,
+      e.notes, e.equipment, e.is_bodyweight, e.is_assisted,
       COUNT(DISTINCT s.workout_id) AS workout_count,
       MAX(w.started_at)            AS last_used_at
     FROM exercises e
@@ -45,7 +46,7 @@ router.get('/stats', (req, res) => {
     GROUP BY e.id
     ORDER BY e.muscle_group ASC, workout_count DESC, e.name ASC
   `).all(req.profileId);
-  res.json(rows);
+  res.json(rows.map(shapeExercise));
 });
 
 router.patch('/:id', (req, res) => {

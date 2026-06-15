@@ -7,6 +7,9 @@ import { renderPrograms } from './programs.js';
 import { renderProgress } from './progress.js';
 import { renderHistory, flushHistoryNotes } from './history.js';
 import { openSettingsSheet } from './settings.js';
+import { installErrorReporting } from './bugreport.js';
+
+installErrorReporting();
 
 // ---------- Tab routing ----------
 const TABS = ['workout', 'programs', 'progress', 'history'];

@@ -1,5 +1,7 @@
 // ---------- Shared utilities ----------
 
+import { API } from './api.js';
+
 const LS = {
   activeWorkoutId: 'ironlog.activeWorkoutId',
   activeProgramDayId: 'ironlog.activeProgramDayId',
@@ -392,7 +394,7 @@ const SUB_MUSCLES = {
   chest: ['upper chest', 'mid chest', 'lower chest'],
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
-  biceps: ['biceps', 'brachialis'],
+  biceps: ['biceps', 'long head', 'short head', 'brachialis'],
   triceps: ['triceps'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
   core: ['abs', 'obliques'],
@@ -447,6 +449,82 @@ function createSecondaryPicker(containerEl, getPrimary, initial = []) {
   return { render, getSelected: () => [...selected] };
 }
 
+// ---------- Exercise edit form ----------
+// Renders the "Edit exercise" form into containerEl and wires save/delete.
+// Callbacks: onBack() — go back/close; onSaved(updatedExercise); onDeleted().
+const EXERCISE_GROUPS = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'arms', 'legs', 'core'];
+const EXERCISE_EQUIPMENT = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
+
+function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted } = {}) {
+  containerEl.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-back-edit-ex>&larr;</button>
+        <div class="sheet__title">Edit exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <label class="form-label">Name</label>
+        <input class="input" id="edit-ex-name" value="${escapeHtml(ex.name)}"/>
+        <label class="form-label" style="margin-top:14px">Muscle group</label>
+        <select class="input" id="edit-ex-muscle">
+          ${EXERCISE_GROUPS.map((g) => `<option value="${g}" ${ex.muscle_group === g ? 'selected' : ''}>${g}</option>`).join('')}
+        </select>
+        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
+        <select class="input" id="edit-ex-sub">${subMuscleOptions(ex.muscle_group, ex.sub_muscle)}</select>
+        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
+        <div class="sub2-list" id="edit-ex-sub2"></div>
+        <label class="form-label" style="margin-top:14px">Equipment</label>
+        <select class="input" id="edit-ex-equipment">
+          ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${e}</option>`).join('')}
+        </select>
+        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
+        <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
+        <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
+        <button class="btn btn--ghost btn--block" id="edit-ex-delete" style="margin-top:10px;color:var(--danger)">Delete exercise</button>
+      </div>
+    </div>`;
+
+  containerEl.querySelector('[data-back-edit-ex]').onclick = () => onBack && onBack();
+  const subSel = containerEl.querySelector('#edit-ex-sub');
+  const sub2 = createSecondaryPicker(containerEl.querySelector('#edit-ex-sub2'), () => subSel.value, ex.secondary_muscles || []);
+  // When the group changes, reset the sub-muscle dropdown to that group's
+  // regions, then refresh the "also works" list to exclude the new primary.
+  containerEl.querySelector('#edit-ex-muscle').onchange = (e) => {
+    const keep = e.target.value === ex.muscle_group ? ex.sub_muscle : '';
+    subSel.innerHTML = subMuscleOptions(e.target.value, keep);
+    sub2.render();
+  };
+  subSel.onchange = () => sub2.render();
+
+  containerEl.querySelector('#edit-ex-save').onclick = async () => {
+    const name = containerEl.querySelector('#edit-ex-name').value.trim();
+    const muscle_group = containerEl.querySelector('#edit-ex-muscle').value;
+    const sub_muscle = subSel.value || null;
+    const secondary_muscles = sub2.getSelected();
+    const equipment = containerEl.querySelector('#edit-ex-equipment').value;
+    const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
+    if (!name) return toast('Name required');
+    try {
+      const updated = await API.updateExercise(ex.id, { name, muscle_group, sub_muscle, secondary_muscles, equipment, notes });
+      haptic(10);
+      toast('Saved');
+      if (onSaved) onSaved(updated);
+    } catch (err) { toast(err.message); }
+  };
+
+  containerEl.querySelector('#edit-ex-delete').onclick = async () => {
+    const ok = await confirmSheet({ title: 'Delete exercise', message: `Delete "${ex.name}"? This only works if it's not used in any program or workout.`, confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try {
+      await API.deleteExercise(ex.id);
+      haptic(20);
+      toast(`Deleted ${ex.name}`);
+      if (onDeleted) onDeleted();
+    } catch (err) { toast(err.message); } // server returns 409 if in use
+  };
+}
+
 // ---------- iOS helpers ----------
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -468,5 +546,6 @@ export {
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker,
+  renderExerciseEditForm,
   isIOS, isStandalone
 };

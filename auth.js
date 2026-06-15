@@ -54,6 +54,19 @@ function requireProfile(req, res, next) {
   next();
 }
 
+// Best-effort gate: sets req.profileId/req.profile when a valid session
+// cookie is present, but never rejects. Used by routes (e.g. bug reports)
+// that must work even pre-login (lock screen errors).
+function optionalProfile(req, res, next) {
+  const token = getSessionToken(req);
+  const profile = token ? accounts.getProfileBySession(token) : null;
+  if (profile) {
+    req.profileId = profile.id;
+    req.profile = profile;
+  }
+  next();
+}
+
 // Machine-to-machine key check for the Plated integration and any other
 // API-key caller. Reads `X-API-Key` (preferred) or `Authorization: Bearer`,
 // resolves it to a profile, and sets req.profileId. Never reads the query
@@ -80,5 +93,6 @@ module.exports = {
   clearSessionCookie,
   getSessionToken,
   requireProfile,
+  optionalProfile,
   platedAuth
 };

@@ -1536,7 +1536,27 @@ button {
 
 /* Sub-muscle grouped view */
 .mfreq-group { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-.mfreq-group > .badge { flex: 0 0 80px; align-self: flex-start; margin-top: 4px; }
+.mfreq-group__head {
+  flex: 0 0 80px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  align-self: flex-start;
+  margin-top: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mfreq-group__chevron {
+  font-size: 10px;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.mfreq-group:not(.mfreq-group--collapsed) .mfreq-group__chevron { transform: rotate(90deg); }
 .mfreq-group__subs { flex: 1; min-width: 0; }
 .mfreq-row--sub {
   grid-template-columns: 90px 1fr 72px;

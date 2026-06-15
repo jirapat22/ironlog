@@ -1,10 +1,11 @@
-const VERSION = 'ironlog-v63';
+const VERSION = 'ironlog-v64';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/api.js',
+  '/bugreport.js',
   '/utils.js',
   '/audio.js',
   '/workout.js',

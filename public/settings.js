@@ -1,6 +1,7 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
+import { reportBugManually } from './bugreport.js';
 
 // Keep in sync with the lock-screen palette in app.js.
 const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
@@ -123,10 +124,10 @@ async function openSettingsSheet() {
         <div class="settings-group">
           <div class="settings-group__title">Exercises</div>
           <div class="settings-row">
-            <span>Library &amp; usage stats</span>
+            <span>Manage exercises</span>
             <button class="btn btn--ghost btn--sm" id="open-ex-library">View</button>
           </div>
-          <div class="card__subtitle" style="margin-top:4px">See how often each exercise has been used. Delete unused ones to keep the picker clean.</div>
+          <div class="card__subtitle" style="margin-top:4px">Edit muscle group, sub-muscle and "also works" tags, see usage stats, or delete unused exercises.</div>
         </div>
         <div class="settings-group">
           <div class="settings-group__title">Ideas &amp; Bugs</div>
@@ -135,6 +136,11 @@ async function openSettingsSheet() {
             <button class="btn btn--ghost btn--sm" id="open-notes">Open</button>
           </div>
           <div class="card__subtitle" style="margin-top:4px">A checklist for things to build or fix. Tick items off when done.</div>
+          <div class="settings-row" style="margin-top:10px">
+            <span>Report a bug</span>
+            <button class="btn btn--ghost btn--sm" id="report-bug">Report</button>
+          </div>
+          <div class="card__subtitle" style="margin-top:4px">Describe what went wrong — sent straight to Orbit for review.</div>
         </div>
         <div class="settings-group">
           <div class="settings-group__title">Data</div>
@@ -276,6 +282,16 @@ async function openSettingsSheet() {
 
     if (e.target.closest('#open-notes')) { openNotesSheet(); return; }
 
+    if (e.target.closest('#report-bug')) {
+      const text = await promptSheet({ title: 'Report a bug', label: 'What went wrong?', placeholder: 'Describe what happened…', confirmText: 'Send' });
+      if (text == null || !text.trim()) return;
+      try {
+        await reportBugManually(text.trim());
+        toast('Sent — thanks!');
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
     const prefUnitBtn = e.target.closest('[data-pref-unit]');
     if (prefUnitBtn) {
       try {
@@ -323,7 +339,7 @@ async function openExerciseLibrary() {
     <div class="sheet__inner">
       <div class="sheet__head">
         <button class="btn--icon" data-close-sheet>←</button>
-        <div class="sheet__title">Exercise Library</div>
+        <div class="sheet__title">Manage Exercises</div>
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body" id="ex-lib-body">
@@ -331,7 +347,10 @@ async function openExerciseLibrary() {
       </div>
     </div>`;
   showSheet(sheet);
+  renderExerciseLibraryList(sheet);
+}
 
+async function renderExerciseLibraryList(sheet) {
   let stats;
   try { stats = await API.exerciseStats(); }
   catch (err) {
@@ -361,13 +380,14 @@ async function openExerciseLibrary() {
       ${byGroup[g].map((ex) => `
         <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
           <div class="ex-lib-row__info">
-            <div class="ex-lib-row__name">${ex.name}</div>
+            <div class="ex-lib-row__name">${escapeHtml(ex.name)}</div>
             <div class="ex-lib-row__meta">
               ${ex.workout_count === 0
                 ? '<span style="color:var(--text-dim)">Never used</span>'
                 : `<span style="color:var(--accent)">${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''}</span> · last ${fmtDate(ex.last_used_at)}`}
             </div>
           </div>
+          <button class="btn--icon" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
           ${ex.workout_count === 0
             ? `<button class="btn--icon btn--icon-danger" data-del-ex="${ex.id}" title="Delete">×</button>`
             : ''}
@@ -383,6 +403,20 @@ async function openExerciseLibrary() {
 
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+
+    const editBtn = e.target.closest('[data-edit-ex]');
+    if (editBtn) {
+      const exId = Number(editBtn.dataset.editEx);
+      const ex = stats.find((x) => x.id === exId);
+      if (!ex) return;
+      renderExerciseEditForm(sheet, ex, {
+        onBack: () => openExerciseLibrary(),
+        onSaved: () => openExerciseLibrary(),
+        onDeleted: () => openExerciseLibrary()
+      });
+      return;
+    }
+
     const delBtn = e.target.closest('[data-del-ex]');
     if (delBtn) {
       const exId = Number(delBtn.dataset.delEx);

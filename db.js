@@ -168,6 +168,17 @@ function init() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS bug_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER,
+      source TEXT NOT NULL,
+      message TEXT NOT NULL,
+      stack TEXT,
+      context TEXT,
+      orbit_sent INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sets_workout ON sets(workout_id);
     CREATE INDEX IF NOT EXISTS idx_sets_exercise ON sets(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workouts_program_day ON workouts(program_day_id);
@@ -694,7 +705,7 @@ const GROUP_SUB_MUSCLES = {
   chest: ['upper chest', 'mid chest', 'lower chest'],
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
-  biceps: ['biceps', 'brachialis'],
+  biceps: ['biceps', 'long head', 'short head', 'brachialis'],
   triceps: ['triceps'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
   core: ['abs', 'obliques'],

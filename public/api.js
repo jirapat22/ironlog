@@ -96,7 +96,10 @@ const API = {
   changePasscode: (passcode) => api('/api/auth/me/passcode', { method: 'POST', body: { passcode } }),
   regenerateApiKey: () => api('/api/auth/me/api-key', { method: 'POST' }),
   deleteMe: () => api('/api/auth/me', { method: 'DELETE' }),
-  logout: () => api('/api/auth/logout', { method: 'POST' })
+  logout: () => api('/api/auth/logout', { method: 'POST' }),
+
+  // ---- Bug reports ----
+  reportBug: (data) => api('/api/bug-report', { method: 'POST', body: data })
 };
 
 export { api, API, REST_SECONDS };
