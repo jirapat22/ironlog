@@ -281,6 +281,11 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE exercises ADD COLUMN secondary_muscles TEXT');
   }
 
+  // bug_reports.type: 'bug_report' (default) or 'idea' — flows through to Orbit.
+  if (!columnExists('bug_reports', 'type')) {
+    db.exec("ALTER TABLE bug_reports ADD COLUMN type TEXT NOT NULL DEFAULT 'bug_report'");
+  }
+
   // 2. app_settings: primary key must become (profile_id, key). Rebuild.
   if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
     tx(() => {

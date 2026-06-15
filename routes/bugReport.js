@@ -13,14 +13,16 @@ const { sendBugReportToOrbit } = require('../lib/orbitReport');
 const router = express.Router();
 
 const SOURCES = ['frontend', 'backend', 'manual'];
+const TYPES = ['bug_report', 'idea'];
 const DEDUPE_WINDOW_SECONDS = 300; // 5 minutes
 
 router.post('/', async (req, res) => {
-  const { source, message, stack, context } = req.body || {};
+  const { source, message, stack, context, type } = req.body || {};
   if (!message || !String(message).trim()) {
     return res.status(400).json({ error: 'message is required' });
   }
   const src = SOURCES.includes(source) ? source : 'frontend';
+  const typ = TYPES.includes(type) ? type : 'bug_report';
   const msg = String(message).trim().slice(0, 2000);
   const stk = stack ? String(stack).slice(0, 8000) : null;
   const ctxStr = context ? JSON.stringify(context).slice(0, 4000) : null;
@@ -39,14 +41,15 @@ router.post('/', async (req, res) => {
 
   const info = db
     .prepare(
-      'INSERT INTO bug_reports (profile_id, source, message, stack, context) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO bug_reports (profile_id, source, message, stack, context, type) VALUES (?, ?, ?, ?, ?, ?)'
     )
-    .run(req.profileId || null, src, msg, stk, ctxStr);
+    .run(req.profileId || null, src, msg, stk, ctxStr, typ);
 
   res.status(202).json({ received: true });
 
   // Forward to Orbit after responding — never block the caller on it.
   const result = await sendBugReportToOrbit({
+    type: typ,
     source: src,
     message: msg,
     stack: stk,
