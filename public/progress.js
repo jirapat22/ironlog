@@ -197,8 +197,14 @@ async function renderMuscleFrequency() {
     const stale = [];
 
     const collapsedKey = 'ironlog.mfreqCollapsed';
-    let collapsedGroups = [];
-    try { collapsedGroups = JSON.parse(localStorage.getItem(collapsedKey) || '[]'); } catch { collapsedGroups = []; }
+    let collapsedGroups;
+    const stored = localStorage.getItem(collapsedKey);
+    if (stored == null) {
+      // First visit: start with every group collapsed (show group names only).
+      collapsedGroups = [...groupOrder];
+    } else {
+      try { collapsedGroups = JSON.parse(stored); } catch { collapsedGroups = []; }
+    }
     const collapsedSet = new Set(collapsedGroups);
 
     const html = groupOrder.map((g) => {
@@ -232,7 +238,17 @@ async function renderMuscleFrequency() {
       ? `<div class="mfreq-hint">Train next: ${stale.slice(0, 5).map((s) => escapeHtml(s)).join(', ')}${stale.length > 5 ? '…' : ''}</div>`
       : '';
 
-    root.innerHTML = (rows.length ? '' : `<div class="bw-current__empty" style="margin-bottom:8px">No workouts logged yet — defaults shown.</div>`) + hint + html;
+    const allCollapsed = groupOrder.every((g) => collapsedSet.has(g));
+    const toggleAllLabel = allCollapsed ? 'Expand all' : 'Collapse all';
+    const toggleAll = `<button class="mfreq-toggle-all" id="mfreq-toggle-all">${toggleAllLabel}</button>`;
+
+    root.innerHTML = toggleAll + (rows.length ? '' : `<div class="bw-current__empty" style="margin-bottom:8px">No workouts logged yet — defaults shown.</div>`) + hint + html;
+
+    $('#mfreq-toggle-all').onclick = () => {
+      collapsedGroups = allCollapsed ? [] : [...groupOrder];
+      localStorage.setItem(collapsedKey, JSON.stringify(collapsedGroups));
+      renderMuscleFrequency();
+    };
 
     root.querySelectorAll('[data-toggle-group]').forEach((btn) => {
       btn.onclick = () => {
@@ -247,6 +263,9 @@ async function renderMuscleFrequency() {
           : collapsedGroups.filter((x) => x !== g);
         collapsedGroups = next;
         localStorage.setItem(collapsedKey, JSON.stringify(collapsedGroups));
+        const nowAllCollapsed = groupOrder.every((x) => collapsedGroups.includes(x));
+        const toggleAllBtn = $('#mfreq-toggle-all');
+        if (toggleAllBtn) toggleAllBtn.textContent = nowAllCollapsed ? 'Expand all' : 'Collapse all';
       };
     });
   } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }

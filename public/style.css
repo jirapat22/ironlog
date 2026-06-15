@@ -1572,6 +1572,18 @@ button {
   padding: 8px 10px;
   margin-bottom: 10px;
 }
+.mfreq-toggle-all {
+  display: block;
+  margin: 0 0 10px auto;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
 
 .exercise-card__skip {
   display: block;
