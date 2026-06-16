@@ -207,11 +207,16 @@ async function renderMuscleFrequency() {
     }
     const collapsedSet = new Set(collapsedGroups);
 
+    // Per-group HTML for both states, swapped on toggle without a full re-render.
+    const groupContent = new Map();
+
     const html = groupOrder.map((g) => {
       const subs = SUB_MUSCLE_MAP[g] || [];
+      let groupDays = null;
       const subRows = subs.map((sub) => {
         const row = byKey.get(`${g}|${sub}`);
         const days = row ? daysSince(row.last_trained_at) : null;
+        if (days != null && (groupDays == null || days < groupDays)) groupDays = days;
         const displayName = sub === g ? 'Unspecified' : sub;
         if (days == null || days >= 7) stale.push(displayName === 'Unspecified' ? `${g} (unspecified)` : displayName);
         const label = days == null ? 'Never' : days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
@@ -223,6 +228,18 @@ async function renderMuscleFrequency() {
             <span class="mfreq-label" style="color:${color}">${label}</span>
           </div>`;
       }).join('');
+
+      // Collapsed summary: most-recent "last trained" across this group's sub-muscles.
+      const groupLabel = groupDays == null ? 'Never' : groupDays === 0 ? 'Today' : groupDays === 1 ? 'Yesterday' : `${groupDays}d ago`;
+      const groupColor = freqColor(groupDays);
+      const summaryRow = `
+        <div class="mfreq-row mfreq-row--sub mfreq-row--summary">
+          <span class="mfreq-sub-name">Last trained</span>
+          <div class="mfreq-bar-wrap"><div class="mfreq-bar" style="background:${groupColor}"></div></div>
+          <span class="mfreq-label" style="color:${groupColor}">${groupLabel}</span>
+        </div>`;
+      groupContent.set(g, { subRows, summaryRow });
+
       const collapsed = collapsedSet.has(g);
       return `
         <div class="mfreq-group ${collapsed ? 'mfreq-group--collapsed' : ''}" data-mfreq-group="${escapeHtml(g)}">
@@ -230,7 +247,7 @@ async function renderMuscleFrequency() {
             <span class="badge badge--group badge--g-${g}">${g}</span>
             <span class="mfreq-group__chevron">&#9656;</span>
           </button>
-          <div class="mfreq-group__subs" ${collapsed ? 'hidden' : ''}>${subRows}</div>
+          <div class="mfreq-group__subs">${collapsed ? summaryRow : subRows}</div>
         </div>`;
     }).join('');
 
@@ -257,7 +274,8 @@ async function renderMuscleFrequency() {
         const subsEl = groupEl.querySelector('.mfreq-group__subs');
         const willCollapse = !groupEl.classList.contains('mfreq-group--collapsed');
         groupEl.classList.toggle('mfreq-group--collapsed', willCollapse);
-        if (willCollapse) subsEl.setAttribute('hidden', ''); else subsEl.removeAttribute('hidden');
+        const content = groupContent.get(g);
+        if (content) subsEl.innerHTML = willCollapse ? content.summaryRow : content.subRows;
         const next = willCollapse
           ? [...new Set([...collapsedGroups, g])]
           : collapsedGroups.filter((x) => x !== g);

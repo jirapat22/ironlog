@@ -1564,6 +1564,7 @@ button {
   border-bottom: none;
 }
 .mfreq-sub-name { font-size: 13px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfreq-row--summary .mfreq-sub-name { font-style: italic; }
 .mfreq-hint {
   font-size: 13px;
   color: var(--accent);

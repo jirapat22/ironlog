@@ -135,12 +135,7 @@ async function openSettingsSheet() {
             <span>Upgrade ideas &amp; bug list</span>
             <button class="btn btn--ghost btn--sm" id="open-notes">Open</button>
           </div>
-          <div class="card__subtitle" style="margin-top:4px">A checklist for things to build or fix. Tick items off when done.</div>
-          <div class="settings-row" style="margin-top:10px">
-            <span>Feedback</span>
-            <button class="btn btn--ghost btn--sm" id="report-bug">Send</button>
-          </div>
-          <div class="card__subtitle" style="margin-top:4px">Report a bug or share an idea — sent straight to Orbit for review.</div>
+          <div class="card__subtitle" style="margin-top:4px">A checklist for things to build or fix — also sent to Orbit for review. Tick items off when done.</div>
         </div>
         <div class="settings-group">
           <div class="settings-group__title">Data</div>
@@ -281,11 +276,6 @@ async function openSettingsSheet() {
     if (e.target.closest('#open-ex-library')) { openExerciseLibrary(); return; }
 
     if (e.target.closest('#open-notes')) { openNotesSheet(); return; }
-
-    if (e.target.closest('#report-bug')) {
-      openFeedbackSheet();
-      return;
-    }
 
     const prefUnitBtn = e.target.closest('[data-pref-unit]');
     if (prefUnitBtn) {
@@ -489,6 +479,7 @@ async function openNotesSheet() {
       input.value = '';
       haptic(10);
       renderList();
+      reportBugManually(text, { type: category === 'bug' ? 'bug_report' : 'idea' }).catch(() => {});
     } catch (err) { toast(err.message); }
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addNote(); });
@@ -531,55 +522,6 @@ async function openNotesSheet() {
         notes = notes.filter((n) => n.id !== id);
         haptic(15);
         renderList();
-      } catch (err) { toast(err.message); }
-    }
-  };
-}
-
-async function openFeedbackSheet() {
-  const sheet = ensureSheet('feedback-sheet');
-  sheet.innerHTML = `
-    <div class="sheet__inner">
-      <div class="sheet__head">
-        <button class="btn--icon" data-close-sheet>←</button>
-        <div class="sheet__title">Feedback</div>
-        <span style="width:40px"></span>
-      </div>
-      <div class="sheet__body">
-        <div class="unit-pick" id="fb-type">
-          <button class="unit-btn unit-btn--active" data-fb-type="bug_report">🐞 Bug</button>
-          <button class="unit-btn" data-fb-type="idea">💡 Idea</button>
-        </div>
-        <label class="form-label" style="margin-top:14px">What's going on?</label>
-        <textarea class="input" id="fb-message" rows="4" placeholder="Describe the bug or idea…" style="height:auto;padding:10px 14px;resize:vertical"></textarea>
-        <label class="form-label" style="margin-top:14px">Additional details (optional)</label>
-        <textarea class="input" id="fb-details" rows="3" placeholder="Steps to reproduce, links, etc." style="height:auto;padding:10px 14px;resize:vertical"></textarea>
-        <button class="btn btn--primary btn--block" id="fb-send" style="margin-top:16px">Send</button>
-      </div>
-    </div>`;
-  showSheet(sheet);
-
-  let type = 'bug_report';
-
-  sheet.onclick = async (e) => {
-    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
-
-    const typeBtn = e.target.closest('[data-fb-type]');
-    if (typeBtn) {
-      type = typeBtn.dataset.fbType;
-      sheet.querySelectorAll('#fb-type .unit-btn').forEach((b) => b.classList.toggle('unit-btn--active', b === typeBtn));
-      return;
-    }
-
-    if (e.target.closest('#fb-send')) {
-      const message = sheet.querySelector('#fb-message').value.trim();
-      const details = sheet.querySelector('#fb-details').value.trim();
-      if (!message) return toast('Describe what\'s going on first');
-      try {
-        await reportBugManually(message, { type, details });
-        haptic(10);
-        toast('Sent — thanks!');
-        hideSheet(sheet);
       } catch (err) { toast(err.message); }
     }
   };
