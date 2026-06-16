@@ -5,7 +5,7 @@
 import { LS } from './utils.js';
 import { API } from './api.js';
 
-const SW_VERSION = 'ironlog-v68';
+const SW_VERSION = 'ironlog-v69';
 const SEEN_KEY = 'ironlog.bugReportsSeen';
 const SEEN_WINDOW_MS = 5 * 60 * 1000;
 

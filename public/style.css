@@ -1985,7 +1985,18 @@ button {
 
 /* Settings sheet */
 .settings-group {
-  margin-bottom: 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 16px;
+  margin-bottom: 8px;
+}
+.settings-group--free {
+  padding: 14px 16px;
+}
+.settings-group .card__subtitle {
+  padding-bottom: 12px;
+  margin-top: 4px;
 }
 
 .settings-group__title {
@@ -1994,7 +2005,10 @@ button {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-bottom: 10px;
+  margin: 22px 4px 6px;
+}
+.settings-group__title:first-child {
+  margin-top: 4px;
 }
 
 .settings-row {
@@ -2002,12 +2016,13 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--border);
-  font-size: 14px;
+  font-size: 15px;
+  min-height: 52px;
+  box-sizing: border-box;
 }
-
-.settings-row:first-of-type {
+.settings-group .settings-row:first-child {
   border-top: none;
 }
 

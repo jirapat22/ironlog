@@ -42,9 +42,18 @@ async function openSettingsSheet() {
 
   const standalone = isStandalone();
 
-  const accountGroup = me ? `
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Settings</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+
+        ${me ? `
+        <div class="settings-group__title">Profile</div>
         <div class="settings-group">
-          <div class="settings-group__title">Profile</div>
           <div class="settings-row">
             <span>Signed in as</span>
             <span class="profile-pill" style="background:${escapeHtml(me.accent_color || '#e8643c')}">${escapeHtml(me.name)}</span>
@@ -56,32 +65,44 @@ async function openSettingsSheet() {
             </div>
           </div>
           <div class="settings-row"><span>Passcode</span><button class="btn btn--ghost btn--sm" id="change-pass">Change</button></div>
-        </div>
-        <div class="settings-group">
-          <div class="settings-group__title">Plated API key</div>
-          <div class="card__subtitle" style="margin-bottom:8px">Paste this into your Plated profile so it can read your IronLog data.</div>
-          <div class="apikey-box" id="apikey-box">${escapeHtml(me.api_key)}</div>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <button class="btn btn--ghost btn--sm" id="copy-key" style="flex:1">Copy</button>
-            <button class="btn btn--ghost btn--sm" id="regen-key" style="flex:1">Regenerate</button>
-          </div>
-        </div>` : '';
+        </div>` : ''}
 
-  sheet.innerHTML = `
-    <div class="sheet__inner">
-      <div class="sheet__head">
-        <button class="btn--icon" data-close-sheet>←</button>
-        <div class="sheet__title">Settings</div>
-        <span style="width:40px"></span>
-      </div>
-      <div class="sheet__body">
-        ${accountGroup}
+        <div class="settings-group__title">Exercises</div>
         <div class="settings-group">
-          <div class="settings-group__title">Notifications</div>
+          <div class="settings-row">
+            <span>Manage exercises</span>
+            <button class="btn btn--ghost btn--sm" id="open-ex-library">View</button>
+          </div>
+          <div class="card__subtitle">Edit muscle group, sub-muscle and "also works" tags, see usage stats, or delete unused exercises.</div>
+        </div>
+
+        <div class="settings-group__title">Ideas &amp; Bugs</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <span>Upgrade ideas &amp; bug list</span>
+            <button class="btn btn--ghost btn--sm" id="open-notes">Open</button>
+          </div>
+          <div class="card__subtitle">A checklist for things to build or fix — also sent to Orbit for review. Tick items off when done.</div>
+        </div>
+
+        <div class="settings-group__title">Workout</div>
+        <div class="settings-group">
+          <div class="settings-row">
+            <span>Weight unit</span>
+            <div class="unit-pick">
+              <button class="unit-btn ${prefUnit === 'kg' ? 'unit-btn--active' : ''}" data-pref-unit="kg">kg</button>
+              <button class="unit-btn ${prefUnit === 'lbs' ? 'unit-btn--active' : ''}" data-pref-unit="lbs">lbs</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group__title">Notifications</div>
+        <div class="settings-group ${!canNotif || perm === 'denied' ? 'settings-group--free' : ''}">
           ${notifBody}
         </div>
+
+        <div class="settings-group__title">Reminders</div>
         <div class="settings-group">
-          <div class="settings-group__title">Reminders</div>
           <label class="settings-row">
             <span>Missed-training nudge</span>
             <button class="toggle ${nudgeOn ? 'toggle--on' : ''}" id="toggle-nudge" aria-pressed="${nudgeOn}"><span class="toggle__dot"></span></button>
@@ -94,62 +115,52 @@ async function openSettingsSheet() {
               <button class="stepper__btn" data-nudge-step="1">+</button>
             </div>
           </div>
-          <div class="card__subtitle" style="margin-top:6px">Quiet hours: 10pm–8am. Requires notifications on.</div>
-          <label class="settings-row" style="margin-top:10px">
-            <span>Weekly summary (Sundays 7pm)</span>
+          <label class="settings-row">
+            <span>Weekly summary <span class="settings-row__val">(Sundays 7pm)</span></span>
             <button class="toggle ${weeklyOn ? 'toggle--on' : ''}" id="toggle-weekly" aria-pressed="${weeklyOn}"><span class="toggle__dot"></span></button>
           </label>
+          <div class="card__subtitle">Quiet hours: 10pm–8am. Requires notifications on.</div>
         </div>
+
+        <div class="settings-group__title">Data</div>
         <div class="settings-group">
-          <div class="settings-group__title">Workout defaults</div>
-          <div class="settings-row">
-            <span>Weight unit</span>
-            <div class="unit-pick">
-              <button class="unit-btn ${prefUnit === 'kg' ? 'unit-btn--active' : ''}" data-pref-unit="kg">kg</button>
-              <button class="unit-btn ${prefUnit === 'lbs' ? 'unit-btn--active' : ''}" data-pref-unit="lbs">lbs</button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-group">
-          <div class="settings-group__title">App</div>
-          <div class="settings-row"><span>Installed as PWA</span><span class="settings-row__val">${standalone ? 'Yes' : 'No'}</span></div>
-        </div>
-        ${me ? `
-        <div class="settings-group">
-          <div class="settings-group__title">Account</div>
-          <button class="btn btn--ghost btn--block" id="logout-btn">Log out</button>
-          <button class="btn btn--danger btn--block" id="delete-profile" style="margin-top:8px">Delete profile</button>
-          <div class="card__subtitle" style="margin-top:6px">Deleting removes this profile and all its workouts, body weight and settings. This cannot be undone.</div>
-        </div>` : ''}
-        <div class="settings-group">
-          <div class="settings-group__title">Exercises</div>
-          <div class="settings-row">
-            <span>Manage exercises</span>
-            <button class="btn btn--ghost btn--sm" id="open-ex-library">View</button>
-          </div>
-          <div class="card__subtitle" style="margin-top:4px">Edit muscle group, sub-muscle and "also works" tags, see usage stats, or delete unused exercises.</div>
-        </div>
-        <div class="settings-group">
-          <div class="settings-group__title">Ideas &amp; Bugs</div>
-          <div class="settings-row">
-            <span>Upgrade ideas &amp; bug list</span>
-            <button class="btn btn--ghost btn--sm" id="open-notes">Open</button>
-          </div>
-          <div class="card__subtitle" style="margin-top:4px">A checklist for things to build or fix — also sent to Orbit for review. Tick items off when done.</div>
-        </div>
-        <div class="settings-group">
-          <div class="settings-group__title">Data</div>
-          <div class="settings-row"><span>Export everything to JSON</span><a class="btn btn--ghost btn--sm" href="/api/export" download>Download</a></div>
+          <div class="settings-row"><span>Export to JSON</span><a class="btn btn--ghost btn--sm" href="/api/export" download>Download</a></div>
           <div class="settings-row">
             <span>Restore from backup</span>
             <label class="btn btn--ghost btn--sm" style="cursor:pointer">Import<input type="file" accept=".json" id="import-file-input" style="display:none"/></label>
           </div>
-          <div class="card__subtitle" style="margin-top:4px">Export includes all workouts, sets, body weight, PRs and programs. Import merges — duplicate records are skipped safely.</div>
+          <div class="card__subtitle">Export includes all workouts, sets, body weight, PRs and programs. Import merges — duplicate records are skipped safely.</div>
         </div>
+
+        ${me ? `
+        <div class="settings-group__title">Plated API Key</div>
+        <div class="settings-group settings-group--free">
+          <div class="card__subtitle" style="margin-bottom:10px;padding-bottom:0">Paste this into your Plated profile so it can read your IronLog data.</div>
+          <div class="apikey-box" id="apikey-box">${escapeHtml(me.api_key)}</div>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn--ghost btn--sm" id="copy-key" style="flex:1">Copy</button>
+            <button class="btn btn--ghost btn--sm" id="regen-key" style="flex:1">Regenerate</button>
+          </div>
+        </div>` : ''}
+
+        <div class="settings-group__title">App</div>
         <div class="settings-group">
-          <div class="settings-group__title">About</div>
-          <div class="card__subtitle">IronLog · open-source PWA gym tracker</div>
+          <div class="settings-row"><span>Installed as PWA</span><span class="settings-row__val">${standalone ? 'Yes' : 'No'}</span></div>
         </div>
+
+        ${me ? `
+        <div class="settings-group__title">Account</div>
+        <div class="settings-group settings-group--free">
+          <button class="btn btn--ghost btn--block" id="logout-btn">Log out</button>
+          <button class="btn btn--danger btn--block" id="delete-profile" style="margin-top:8px">Delete profile</button>
+          <div class="card__subtitle" style="margin-top:8px;padding-bottom:0">Deleting removes this profile and all its workouts, body weight and settings. This cannot be undone.</div>
+        </div>` : ''}
+
+        <div class="settings-group__title">About</div>
+        <div class="settings-group settings-group--free">
+          <div class="card__subtitle" style="padding-bottom:0">IronLog · open-source PWA gym tracker</div>
+        </div>
+
       </div>
     </div>`;
   showSheet(sheet);
