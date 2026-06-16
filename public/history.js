@@ -144,7 +144,7 @@ async function renderHistory() {
       catch (err) { toast(err.message); }
     });
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load history: ${err.message}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err.message)}</div>`;
   }
 }
 

@@ -218,7 +218,7 @@ router.get('/profile', (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
 
@@ -243,7 +243,7 @@ router.get('/bodyweight', (req, res) => {
       }))
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
 
@@ -303,7 +303,7 @@ router.post('/bodyweight', (req, res) => {
 
     res.json({ success: true, data: { date: day, weight_kg: kg, updated: !!existing } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
 
@@ -371,7 +371,7 @@ router.get('/workouts/calories', (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
 
@@ -422,7 +422,7 @@ router.get('/workouts/recent', (req, res) => {
       }))
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
 

@@ -286,6 +286,13 @@ function migrateMultiUser() {
     db.exec("ALTER TABLE bug_reports ADD COLUMN type TEXT NOT NULL DEFAULT 'bug_report'");
   }
 
+  // exercises.created_by_profile_id: tracks who added a custom exercise.
+  // NULL = seeded/legacy (editable by any profile). Non-null = only that profile
+  // can edit or delete it.
+  if (!columnExists('exercises', 'created_by_profile_id')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN created_by_profile_id INTEGER');
+  }
+
   // 2. app_settings: primary key must become (profile_id, key). Rebuild.
   if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
     tx(() => {

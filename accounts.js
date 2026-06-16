@@ -100,14 +100,14 @@ function countProfiles() {
   return db.prepare('SELECT COUNT(*) AS n FROM profiles').get().n;
 }
 
-// Public-safe view of a profile — never leaks the passcode hash/salt.
+// Public-safe view of a profile — never leaks the passcode hash/salt or api_key.
+// The api_key is a machine-to-machine secret; retrieve it only via GET /api/auth/me/api-key.
 function publicProfile(p) {
   if (!p) return null;
   return {
     id: p.id,
     name: p.name,
     accent_color: p.accent_color,
-    api_key: p.api_key,
     created_at: p.created_at
   };
 }

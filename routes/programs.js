@@ -103,7 +103,7 @@ router.post('/:id/duplicate', (req, res) => {
     const row = db.prepare('SELECT id, name, description FROM programs WHERE id = ?').get(newId);
     res.status(201).json(row);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err); res.status(500).json({ error: 'internal server error' });
   }
 });
 
@@ -221,7 +221,7 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
       });
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error(err); return res.status(500).json({ error: 'internal server error' });
   }
 
   const rows = db

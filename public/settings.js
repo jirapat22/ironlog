@@ -15,6 +15,9 @@ async function openSettingsSheet() {
   let me = null;
   try { me = (await API.me()).profile; } catch { /* not logged in */ }
 
+  let apiKey = null;
+  if (me) { try { apiKey = (await API.getApiKey()).api_key; } catch { /* ignore */ } }
+
   let serverSettings = {};
   try { serverSettings = await API.settings(); }
   catch { serverSettings = { nudge_enabled: '1', nudge_threshold_days: '3' }; }
@@ -136,7 +139,7 @@ async function openSettingsSheet() {
         <div class="settings-group__title">Plated API Key</div>
         <div class="settings-group settings-group--free">
           <div class="card__subtitle" style="margin-bottom:10px;padding-bottom:0">Paste this into your Plated profile so it can read your IronLog data.</div>
-          <div class="apikey-box" id="apikey-box">${escapeHtml(me.api_key)}</div>
+          <div class="apikey-box" id="apikey-box">${escapeHtml(apiKey || '')}</div>
           <div style="display:flex;gap:8px;margin-top:10px">
             <button class="btn btn--ghost btn--sm" id="copy-key" style="flex:1">Copy</button>
             <button class="btn btn--ghost btn--sm" id="regen-key" style="flex:1">Regenerate</button>
@@ -231,7 +234,7 @@ async function openSettingsSheet() {
 
     if (e.target.closest('#copy-key')) {
       try {
-        await navigator.clipboard.writeText(me.api_key);
+        await navigator.clipboard.writeText(apiKey || '');
         toast('API key copied');
       } catch { toast('Copy failed — select it manually'); }
       return;
@@ -242,7 +245,7 @@ async function openSettingsSheet() {
       if (!ok) return;
       try {
         const { api_key } = await API.regenerateApiKey();
-        me.api_key = api_key;
+        apiKey = api_key;
         const box = sheet.querySelector('#apikey-box');
         if (box) box.textContent = api_key;
         toast('New key generated — update Plated');
@@ -350,7 +353,7 @@ async function renderExerciseLibraryList(sheet) {
   let stats;
   try { stats = await API.exerciseStats(); }
   catch (err) {
-    document.getElementById('ex-lib-body').innerHTML = `<div class="empty">${err.message}</div>`;
+    document.getElementById('ex-lib-body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
     return;
   }
 

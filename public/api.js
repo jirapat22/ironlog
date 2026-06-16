@@ -94,6 +94,7 @@ const API = {
   me: () => api('/api/auth/me'),
   updateMe: (data) => api('/api/auth/me', { method: 'PATCH', body: data }),
   changePasscode: (passcode) => api('/api/auth/me/passcode', { method: 'POST', body: { passcode } }),
+  getApiKey: () => api('/api/auth/me/api-key'),
   regenerateApiKey: () => api('/api/auth/me/api-key', { method: 'POST' }),
   deleteMe: () => api('/api/auth/me', { method: 'DELETE' }),
   logout: () => api('/api/auth/logout', { method: 'POST' }),

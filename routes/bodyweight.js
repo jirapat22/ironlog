@@ -12,11 +12,15 @@ router.get('/', (req, res) => {
 
 router.post('/', (req, res) => {
   const { weight, weight_unit = 'kg', notes = null, logged_at = null } = req.body || {};
-  if (weight == null || isNaN(Number(weight))) {
-    return res.status(400).json({ error: 'weight is required' });
+  const w = Number(weight);
+  if (!Number.isFinite(w) || w <= 0) {
+    return res.status(400).json({ error: 'weight must be a positive number' });
   }
   if (!['kg', 'lbs'].includes(weight_unit)) {
     return res.status(400).json({ error: 'weight_unit must be kg or lbs' });
+  }
+  if (logged_at && !/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/.test(String(logged_at))) {
+    return res.status(400).json({ error: 'logged_at must be a valid date string (YYYY-MM-DD)' });
   }
 
   let info;

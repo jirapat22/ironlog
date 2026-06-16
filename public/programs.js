@@ -151,7 +151,7 @@ async function renderPrograms() {
       } catch (err) { toast(err.message); }
     });
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load programs: ${err.message}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load programs: ${escapeHtml(err.message)}</div>`;
   }
 }
 

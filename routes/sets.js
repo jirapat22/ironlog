@@ -104,6 +104,11 @@ router.post('/', (req, res) => {
     .get(workout_id, req.profileId);
   if (!workout) return res.status(404).json({ error: 'workout not found' });
 
+  // Validate that the exercise exists (prevents dangling foreign keys and
+  // phantom PR records from attacker-supplied exercise IDs).
+  const exercise = db.prepare('SELECT id FROM exercises WHERE id = ?').get(Number(exercise_id));
+  if (!exercise) return res.status(404).json({ error: 'exercise not found' });
+
   const info = db
     .prepare(
       `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup)

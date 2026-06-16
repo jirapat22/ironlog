@@ -19,10 +19,16 @@ const router = express.Router();
 // Fallback kcal/min for workouts with no stored calories (matches plated.js).
 const KCAL_PER_MIN = 4;
 
-// Optional API-key gate. When ORBIT_API_KEY is unset the feed is open.
+// API-key gate. ORBIT_API_KEY must be set; when absent, only localhost is
+// allowed (dev convenience). In production always set ORBIT_API_KEY.
 router.use((req, res, next) => {
   const expected = (process.env.ORBIT_API_KEY || '').trim();
-  if (!expected) return next();
+  if (!expected) {
+    const ip = req.ip || req.socket?.remoteAddress || '';
+    const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    if (isLocal) return next();
+    return res.status(401).json({ success: false, error: 'ORBIT_API_KEY not configured on this server' });
+  }
   const provided = (
     req.headers['x-api-key'] ||
     (req.headers.authorization || '').replace(/^Bearer\s+/i, '') ||
@@ -128,7 +134,8 @@ router.get('/', (req, res) => {
       open_notes: notes
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error('orbit feed error:', err);
+    res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
 

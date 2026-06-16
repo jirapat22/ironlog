@@ -27,7 +27,7 @@ router.post('/subscribe', (req, res) => {
 router.post('/unsubscribe', (req, res) => {
   const { endpoint } = req.body || {};
   if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
-  db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+  db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND profile_id = ?').run(endpoint, req.profileId);
   res.json({ ok: true });
 });
 

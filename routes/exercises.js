@@ -53,6 +53,9 @@ router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM exercises WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'exercise not found' });
+  if (existing.created_by_profile_id != null && existing.created_by_profile_id !== req.profileId) {
+    return res.status(403).json({ error: 'not your exercise' });
+  }
   const fields = ['name', 'muscle_group', 'notes', 'equipment', 'sub_muscle'];
   const updates = [], values = [];
   for (const f of fields) {
@@ -84,6 +87,11 @@ router.patch('/:id', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
+  const toDelete = db.prepare('SELECT created_by_profile_id FROM exercises WHERE id = ?').get(id);
+  if (!toDelete) return res.status(404).json({ error: 'exercise not found' });
+  if (toDelete.created_by_profile_id != null && toDelete.created_by_profile_id !== req.profileId) {
+    return res.status(403).json({ error: 'not your exercise' });
+  }
   // Refuse if exercise is still used in any program or has logged sets
   const inPrograms = db.prepare('SELECT COUNT(*) as n FROM program_day_exercises WHERE exercise_id = ?').get(id).n;
   const inSets = db.prepare('SELECT COUNT(*) as n FROM sets WHERE exercise_id = ?').get(id).n;
@@ -106,8 +114,8 @@ router.post('/', (req, res) => {
   const secondary = cleanSecondary(secondary_muscles, sub);
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(name.trim(), muscle_group.trim(), sub, secondary, notes || null, equip);
+      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), muscle_group.trim(), sub, secondary, notes || null, equip, req.profileId);
     const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(shapeExercise(row));
   } catch (err) {

@@ -140,7 +140,7 @@ async function renderProgress() {
 
     restoreCollapsedSections();
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load progress: ${err.message}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load progress: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -470,8 +470,8 @@ async function renderBodyweightSection() {
 
   currentEl.innerHTML = `
     <div class="bw-current__row">
-      <span class="bw-current__val">${latest.weight}</span>
-      <span class="bw-current__unit">${latest.weight_unit}</span>
+      <span class="bw-current__val">${escapeHtml(String(latest.weight))}</span>
+      <span class="bw-current__unit">${escapeHtml(latest.weight_unit)}</span>
       ${trendStr}
       <span class="bw-current__when">${humanAgo(latest.logged_at)}</span>
     </div>${staleNote}`;
