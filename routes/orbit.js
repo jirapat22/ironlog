@@ -114,15 +114,32 @@ router.get('/', (req, res) => {
       yesterday: daySummary(p.id, yesterday)
     }));
 
+    // Open notes (ideas & bugs) — included so Orbit can track and resolve them.
+    const notes = db
+      .prepare('SELECT id, text, category, done, created_at FROM notes WHERE done = 0 ORDER BY created_at DESC')
+      .all()
+      .map((n) => ({ ...n, created_at: n.created_at ? n.created_at.replace(' ', 'T') + 'Z' : null }));
+
     res.json({
       app: 'ironlog',
       generated_at: new Date().toISOString(),
       user_count: users.length,
-      users
+      users,
+      open_notes: notes
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// DELETE /api/orbit/notes/:id — called by Orbit when it marks an item resolved.
+// Auth reuses the same X-API-Key / ORBIT_API_KEY gate as the pull feed above.
+router.delete('/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const result = db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'not found' });
+  res.json({ deleted: true, id });
 });
 
 module.exports = router;

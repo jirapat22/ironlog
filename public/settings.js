@@ -490,7 +490,7 @@ async function openNotesSheet() {
       input.value = '';
       haptic(10);
       renderList();
-      reportBugManually(text, { type: category === 'bug' ? 'bug_report' : 'idea' }).catch(() => {});
+      reportBugManually(text, { type: category === 'bug' ? 'bug_report' : 'idea', extraContext: { note_id: note.id } }).catch(() => {});
     } catch (err) { toast(err.message); }
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addNote(); });

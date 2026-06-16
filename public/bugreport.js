@@ -5,7 +5,7 @@
 import { LS } from './utils.js';
 import { API } from './api.js';
 
-const SW_VERSION = 'ironlog-v69';
+const SW_VERSION = 'ironlog-v70';
 const SEEN_KEY = 'ironlog.bugReportsSeen';
 const SEEN_WINDOW_MS = 5 * 60 * 1000;
 
@@ -59,8 +59,8 @@ function installErrorReporting() {
 // Manual "Report a bug" / "Idea" — user-supplied description plus current
 // context. `type` is 'bug_report' (default) or 'idea'; `details` is an
 // optional free-text addendum (steps to reproduce, links, etc.).
-function reportBugManually(description, { type = 'bug_report', details = '' } = {}) {
-  const context = baseContext();
+function reportBugManually(description, { type = 'bug_report', details = '', extraContext = {} } = {}) {
+  const context = { ...baseContext(), ...extraContext };
   if (details) context.details = details;
   return API.reportBug({
     source: 'manual',
