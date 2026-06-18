@@ -196,10 +196,17 @@ router.get('/profile', (req, res) => {
       goalKcal         = tdee + (GOAL_OFFSETS[goal] ?? 0);
       macros           = computeMacros(goalKcal, weightKg, goal);
 
-      const macroKcal = macros.proteinG * 4 + macros.carbG * 4 + macros.fatG * 9;
-      assertInvariant(Math.abs(macroKcal - goalKcal) <= 50, 'macro grams do not add up to the calorie goal', {
-        profileId: pid, goalKcal, macroKcal, macros
-      });
+      // Carbs are the balancing macro, derived to fill what's left after
+      // protein + fat. When they hit the 0 floor (protein + fat alone already
+      // exceed the goal — e.g. a heavy lifter on an aggressive cut), the totals
+      // legitimately overshoot, so only assert the balance when carbs absorbed
+      // the remainder.
+      if (macros.carbG > 0) {
+        const macroKcal = macros.proteinG * 4 + macros.carbG * 4 + macros.fatG * 9;
+        assertInvariant(Math.abs(macroKcal - goalKcal) <= 50, 'macro grams do not add up to the calorie goal', {
+          profileId: pid, goalKcal, macroKcal, macros
+        });
+      }
     }
 
     res.json({

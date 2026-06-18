@@ -34,6 +34,13 @@ nudge.start();
 console.log('Nudge cron started');
 
 const app = express();
+// Railway terminates TLS at a single proxy hop in front of us. Trust exactly
+// that one hop so req.ip is the real client address (used by the login
+// rate-limiter) instead of the proxy's. Using 1 rather than `true` means a
+// client can't spoof X-Forwarded-For to dodge the limit — Express only trusts
+// the entry our own proxy appended.
+app.set('trust proxy', 1);
+
 // 50mb covers years of workout history in a single import. This is a small
 // private multi-user app (a handful of trusted profiles), so payload-flood DoS
 // isn't a real concern here.
