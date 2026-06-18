@@ -418,16 +418,39 @@ async function renderOverloadCharts() {
       if (key.startsWith('overload-')) { chartInstances[key].destroy(); delete chartInstances[key]; }
     }
 
-    const withEnoughData = history.filter((ex) => ex.sets.length >= 2);
-    if (!withEnoughData.length) {
-      root.innerHTML = `<div class="bw-current__empty">Log at least 2 sets of an exercise to see its trend.</div>`;
+    // Collapse each exercise to one point per SESSION: the best working-set
+    // e1RM that day. Plotting every set makes back-off/drop sets look like the
+    // lift got weaker mid-session — the top set is the honest progression
+    // signal. Need 2+ distinct sessions to draw a meaningful trend.
+    const series = [];
+    for (const ex of history) {
+      const byDay = new Map();
+      for (const s of ex.sets) {
+        const val = calcE1RM(s, ex, bwKg);
+        if (!val) continue; // skip sets that can't yield a real e1RM (e.g. unlogged-BW)
+        const day = s.logged_at.slice(0, 10);
+        if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
+      }
+      const days = [...byDay.keys()].sort();
+      if (days.length < 2) continue;
+      series.push({
+        exercise_id: ex.exercise_id,
+        exercise_name: ex.exercise_name,
+        muscle_group: ex.muscle_group,
+        labels: days,
+        values: days.map((d) => Math.round(byDay.get(d)))
+      });
+    }
+
+    if (!series.length) {
+      root.innerHTML = `<div class="bw-current__empty">Train an exercise across at least 2 sessions to see its trend.</div>`;
       return;
     }
 
     const byGroup = new Map();
-    for (const ex of withEnoughData) {
-      if (!byGroup.has(ex.muscle_group)) byGroup.set(ex.muscle_group, []);
-      byGroup.get(ex.muscle_group).push(ex);
+    for (const s of series) {
+      if (!byGroup.has(s.muscle_group)) byGroup.set(s.muscle_group, []);
+      byGroup.get(s.muscle_group).push(s);
     }
     const groupOrder = [...byGroup.keys()].sort((a, b) => {
       const ia = PICKER_GROUP_ORDER.indexOf(a), ib = PICKER_GROUP_ORDER.indexOf(b);
@@ -437,7 +460,7 @@ async function renderOverloadCharts() {
       return ia - ib;
     });
 
-    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Estimated 1-rep max per set, over time — the clearest sign you're getting stronger on a lift.</div>`;
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift.</div>`;
 
     root.innerHTML = subtitle + groupOrder.map((group) => {
       const exercises = [...byGroup.get(group)].sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
@@ -451,29 +474,29 @@ async function renderOverloadCharts() {
       </div>`;
     }).join('');
 
-    for (const ex of withEnoughData) renderOverloadChart(ex, bwKg);
+    for (const s of series) renderOverloadChart(s);
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
   }
 }
 
-function renderOverloadChart(ex, bwKg) {
-  const canvas = document.getElementById(`overload-chart-${ex.exercise_id}`);
+function renderOverloadChart(s) {
+  const canvas = document.getElementById(`overload-chart-${s.exercise_id}`);
   if (!canvas) return;
-  const key = `overload-${ex.exercise_id}`;
+  const key = `overload-${s.exercise_id}`;
   if (chartInstances[key]) chartInstances[key].destroy();
 
-  const sorted = [...ex.sets].sort((a, b) => a.logged_at.localeCompare(b.logged_at));
-  const labels = sorted.map((s) => s.logged_at.slice(0, 10));
-  const values = sorted.map((s) => Math.round(calcE1RM(s, ex, bwKg)));
   const d = chartDefaults();
   chartInstances[key] = new Chart(canvas, {
     type: 'line',
     data: {
-      labels,
+      labels: s.labels,
       datasets: [{
-        data: values, borderColor: '#5ac46a', backgroundColor: 'rgba(90,196,106,0.12)',
-        tension: 0.25, fill: true, pointRadius: 2, pointBackgroundColor: '#5ac46a', pointBorderColor: '#0f0f0f'
+        data: s.values, borderColor: '#5ac46a', backgroundColor: 'rgba(90,196,106,0.12)',
+        // 'monotone' keeps the curve from overshooting below/above the actual
+        // points — plain bezier tension invents phantom dips between values.
+        cubicInterpolationMode: 'monotone', tension: 0.25,
+        fill: true, pointRadius: 2, pointBackgroundColor: '#5ac46a', pointBorderColor: '#0f0f0f'
       }]
     },
     options: {
