@@ -455,7 +455,7 @@ function createSecondaryPicker(containerEl, getPrimary, initial = []) {
 const EXERCISE_GROUPS = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'arms', 'legs', 'core'];
 const EXERCISE_EQUIPMENT = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
 
-function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted } = {}) {
+function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, onCleared } = {}) {
   containerEl.innerHTML = `
     <div class="sheet__inner">
       <div class="sheet__head">
@@ -481,7 +481,9 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted } 
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
-        <button class="btn btn--ghost btn--block" id="edit-ex-delete" style="margin-top:10px;color:var(--danger)">Delete exercise</button>
+        ${ex.workout_count > 0
+          ? `<button class="btn btn--ghost btn--block" id="edit-ex-clear" style="margin-top:10px;color:var(--danger)">Clear logged data (${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''})</button>`
+          : `<button class="btn btn--ghost btn--block" id="edit-ex-delete" style="margin-top:10px;color:var(--danger)">Delete exercise</button>`}
       </div>
     </div>`;
 
@@ -513,7 +515,8 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted } 
     } catch (err) { toast(err.message); }
   };
 
-  containerEl.querySelector('#edit-ex-delete').onclick = async () => {
+  const deleteBtn = containerEl.querySelector('#edit-ex-delete');
+  if (deleteBtn) deleteBtn.onclick = async () => {
     const ok = await confirmSheet({ title: 'Delete exercise', message: `Delete "${ex.name}"? This only works if it's not used in any program or workout.`, confirmText: 'Delete', danger: true });
     if (!ok) return;
     try {
@@ -522,6 +525,22 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted } 
       toast(`Deleted ${ex.name}`);
       if (onDeleted) onDeleted();
     } catch (err) { toast(err.message); } // server returns 409 if in use
+  };
+
+  // Shown for exercises that have logged sets: wipe this profile's sets + PRs
+  // for the lift while keeping the catalog entry. Lets you scrub a stray or
+  // accidental log (a seeded exercise can't be deleted — it would re-seed).
+  const clearBtn = containerEl.querySelector('#edit-ex-clear');
+  if (clearBtn) clearBtn.onclick = async () => {
+    const ok = await confirmSheet({ title: 'Clear logged data', message: `Remove all your logged sets and PRs for "${ex.name}"? The exercise stays in your library. This can't be undone.`, confirmText: 'Clear data', danger: true });
+    if (!ok) return;
+    try {
+      const { sets_removed } = await API.clearExerciseData(ex.id);
+      haptic(20);
+      toast(`Cleared ${sets_removed} set${sets_removed !== 1 ? 's' : ''}`);
+      if (onCleared) onCleared();
+      else if (onSaved) onSaved(ex);
+    } catch (err) { toast(err.message); }
   };
 }
 

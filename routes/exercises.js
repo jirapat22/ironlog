@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, REGION_TO_GROUP } = require('../db');
+const { db, REGION_TO_GROUP, tx } = require('../db');
 
 const router = express.Router();
 
@@ -124,6 +124,21 @@ router.post('/', (req, res) => {
     }
     throw err;
   }
+});
+
+// Clear the current profile's logged data for an exercise — its sets and PR
+// cache — while keeping the catalog row. Used to scrub accidental/stray logs
+// without deleting a seeded exercise (which would just re-seed on restart).
+router.delete('/:id/sets', (req, res) => {
+  const id = Number(req.params.id);
+  const ex = db.prepare('SELECT id FROM exercises WHERE id = ?').get(id);
+  if (!ex) return res.status(404).json({ error: 'exercise not found' });
+  const removed = tx(() => {
+    const r = db.prepare('DELETE FROM sets WHERE exercise_id = ? AND profile_id = ?').run(id, req.profileId);
+    db.prepare('DELETE FROM personal_records WHERE exercise_id = ? AND profile_id = ?').run(id, req.profileId);
+    return r.changes;
+  });
+  res.json({ cleared: true, sets_removed: Number(removed) });
 });
 
 module.exports = router;

@@ -411,7 +411,8 @@ async function renderExerciseLibraryList(sheet) {
       renderExerciseEditForm(sheet, ex, {
         onBack: () => openExerciseLibrary(),
         onSaved: () => openExerciseLibrary(),
-        onDeleted: () => openExerciseLibrary()
+        onDeleted: () => openExerciseLibrary(),
+        onCleared: () => openExerciseLibrary()
       });
       return;
     }
