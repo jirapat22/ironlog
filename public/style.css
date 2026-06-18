@@ -2512,6 +2512,42 @@ button {
   color: var(--text-dim);
 }
 
+/* Progressive overload charts */
+.overload-group {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.overload-group:first-of-type {
+  border-top: none;
+}
+
+.overload-group__name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+
+.overload-exercise {
+  margin-bottom: 18px;
+}
+
+.overload-exercise:last-of-type {
+  margin-bottom: 0;
+}
+
+.overload-exercise__name {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.overload-chart-wrap {
+  position: relative;
+  height: 140px;
+}
+
 /* Readiness */
 .ready-row {
   padding: 10px 0;

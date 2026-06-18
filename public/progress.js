@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES } from './utils.js';
+import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER } from './utils.js';
 import { API } from './api.js';
 
 const chartInstances = {};
@@ -86,6 +86,15 @@ async function renderProgress() {
         <div id="tdee-card"></div>
       </div>
     </div>
+    <div class="progress-section" id="ps-overload">
+      <div class="progress-section__head">
+        <div class="progress-section__title" style="margin:0">Progressive Overload</div>
+        <button class="ps-toggle" data-ps-toggle="ps-overload">▾</button>
+      </div>
+      <div class="ps-body">
+        <div id="overload-charts"></div>
+      </div>
+    </div>
     <div class="progress-section" id="ps-pr">
       <div class="progress-section__head">
         <div class="progress-section__title" style="margin:0">Personal Records</div>
@@ -135,6 +144,7 @@ async function renderProgress() {
     await renderBodyweightSection();
     renderCalendar(calendarDates);
     renderMuscleFrequency();
+    renderOverloadCharts();
     renderPrTimeline();
     renderTdeeSection();
 
@@ -393,6 +403,86 @@ function renderCalendar(entries) {
   `;
 }
 
+
+// Estimated-1RM trend per set, grouped by muscle group then exercise.
+// Needs at least 2 sets on an exercise to draw a meaningful line.
+async function renderOverloadCharts() {
+  const root = $('#overload-charts');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+  try {
+    const [history, bwRows] = await Promise.all([API.strengthHistory(), API.bodyweight().catch(() => [])]);
+    const bwKg = bwRows.length ? toKg(bwRows[0].weight, bwRows[0].weight_unit) : 0;
+
+    for (const key of Object.keys(chartInstances)) {
+      if (key.startsWith('overload-')) { chartInstances[key].destroy(); delete chartInstances[key]; }
+    }
+
+    const withEnoughData = history.filter((ex) => ex.sets.length >= 2);
+    if (!withEnoughData.length) {
+      root.innerHTML = `<div class="bw-current__empty">Log at least 2 sets of an exercise to see its trend.</div>`;
+      return;
+    }
+
+    const byGroup = new Map();
+    for (const ex of withEnoughData) {
+      if (!byGroup.has(ex.muscle_group)) byGroup.set(ex.muscle_group, []);
+      byGroup.get(ex.muscle_group).push(ex);
+    }
+    const groupOrder = [...byGroup.keys()].sort((a, b) => {
+      const ia = PICKER_GROUP_ORDER.indexOf(a), ib = PICKER_GROUP_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Estimated 1-rep max per set, over time — the clearest sign you're getting stronger on a lift.</div>`;
+
+    root.innerHTML = subtitle + groupOrder.map((group) => {
+      const exercises = [...byGroup.get(group)].sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
+      return `<div class="overload-group">
+        <div class="overload-group__name">${escapeHtml(group)}</div>
+        ${exercises.map((ex) => `
+          <div class="overload-exercise">
+            <div class="overload-exercise__name">${escapeHtml(ex.exercise_name)}</div>
+            <div class="overload-chart-wrap"><canvas id="overload-chart-${ex.exercise_id}"></canvas></div>
+          </div>`).join('')}
+      </div>`;
+    }).join('');
+
+    for (const ex of withEnoughData) renderOverloadChart(ex, bwKg);
+  } catch (err) {
+    root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderOverloadChart(ex, bwKg) {
+  const canvas = document.getElementById(`overload-chart-${ex.exercise_id}`);
+  if (!canvas) return;
+  const key = `overload-${ex.exercise_id}`;
+  if (chartInstances[key]) chartInstances[key].destroy();
+
+  const sorted = [...ex.sets].sort((a, b) => a.logged_at.localeCompare(b.logged_at));
+  const labels = sorted.map((s) => s.logged_at.slice(0, 10));
+  const values = sorted.map((s) => Math.round(calcE1RM(s, ex, bwKg)));
+  const d = chartDefaults();
+  chartInstances[key] = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values, borderColor: '#5ac46a', backgroundColor: 'rgba(90,196,106,0.12)',
+        tension: 0.25, fill: true, pointRadius: 2, pointBackgroundColor: '#5ac46a', pointBorderColor: '#0f0f0f'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg` } } },
+      scales: { x: { ...d, ticks: { ...d.ticks, maxTicksLimit: 6 } }, y: { ...d, beginAtZero: false } }
+    }
+  });
+}
 
 async function renderPrTimeline() {
   const root = $('#pr-timeline');

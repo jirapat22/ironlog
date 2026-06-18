@@ -67,6 +67,7 @@ const API = {
   updateSet: (id, data) => api(`/api/sets/${id}`, { method: 'PATCH', body: data }),
   deleteSet: (id) => api(`/api/sets/${id}`, { method: 'DELETE' }),
   progress: (exerciseId) => api(`/api/progress/${exerciseId}`),
+  strengthHistory: () => api('/api/strength-history'),
   weeklyVolume: (weeks = 8) => api(`/api/volume/weekly${weeks > 0 ? `?weeks=${weeks}` : ''}`),
   calendar: () => api(`/api/calendar?tzOffset=${-new Date().getTimezoneOffset()}`),
   prs: () => api('/api/prs'),

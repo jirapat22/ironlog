@@ -162,6 +162,37 @@ router.get('/sub-muscle-frequency', (req, res) => {
   res.json(rows);
 });
 
+// Per-set e1RM history grouped by exercise, for the progressive-overload
+// charts. Excludes warmup sets — they aren't working sets and would muddy
+// the strength trend.
+router.get('/strength-history', (req, res) => {
+  const rows = db.prepare(`
+    SELECT e.id as exercise_id, e.name as exercise_name, e.muscle_group,
+           e.is_bodyweight, e.is_assisted,
+           s.weight, s.weight_unit, s.reps, s.logged_at
+    FROM sets s
+    JOIN exercises e ON e.id = s.exercise_id
+    WHERE s.profile_id = ? AND s.is_warmup = 0
+    ORDER BY e.muscle_group, e.name, s.logged_at ASC
+  `).all(req.profileId);
+
+  const byExercise = new Map();
+  for (const r of rows) {
+    if (!byExercise.has(r.exercise_id)) {
+      byExercise.set(r.exercise_id, {
+        exercise_id: r.exercise_id,
+        exercise_name: r.exercise_name,
+        muscle_group: r.muscle_group,
+        is_bodyweight: !!r.is_bodyweight,
+        is_assisted: !!r.is_assisted,
+        sets: []
+      });
+    }
+    byExercise.get(r.exercise_id).sets.push({ weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, logged_at: r.logged_at });
+  }
+  res.json([...byExercise.values()]);
+});
+
 router.get('/prs', (req, res) => {
   const rows = db
     .prepare(

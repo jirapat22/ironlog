@@ -74,6 +74,7 @@ router.post('/profiles', (req, res) => {
     return res.status(429).json({ error: 'too many attempts — try again in 15 minutes' });
   }
   const { name, passcode, accent_color } = req.body || {};
+  const result = accounts.createProfile({ name, passcode, accent_color });
   if (result.error) {
     return res.status(result.status || 400).json({ error: result.error });
   }
