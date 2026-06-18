@@ -8,6 +8,9 @@ const REST_SECONDS = 180; // 3 minutes
 function reportApiError(path, method, status, message) {
   if (status >= 400 && status < 500) return;
   if (!navigator.onLine) return;
+  // Never report failures of the reporting endpoint itself — that just feeds
+  // a self-referential loop (bounded by dedupe/cap, but pure noise).
+  if (String(path).includes('/api/bug-report')) return;
   document.dispatchEvent(new CustomEvent('ironlog:api-error', { detail: { path, method, status, message } }));
 }
 

@@ -19,7 +19,7 @@ const notesRouter = require('./routes/notes');
 const authRouter = require('./routes/auth');
 const bugReportRouter = require('./routes/bugReport');
 const { requireProfile, optionalProfile } = require('./auth');
-const { sendBugReportToOrbit } = require('./lib/orbitReport');
+const { recordBugReport } = require('./lib/bugReports');
 const nudge = require('./nudge');
 
 init();
@@ -159,17 +159,15 @@ app.get('*', (req, res) => {
 app.use((err, req, res, next) => {
   console.error(err);
   if (!err.status || err.status >= 500) {
-    db.prepare(
-      'INSERT INTO bug_reports (profile_id, source, message, stack, context) VALUES (?, ?, ?, ?, ?)'
-    ).run(req.profileId || null, 'backend', err.message || 'unknown error', err.stack || null,
-      JSON.stringify({ method: req.method, path: req.originalUrl }));
-    sendBugReportToOrbit({
+    // Route through the shared pipeline so a flapping 500 is deduped (5-min
+    // window) instead of inserting a row + Orbit POST on every request.
+    recordBugReport({
+      profileId: req.profileId || null,
       source: 'backend',
       message: err.message || 'unknown error',
       stack: err.stack || null,
-      context: { method: req.method, path: req.originalUrl },
-      created_at: new Date().toISOString()
-    }).catch(() => {});
+      context: { method: req.method, path: req.originalUrl, kind: 'unhandled' }
+    });
   }
   if (res.headersSent) return next(err);
   res.status(err.status || 500).json({
