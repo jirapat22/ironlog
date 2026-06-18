@@ -1,6 +1,7 @@
 import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise } from './utils.js';
 import { API } from './api.js';
 import { saveAsTemplate } from './workout.js';
+import { reportHandled } from './bugreport.js';
 
 // ---------- HISTORY tab ----------
 async function renderHistory() {
@@ -431,7 +432,8 @@ async function flushHistoryNotes() {
     const prev = el.dataset.prev || null;
     const value = el.value.trim() || null;
     if (value === prev) continue;
-    try { await API.updateWorkout(Number(card.dataset.id), { notes: value }); el.dataset.prev = value ?? ''; } catch { /* ignore */ }
+    try { await API.updateWorkout(Number(card.dataset.id), { notes: value }); el.dataset.prev = value ?? ''; }
+    catch (err) { reportHandled(err, { where: 'flushHistoryNotes', workoutId: card.dataset.id }); }
   }
 }
 

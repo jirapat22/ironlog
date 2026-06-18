@@ -35,6 +35,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { platedAuth } = require('../auth');
+const { assertInvariant } = require('../lib/bugReports');
 
 const router = express.Router();
 
@@ -194,6 +195,11 @@ router.get('/profile', (req, res) => {
       tdee             = Math.round(bmr * multiplier);
       goalKcal         = tdee + (GOAL_OFFSETS[goal] ?? 0);
       macros           = computeMacros(goalKcal, weightKg, goal);
+
+      const macroKcal = macros.proteinG * 4 + macros.carbG * 4 + macros.fatG * 9;
+      assertInvariant(Math.abs(macroKcal - goalKcal) <= 50, 'macro grams do not add up to the calorie goal', {
+        profileId: pid, goalKcal, macroKcal, macros
+      });
     }
 
     res.json({
@@ -344,6 +350,16 @@ router.get('/workouts/calories', (req, res) => {
            AND w.finished_at IS NOT NULL`
       )
       .all(req.profileId, mod, date);
+
+    // Cross-check the SQL date() bucketing above against the JS tz-bucketing
+    // helper used elsewhere — they implement the same rule independently, so
+    // a drift between them (e.g. an edge-of-day boundary) is a real bug.
+    for (const w of rows) {
+      const startedMs = new Date(w.started_at.replace(' ', 'T') + 'Z').getTime();
+      assertInvariant(localDateStr(startedMs, tz) === date, 'workout bucketed to wrong local day', {
+        profileId: req.profileId, workoutId: w.id, requestedDate: date, startedAt: w.started_at, tz
+      });
+    }
 
     const sessions = rows.map((w) => {
       const burned =

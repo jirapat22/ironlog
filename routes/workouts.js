@@ -2,6 +2,7 @@ const express = require('express');
 const { db } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { caloriesFromSets } = require('../calories');
+const { assertInvariant } = require('../lib/bugReports');
 
 const router = express.Router();
 
@@ -155,6 +156,10 @@ router.patch('/:id/finish', (req, res) => {
   const lastMs = new Date(lastActivity.replace(' ', 'T') + 'Z').getTime();
   const capMs = lastMs + 10 * 60 * 1000;
   const finishMs = Math.min(Date.now(), capMs);
+  const startedMs = new Date(w.started_at.replace(' ', 'T') + 'Z').getTime();
+  assertInvariant(finishMs >= startedMs, 'workout finished_at before started_at', {
+    profileId: req.profileId, workoutId: id, startedMs, finishMs
+  });
   const finishedAt = new Date(finishMs).toISOString().slice(0, 19).replace('T', ' ');
 
   const latestBw = db.prepare(
@@ -170,6 +175,9 @@ router.patch('/:id/finish', (req, res) => {
     .prepare('SELECT s.reps, s.is_warmup, e.met FROM sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ?')
     .all(id);
   const caloriesBurned = caloriesFromSets(setRows, bwKg);
+  assertInvariant(Number.isFinite(caloriesBurned) && caloriesBurned >= 0, 'calories_burned is not a finite number >= 0', {
+    profileId: req.profileId, workoutId: id, caloriesBurned, setCount: setRows.length
+  });
 
   db.prepare('UPDATE workouts SET finished_at = ?, bw_kg = ?, calories_burned = ? WHERE id = ?')
     .run(finishedAt, bwKg, caloriesBurned, id);

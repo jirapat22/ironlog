@@ -1,10 +1,21 @@
 // ---------- API ----------
 const REST_SECONDS = 180; // 3 minutes
 
+// Report genuine API failures (network errors, 5xx) for automatic bug
+// tracking. Skips 4xx (expected validation/conflict/not-found responses,
+// not bugs) and skips entirely while offline (every call fails then — that's
+// not a bug, it's the network).
+function reportApiError(path, method, status, message) {
+  if (status >= 400 && status < 500) return;
+  if (!navigator.onLine) return;
+  document.dispatchEvent(new CustomEvent('ironlog:api-error', { detail: { path, method, status, message } }));
+}
+
 async function api(path, opts = {}) {
   const controller = new AbortController();
   const timeoutMs = opts.timeoutMs ?? 30000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const method = opts.method || 'GET';
   try {
     const res = await fetch(path, {
       headers: { 'Content-Type': 'application/json' },
@@ -22,11 +33,23 @@ async function api(path, opts = {}) {
     }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      const message = err.error || `HTTP ${res.status}`;
+      reportApiError(path, method, res.status, message);
+      const thrown = new Error(message);
+      thrown.reported = true;
+      throw thrown;
     }
     return res.json();
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error('Request timed out');
+    if (err.name === 'AbortError') {
+      reportApiError(path, method, 0, 'Request timed out');
+      throw new Error('Request timed out');
+    }
+    if (!err.unauthorized && !err.reported) {
+      // Network-level failure (offline, DNS, CORS) — never reached fetch's
+      // response handling above, so it hasn't been reported yet.
+      reportApiError(path, method, 0, err.message);
+    }
     throw err;
   } finally {
     clearTimeout(timer);

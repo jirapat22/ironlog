@@ -1,5 +1,6 @@
 import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER } from './utils.js';
 import { API } from './api.js';
+import { assert } from './bugreport.js';
 
 const chartInstances = {};
 let localBwKg = 0; // updated by renderBodyweightSection; used for strength chart & PR timeline
@@ -845,10 +846,18 @@ function openBodyweightSheet() {
       if (!weight || weight <= 0) return toast('Enter a weight');
       let logged_at = null;
       if (dateVal) { const d = new Date(dateVal); logged_at = d.toISOString().slice(0, 19).replace('T', ' '); }
+      const prevBwKg = localBwKg;
       try {
         await API.addBodyweight({ weight, weight_unit: unit, notes, logged_at });
-        hideSheet(sheet); haptic(20); toast('Logged');
+        hideSheet(sheet); haptic(20);
         await renderBodyweightSection();
+        const newBwKg = toKg(weight, unit);
+        const deltaKg = Math.abs(newBwKg - prevBwKg);
+        const jumpOk = prevBwKg <= 0 || (deltaKg <= 5 && deltaKg / prevBwKg <= 0.15);
+        assert(jumpOk, 'large bodyweight jump between consecutive entries', {
+          prevBwKg: +prevBwKg.toFixed(2), newBwKg: +newBwKg.toFixed(2), deltaKg: +deltaKg.toFixed(2)
+        });
+        toast(jumpOk ? 'Logged' : `Logged — that's a ${deltaKg.toFixed(1)}kg jump since last time, worth double-checking`);
       } catch (err) { toast(err.message); }
     }
   };

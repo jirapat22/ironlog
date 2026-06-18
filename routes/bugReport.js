@@ -7,58 +7,17 @@
 'use strict';
 
 const express = require('express');
-const { db } = require('../db');
-const { sendBugReportToOrbit } = require('../lib/orbitReport');
+const { recordBugReport } = require('../lib/bugReports');
 
 const router = express.Router();
 
-const SOURCES = ['frontend', 'backend', 'manual'];
-const TYPES = ['bug_report', 'idea'];
-const DEDUPE_WINDOW_SECONDS = 300; // 5 minutes
-
-router.post('/', async (req, res) => {
+router.post('/', (req, res) => {
   const { source, message, stack, context, type } = req.body || {};
   if (!message || !String(message).trim()) {
     return res.status(400).json({ error: 'message is required' });
   }
-  const src = SOURCES.includes(source) ? source : 'frontend';
-  const typ = TYPES.includes(type) ? type : 'bug_report';
-  const msg = String(message).trim().slice(0, 2000);
-  const stk = stack ? String(stack).slice(0, 8000) : null;
-  const ctxStr = context ? JSON.stringify(context).slice(0, 4000) : null;
-
-  // Dedupe identical reports (same source+message+stack) within a short
-  // window so a tight error loop doesn't spam Orbit / fill the table.
-  const dupe = db
-    .prepare(
-      `SELECT id FROM bug_reports
-       WHERE source = ? AND message = ? AND IFNULL(stack, '') = IFNULL(?, '')
-         AND created_at >= datetime('now', ?)
-       ORDER BY id DESC LIMIT 1`
-    )
-    .get(src, msg, stk, `-${DEDUPE_WINDOW_SECONDS} seconds`);
-  if (dupe) return res.status(202).json({ received: true, deduped: true });
-
-  const info = db
-    .prepare(
-      'INSERT INTO bug_reports (profile_id, source, message, stack, context, type) VALUES (?, ?, ?, ?, ?, ?)'
-    )
-    .run(req.profileId || null, src, msg, stk, ctxStr, typ);
-
-  res.status(202).json({ received: true });
-
-  // Forward to Orbit after responding — never block the caller on it.
-  const result = await sendBugReportToOrbit({
-    type: typ,
-    source: src,
-    message: msg,
-    stack: stk,
-    context: context || null,
-    created_at: new Date().toISOString()
-  });
-  if (result.sent) {
-    db.prepare('UPDATE bug_reports SET orbit_sent = 1 WHERE id = ?').run(Number(info.lastInsertRowid));
-  }
+  const result = recordBugReport({ profileId: req.profileId || null, source, message, stack, context, type });
+  res.status(202).json({ received: true, deduped: !!result.deduped });
 });
 
 module.exports = router;

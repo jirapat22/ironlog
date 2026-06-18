@@ -1,6 +1,7 @@
 const express = require('express');
 const { db, tx } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
+const { reportHandled } = require('../lib/bugReports');
 
 const router = express.Router();
 // Body parser size is set globally in server.js — no inline override needed.
@@ -125,7 +126,8 @@ router.post('/', (req, res) => {
 
   // Recompute PRs for every exercise touched by the import
   for (const exId of affectedExercises) {
-    try { recomputePrsForExercise(profileId, exId); } catch { /* ignore */ }
+    try { recomputePrsForExercise(profileId, exId); }
+    catch (err) { reportHandled(err, { profileId, route: 'POST /api/import', step: 'recompute_prs', exerciseId: exId }); }
   }
 
   // Every workout/bodyweight is inserted fresh under the current profile, so

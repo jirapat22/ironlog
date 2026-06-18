@@ -1,7 +1,7 @@
 import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
-import { reportBugManually } from './bugreport.js';
+import { reportBugManually, reportHandled } from './bugreport.js';
 
 // Keep in sync with the lock-screen palette in app.js.
 const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
@@ -16,7 +16,7 @@ async function openSettingsSheet() {
   try { me = (await API.me()).profile; } catch { /* not logged in */ }
 
   let apiKey = null;
-  if (me) { try { apiKey = (await API.getApiKey()).api_key; } catch { /* ignore */ } }
+  if (me) { try { apiKey = (await API.getApiKey()).api_key; } catch (err) { reportHandled(err, { where: 'openSettingsSheet:getApiKey' }); } }
 
   let serverSettings = {};
   try { serverSettings = await API.settings(); }
