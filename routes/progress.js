@@ -167,7 +167,7 @@ router.get('/sub-muscle-frequency', (req, res) => {
 // the strength trend.
 router.get('/strength-history', (req, res) => {
   const rows = db.prepare(`
-    SELECT e.id as exercise_id, e.name as exercise_name, e.muscle_group,
+    SELECT e.id as exercise_id, e.name as exercise_name, e.muscle_group, e.sub_muscle,
            e.is_bodyweight, e.is_assisted,
            s.weight, s.weight_unit, s.reps, s.logged_at
     FROM sets s
@@ -183,6 +183,7 @@ router.get('/strength-history', (req, res) => {
         exercise_id: r.exercise_id,
         exercise_name: r.exercise_name,
         muscle_group: r.muscle_group,
+        sub_muscle: r.sub_muscle || null,
         is_bodyweight: !!r.is_bodyweight,
         is_assisted: !!r.is_assisted,
         sets: []

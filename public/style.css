@@ -2615,11 +2615,38 @@ button {
   font-size: 13px;
   font-weight: 500;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.overload-plateau-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #f0a92c;
+  background: rgba(240, 169, 44, 0.15);
+  border: 1px solid rgba(240, 169, 44, 0.35);
+  padding: 1px 7px;
+  border-radius: 999px;
 }
 
 .overload-chart-wrap {
   position: relative;
   height: 140px;
+}
+
+.overload-plateau-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.overload-plateau-tip strong {
+  color: #f0a92c;
+  text-transform: capitalize;
 }
 
 /* Readiness */

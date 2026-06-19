@@ -405,6 +405,18 @@ function renderCalendar(entries) {
 }
 
 
+// Plateau = no new e1RM high across the last 3 sessions. Compare the best of
+// the last 3 sessions to the best of everything before them; if it didn't clear
+// the prior best by more than ~1% (noise tolerance), the lift has stalled.
+// Needs 4+ sessions so there's a prior window to judge "no gain" against —
+// avoids false-flagging brand-new lifts that are still ramping up.
+function detectPlateau(values) {
+  if (values.length < 4) return false;
+  const recentBest = Math.max(...values.slice(-3));
+  const priorBest = Math.max(...values.slice(0, -3));
+  return recentBest <= priorBest * 1.01;
+}
+
 // Estimated-1RM trend per set, grouped by muscle group then exercise.
 // Needs at least 2 sets on an exercise to draw a meaningful line.
 async function renderOverloadCharts() {
@@ -434,12 +446,15 @@ async function renderOverloadCharts() {
       }
       const days = [...byDay.keys()].sort();
       if (days.length < 2) continue;
+      const values = days.map((d) => Math.round(byDay.get(d)));
       series.push({
         exercise_id: ex.exercise_id,
         exercise_name: ex.exercise_name,
         muscle_group: ex.muscle_group,
+        sub_muscle: ex.sub_muscle || null,
         labels: days,
-        values: days.map((d) => Math.round(byDay.get(d)))
+        values,
+        plateau: detectPlateau(values)
       });
     }
 
@@ -469,8 +484,12 @@ async function renderOverloadCharts() {
         <div class="overload-group__name">${escapeHtml(group)}</div>
         ${exercises.map((ex) => `
           <div class="overload-exercise">
-            <div class="overload-exercise__name">${escapeHtml(ex.exercise_name)}</div>
+            <div class="overload-exercise__name">
+              ${escapeHtml(ex.exercise_name)}
+              ${ex.plateau ? '<span class="overload-plateau-badge">Plateau</span>' : ''}
+            </div>
             <div class="overload-chart-wrap"><canvas id="overload-chart-${ex.exercise_id}"></canvas></div>
+            ${ex.plateau ? `<div class="overload-plateau-tip">No new high in 3 sessions — train <strong>${escapeHtml(ex.sub_muscle || ex.muscle_group)}</strong> more often to break the stall.</div>` : ''}
           </div>`).join('')}
       </div>`;
     }).join('');
