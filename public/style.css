@@ -12,7 +12,9 @@
   --radius: 14px;
   --radius-sm: 10px;
   --nav-h: 68px;
-  --header-h: 56px;
+  /* Includes the top safe-area inset (Dynamic Island / notch) so sticky
+     sub-headers that offset from the main header stay aligned with it. */
+  --header-h: calc(56px + env(safe-area-inset-top));
 }
 
 * {
@@ -34,7 +36,9 @@ body {
 body {
   min-height: 100vh;
   min-height: 100dvh;
-  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  /* Bottom clearance for the fixed nav is reserved once, on .app — reserving
+     it here too double-counted the safe-area inset and left a dead gap above
+     the nav. */
 }
 
 button,
@@ -58,14 +62,18 @@ button {
 .app {
   max-width: 720px;
   margin: 0 auto;
-  padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+  /* Reserve room for the fixed bottom nav + the home-indicator safe area,
+     counted once here (see body). */
+  padding: 0 16px calc(var(--nav-h) + env(safe-area-inset-bottom));
 }
 
 .app__header {
   position: sticky;
   top: 0;
   z-index: 10;
-  padding: 18px 4px 12px;
+  /* Pad the top by the safe-area inset so the title (left) and settings gear
+     (right) clear the Dynamic Island / notch on installed iPhones. */
+  padding: calc(18px + env(safe-area-inset-top)) 4px 12px;
   background: linear-gradient(var(--bg) 70%, transparent);
   backdrop-filter: blur(6px);
 }
