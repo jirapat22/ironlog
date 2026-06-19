@@ -1,15 +1,19 @@
 // ---------- API ----------
 const REST_SECONDS = 180; // 3 minutes
 
-// Report genuine API failures (network errors, 5xx) for automatic bug
-// tracking. Skips 4xx (expected validation/conflict/not-found responses,
-// not bugs) and skips entirely while offline (every call fails then — that's
-// not a bug, it's the network).
+// Report genuine API failures (5xx server errors) for automatic bug tracking.
+// Deliberately narrow, because the loudest false positives are NOT bugs:
+//   • 4xx — expected validation/conflict/not-found responses.
+//   • status 0 — the request never got a response: a network blip, a server
+//     redeploy, the tab being backgrounded, a navigation/reload aborting an
+//     in-flight fetch, or a timeout. Transport/infra noise, not an app bug,
+//     and the user already sees an error in the UI.
+//   • offline — every call fails then; that's the network, not a bug.
+//   • the bug-report endpoint itself — self-referential loop.
+// A 5xx means the server actually threw, which is worth surfacing.
 function reportApiError(path, method, status, message) {
-  if (status >= 400 && status < 500) return;
+  if (!status || status < 500) return;
   if (!navigator.onLine) return;
-  // Never report failures of the reporting endpoint itself — that just feeds
-  // a self-referential loop (bounded by dedupe/cap, but pure noise).
   if (String(path).includes('/api/bug-report')) return;
   document.dispatchEvent(new CustomEvent('ironlog:api-error', { detail: { path, method, status, message } }));
 }
