@@ -544,6 +544,55 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   };
 }
 
+// ---------- Exercise picker filtering ----------
+// Shared muscle-group filter chips + search for the exercise pickers (workout
+// add, swap, history add). All three render the same structure: a search input
+// and `.picker-group[data-group]` blocks of `.picker-row[data-name]` buttons.
+//
+// Markup: drop `pickerChipsHTML(keys)` right under the search input, give the
+// search input `data-picker-search`, then call `setupPickerFilter(pickerEl)`
+// once after rendering. A chip narrows to one muscle group and scrolls it into
+// view; search narrows rows by name; the two compose.
+function pickerChipsHTML(keys) {
+  return `<div class="picker-chips" data-picker-chips>
+    <button class="picker-chip picker-chip--active" data-chip="">All</button>
+    ${keys.map((g) => `<button class="picker-chip" data-chip="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+  </div>`;
+}
+
+function setupPickerFilter(pickerEl) {
+  const search = pickerEl.querySelector('[data-picker-search]');
+  const chipsBar = pickerEl.querySelector('[data-picker-chips]');
+  const apply = () => {
+    const q = (search?.value || '').trim().toLowerCase();
+    const activeChip = chipsBar?.querySelector('.picker-chip--active')?.dataset.chip || '';
+    pickerEl.querySelectorAll('.picker-row').forEach((r) => {
+      r.classList.toggle('hidden', !!q && !r.dataset.name.includes(q));
+    });
+    pickerEl.querySelectorAll('.picker-group').forEach((g) => {
+      const matchesChip = !activeChip || g.dataset.group === activeChip;
+      const anyRow = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
+      g.classList.toggle('hidden', !matchesChip || !anyRow);
+    });
+  };
+  if (search) search.addEventListener('input', apply);
+  if (chipsBar) {
+    chipsBar.addEventListener('click', (e) => {
+      const chip = e.target.closest('.picker-chip');
+      if (!chip) return;
+      chipsBar.querySelectorAll('.picker-chip').forEach((c) => c.classList.toggle('picker-chip--active', c === chip));
+      apply();
+      if (chip.dataset.chip) {
+        const g = pickerEl.querySelector(`.picker-group[data-group="${chip.dataset.chip}"]`);
+        g?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        pickerEl.querySelector('.sheet__body')?.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
+  }
+  return apply;
+}
+
 // ---------- iOS helpers ----------
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
@@ -566,5 +615,6 @@ export {
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker,
   renderExerciseEditForm,
+  pickerChipsHTML, setupPickerFilter,
   isIOS, isStandalone
 };

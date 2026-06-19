@@ -637,6 +637,42 @@ button {
 }
 
 /* Picker */
+/* Muscle-group filter chips at the top of the exercise pickers */
+.picker-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.picker-chips::-webkit-scrollbar { display: none; }
+
+.picker-chip {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.picker-chip--active {
+  background: var(--accent);
+  color: #0c0c0c;
+  border-color: var(--accent);
+}
+
 .picker-group {
   margin-bottom: 18px;
 }
@@ -1027,6 +1063,36 @@ button {
   background: var(--accent);
   color: #0c0c0c;
   border-color: var(--accent);
+}
+
+/* Always-visible RIR line under each set's inputs (RIR + note toggle + rest) */
+.set-row__rir {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+}
+
+.set-row__rir .rpe-group__label {
+  margin-right: 2px;
+}
+
+.set-row__note-toggle {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.set-row__note-toggle:active {
+  background: var(--surface-2);
+}
+
+.set-row.extras-open .set-row__note-toggle {
+  color: var(--accent);
 }
 
 .set-row__extras {
@@ -2866,10 +2932,31 @@ button {
   border-bottom: none;
 }
 
+.history-ex__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .history-ex__name {
   font-weight: 600;
   font-size: 14px;
   margin-bottom: 4px;
+}
+
+.history-ex__remove {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.history-ex__remove:active {
+  background: var(--surface-2);
+  color: var(--danger);
 }
 
 .history-ex__set {

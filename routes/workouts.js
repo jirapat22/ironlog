@@ -185,6 +185,34 @@ router.patch('/:id/finish', (req, res) => {
   res.json(row);
 });
 
+// Per-exercise last performance, independent of any program day. Powers
+// prefill + progression hints for quick workouts and mid-workout-added
+// exercises, which have no program-day "last" session to draw from. Batched so
+// one request covers a whole workout's exercise list.
+router.post('/last-by-exercise', (req, res) => {
+  const ids = Array.isArray(req.body?.exercise_ids)
+    ? [...new Set(req.body.exercise_ids.map(Number).filter(Number.isFinite))]
+    : [];
+  const out = {};
+  const findLast = db.prepare(
+    `SELECT w.id FROM workouts w
+       JOIN sets s ON s.workout_id = w.id AND s.exercise_id = ? AND s.profile_id = ?
+      WHERE w.profile_id = ? AND w.finished_at IS NOT NULL
+      ORDER BY w.finished_at DESC LIMIT 1`
+  );
+  const getSets = db.prepare(
+    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment
+       FROM sets s JOIN exercises e ON e.id = s.exercise_id
+      WHERE s.workout_id = ? AND s.exercise_id = ?
+      ORDER BY s.set_number`
+  );
+  for (const exId of ids) {
+    const w = findLast.get(exId, req.profileId, req.profileId);
+    out[exId] = w ? getSets.all(w.id, exId) : [];
+  }
+  res.json(out);
+});
+
 router.get('/:id/sets', (req, res) => {
   const id = Number(req.params.id);
   const owned = db.prepare('SELECT id FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
@@ -199,6 +227,21 @@ router.get('/:id/sets', (req, res) => {
     )
     .all(id);
   res.json(rows);
+});
+
+// Remove a single exercise from a workout: delete this profile's sets for that
+// exercise in the workout, then refresh its PR cache. Shared by the "remove
+// exercise" action in the active workout and in history.
+router.delete('/:id/exercises/:exerciseId', (req, res) => {
+  const id = Number(req.params.id);
+  const exerciseId = Number(req.params.exerciseId);
+  const owned = db.prepare('SELECT id FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
+  if (!owned) return res.status(404).json({ error: 'workout not found' });
+  const r = db
+    .prepare('DELETE FROM sets WHERE workout_id = ? AND exercise_id = ? AND profile_id = ?')
+    .run(id, exerciseId, req.profileId);
+  recomputePrsForExercise(req.profileId, exerciseId);
+  res.json({ removed: true, sets_removed: Number(r.changes) });
 });
 
 router.get('/:id', (req, res) => {

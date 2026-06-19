@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise } from './utils.js';
+import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { saveAsTemplate } from './workout.js';
 import { reportHandled } from './bugreport.js';
@@ -50,6 +50,22 @@ async function renderHistory() {
         e.stopPropagation();
         const card = addExBtn.closest('.history-card');
         openHistoryAddExercisePicker(Number(card.dataset.id));
+        return;
+      }
+
+      const removeExBtn = e.target.closest('[data-remove-ex]');
+      if (removeExBtn) {
+        e.stopPropagation();
+        const card = removeExBtn.closest('.history-card');
+        const exId = Number(removeExBtn.dataset.removeEx);
+        const exName = removeExBtn.dataset.exName || 'this exercise';
+        const ok = await confirmSheet({ title: 'Remove exercise', message: `Remove "${exName}" and all its sets from this workout? This can't be undone.`, confirmText: 'Remove', danger: true });
+        if (!ok) return;
+        try {
+          await API.removeWorkoutExercise(Number(card.dataset.id), exId);
+          haptic(20);
+          await refreshHistoryCard(Number(card.dataset.id));
+        } catch (err) { toast(err.message); }
         return;
       }
 
@@ -164,12 +180,16 @@ async function loadHistoryCardBody(card) {
 
     const exHTML = Object.values(grouped).map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
-        <div class="history-ex__name">${escapeHtml(g.name)}</div>
+        <div class="history-ex__head">
+          <div class="history-ex__name">${escapeHtml(g.name)}</div>
+          <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
+        </div>
         <div class="history-ex__sets">
           ${g.sets.map((s) => `
             <button class="history-ex__set" data-edit-set="${s.id}">
               <span class="history-ex__set-n">Set ${s.set_number}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps}</span>
+              ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}
               ${s.rpe != null ? `<span class="history-ex__set-rpe">@${s.rpe}</span>` : ''}
               ${s.notes ? `<span class="history-ex__set-note">${escapeHtml(s.notes)}</span>` : ''}
             </button>`).join('')}
@@ -270,7 +290,7 @@ async function openEditSetSheet(setId, workoutId) {
     const sets = await API.workoutSets(workoutId);
     const set = sets.find((s) => s.id === setId);
     if (!set) throw new Error('Set not found');
-    setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rpe: set.rpe ?? null, notes: set.notes || '' };
+    setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rir: set.rir ?? null, notes: set.notes || '' };
     renderSetEditSheet();
   } catch (err) {
     sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
@@ -285,7 +305,7 @@ async function openAddSetSheet(exerciseId, workoutId, nextSetNumber, exName) {
     const priors = sets.filter((s) => s.exercise_id === exerciseId).sort((a, b) => b.set_number - a.set_number);
     prior = priors[0];
   } catch { /* use defaults */ }
-  setEditState = { mode: 'add', workoutId, exerciseId, exerciseName: prior?.exercise_name || exName || '', setNumber: nextSetNumber, weight: prior?.weight ?? 0, weight_unit: prior?.weight_unit || 'kg', reps: prior?.reps ?? 10, rpe: null, notes: '' };
+  setEditState = { mode: 'add', workoutId, exerciseId, exerciseName: prior?.exercise_name || exName || '', setNumber: nextSetNumber, weight: prior?.weight ?? 0, weight_unit: prior?.weight_unit || 'kg', reps: prior?.reps ?? 10, rir: null, notes: '' };
   renderSetEditSheet();
   showSheet(sheet);
 }
@@ -313,10 +333,10 @@ function renderSetEditSheet() {
           <input class="num-input__field" id="se-reps" type="text" inputmode="numeric" value="${s.reps}"/>
           <button class="num-input__btn" data-se-step-reps="1">+</button>
         </div>
-        <label class="form-label" style="margin-top:14px">RPE</label>
-        <div class="rpe-group rpe-group--wide" id="se-rpe-group">
-          ${[6,7,8,9,10].map((n) => `<button class="rpe-btn ${Number(s.rpe) === n ? 'rpe-btn--active' : ''}" data-se-rpe="${n}">${n}</button>`).join('')}
-          <button class="rpe-btn rpe-btn--clear ${s.rpe == null ? 'rpe-btn--active' : ''}" data-se-rpe="">none</button>
+        <label class="form-label" style="margin-top:14px">RIR <span style="color:var(--text-dim);font-weight:400">· reps in reserve</span></label>
+        <div class="rpe-group rpe-group--wide" id="se-rir-group">
+          ${[0,1,2,3,4].map((n) => `<button class="rpe-btn ${Number(s.rir) === n ? 'rpe-btn--active' : ''}" data-se-rir="${n}">${n}</button>`).join('')}
+          <button class="rpe-btn rpe-btn--clear ${s.rir == null ? 'rpe-btn--active' : ''}" data-se-rir="">none</button>
         </div>
         <label class="form-label" style="margin-top:14px">Notes</label>
         <input class="input" id="se-notes" value="${escapeHtml(s.notes)}" placeholder="Optional"/>
@@ -347,13 +367,13 @@ function renderSetEditSheet() {
       let next = v + Number(rStep.dataset.seStepReps); if (next < 0) next = 0;
       input.value = String(next); haptic(10); return;
     }
-    const rpeBtn = e.target.closest('[data-se-rpe]');
-    if (rpeBtn) {
-      const raw = rpeBtn.dataset.seRpe;
-      s.rpe = raw === '' ? null : Number(raw);
-      sheet.querySelectorAll('[data-se-rpe]').forEach((b) => {
-        const v = b.dataset.seRpe === '' ? null : Number(b.dataset.seRpe);
-        b.classList.toggle('rpe-btn--active', v === s.rpe);
+    const rirBtn = e.target.closest('[data-se-rir]');
+    if (rirBtn) {
+      const raw = rirBtn.dataset.seRir;
+      s.rir = raw === '' ? null : Number(raw);
+      sheet.querySelectorAll('[data-se-rir]').forEach((b) => {
+        const v = b.dataset.seRir === '' ? null : Number(b.dataset.seRir);
+        b.classList.toggle('rpe-btn--active', v === s.rir);
       });
       haptic(10); return;
     }
@@ -365,9 +385,9 @@ function renderSetEditSheet() {
       if (weight < 0 || Number.isNaN(weight) || !reps) return toast('Enter weight and reps');
       try {
         if (s.mode === 'edit') {
-          await API.updateSet(s.setId, { weight, weight_unit: unit, reps, rpe: s.rpe, notes });
+          await API.updateSet(s.setId, { weight, weight_unit: unit, reps, rir: s.rir, notes });
         } else {
-          await API.logSet({ workout_id: s.workoutId, exercise_id: s.exerciseId, set_number: s.setNumber, weight, weight_unit: unit, reps, rpe: s.rpe, notes });
+          await API.logSet({ workout_id: s.workoutId, exercise_id: s.exerciseId, set_number: s.setNumber, weight, weight_unit: unit, reps, rir: s.rir, notes });
         }
         hideSheet(sheet); haptic(20); await refreshHistoryCard(s.workoutId);
       } catch (err) { toast(err.message); }
@@ -399,21 +419,14 @@ async function openHistoryAddExercisePicker(workoutId) {
     <div class="sheet__inner">
       <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">Add exercise to this workout</div><span style="width:40px"></span></div>
       <div class="sheet__body">
-        <input class="input" id="histadd-search" placeholder="Search…" style="margin-bottom:12px"/>
+        <input class="input" id="histadd-search" data-picker-search placeholder="Search…" style="margin-bottom:12px"/>
+        ${pickerChipsHTML(keys)}
         ${keys.map((g) => `<div class="picker-group" data-group="${g}"><div class="picker-group__title">${escapeHtml(g)}</div>
           ${groups[g].map((ex) => `<button class="picker-row" data-histadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}" data-ex-name="${escapeHtml(ex.name)}"><span>${escapeHtml(ex.name)}</span><span class="picker-row__state">+</span></button>`).join('')}
         </div>`).join('')}
       </div>
     </div>`;
-  const search = document.getElementById('histadd-search');
-  search.oninput = () => {
-    const q = search.value.trim().toLowerCase();
-    picker.querySelectorAll('.picker-row').forEach((r) => r.classList.toggle('hidden', q && !r.dataset.name.includes(q)));
-    picker.querySelectorAll('.picker-group').forEach((g) => {
-      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
-      g.classList.toggle('hidden', !any);
-    });
-  };
+  setupPickerFilter(picker);
   picker.onclick = (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
     const pickBtn = e.target.closest('[data-histadd]');

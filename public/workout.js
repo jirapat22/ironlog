@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 
@@ -241,6 +241,16 @@ async function renderWorkout() {
       });
     }
 
+    // Per-exercise last performance, independent of program day, so quick
+    // workouts and mid-workout-added exercises still get previous numbers,
+    // prefill and progression hints. The program-day "last" session
+    // (workoutState.last) still takes precedence when it has the exercise.
+    workoutState.lastByExercise = {};
+    try {
+      const exIds = workoutState.programDay.exercises.map((e) => e.exercise_id);
+      if (exIds.length) workoutState.lastByExercise = await API.lastByExercise(exIds);
+    } catch { /* optional enhancement — fall back to no prefill */ }
+
     localStorage.setItem(LS.activeWorkoutStart, workout.started_at);
 
     renderWorkoutView();
@@ -280,8 +290,11 @@ function renderWorkoutView() {
   const loggedByExerciseSet = {};
   for (const s of loggedSets) loggedByExerciseSet[`${s.exercise_id}-${s.set_number}`] = s;
 
+  // Program-day "last" wins; otherwise fall back to this exercise's most recent
+  // performance anywhere (covers quick workouts + mid-workout-added exercises).
+  const lastByExercise = workoutState.lastByExercise || {};
   const bodyHTML = programDay.exercises
-    .map((ex) => exerciseCardHTML(ex, lastSetsByExercise[ex.exercise_id] || [], loggedByExerciseSet))
+    .map((ex) => exerciseCardHTML(ex, lastSetsByExercise[ex.exercise_id] || lastByExercise[ex.exercise_id] || [], loggedByExerciseSet))
     .join('');
 
   root.innerHTML = `
@@ -379,6 +392,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
+          <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
           <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}</span>
         </div>
@@ -496,7 +510,6 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   const rirButtons = [0, 1, 2, 3, 4]
     .map((n) => `<button class="rpe-btn ${Number(effRir) === n && effRir !== '' ? 'rpe-btn--active' : ''}" data-rir="${n}">${n}</button>`)
     .join('');
-  const rirBadge = effRir !== '' && effRir != null ? `<span class="set-row__rpe-badge" data-rir-badge>RIR ${effRir}</span>` : '';
   const isWarmup = !!(logged?.is_warmup);
   // e1RM badge on logged working sets (not warmups, reps must be > 0)
   let e1rmBadge = '';
@@ -519,19 +532,17 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
         <button class="num-input__btn" data-step="1">+</button>
       </div>
       <button class="set-check" data-confirm>&#x2713;</button>
+      <div class="set-row__rir" data-rir-group>
+        <span class="rpe-group__label" title="Reps in reserve — how many more you could have done">RIR</span>
+        ${rirButtons}
+        <button class="rpe-btn rpe-btn--clear" data-rir-clear ${effRir !== '' && effRir != null ? '' : 'style="visibility:hidden"'}>×</button>
+        <button class="set-row__note-toggle" data-toggle-note title="Add a note">&#x270E;</button>
+        <button data-rest class="rest-timer">rest</button>
+      </div>
       <div class="set-row__extras">
-        <div class="set-row__tools">
-          <button data-toggle-note>&#x270E; note</button>
-          <button data-rest class="rest-timer">start rest</button>
-          <div class="rpe-group" data-rir-group>
-            <span class="rpe-group__label">RIR</span>
-            ${rirButtons}
-            ${effRir !== '' && effRir != null ? '<button class="rpe-btn rpe-btn--clear" data-rir-clear>×</button>' : ''}
-          </div>
-        </div>
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
       </div>
-      ${rirBadge}${e1rmBadge}
+      ${e1rmBadge}
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
     </div>
   `;
@@ -547,6 +558,9 @@ function wireWorkoutView() {
     // Card-level controls — must be checked before the set-row guard below
     const swapBtn = e.target.closest('[data-swap-ex]');
     if (swapBtn) { haptic(15); openSwapPicker(Number(swapBtn.dataset.swapEx)); return; }
+
+    const removeExBtn = e.target.closest('[data-remove-ex]');
+    if (removeExBtn) { haptic(15); removeExerciseFromWorkout(Number(removeExBtn.dataset.removeEx)); return; }
 
     const equipBtn = e.target.closest('[data-equip-ex]');
     if (equipBtn) { haptic(15); openEquipmentPicker(Number(equipBtn.dataset.equipEx)); return; }
@@ -640,19 +654,20 @@ function wireWorkoutView() {
       row.querySelectorAll('[data-rir]').forEach((b) =>
         b.classList.toggle('rpe-btn--active', Number(b.dataset.rir) === val)
       );
+      const clearBtn = row.querySelector('[data-rir-clear]');
+      if (clearBtn) clearBtn.style.visibility = 'visible';
       haptic(10);
       if (row.dataset.setId) persistRirChange(row);
       else markRowTouched(row);
-      updateRirBadge(row);
       return;
     }
 
     if (e.target.closest('[data-rir-clear]')) {
       row.dataset.rir = '';
       row.querySelectorAll('[data-rir]').forEach((b) => b.classList.remove('rpe-btn--active'));
+      e.target.closest('[data-rir-clear]').style.visibility = 'hidden';
       if (row.dataset.setId) persistRirChange(row);
       else markRowTouched(row);
-      updateRirBadge(row);
       return;
     }
 
@@ -831,7 +846,6 @@ async function confirmSet(row) {
         }
       }
     }
-    updateRirBadge(row);
   } catch (err) {
     toast(err.message);
   } finally {
@@ -889,20 +903,6 @@ async function persistRirChange(row) {
   try { await API.updateSet(setId, { rir }); } catch (err) { toast(err.message); }
 }
 
-function updateRirBadge(row) {
-  const existing = row.querySelector('[data-rir-badge]');
-  const raw = row.dataset.rir;
-  if (raw === '' || raw == null) { existing?.remove(); return; }
-  if (existing) { existing.textContent = `RIR ${raw}`; }
-  else {
-    const badge = document.createElement('span');
-    badge.className = 'set-row__rpe-badge';
-    badge.dataset.rirBadge = '';
-    badge.textContent = `RIR ${raw}`;
-    row.appendChild(badge);
-  }
-}
-
 async function undoLastSet(exId) {
   const exSets = workoutState.loggedSets.filter((s) => s.exercise_id === exId);
   if (!exSets.length) return;
@@ -957,6 +957,40 @@ function skipRemainingForExercise(exerciseId) {
   }
 
   toast(`Skipped ${unlogged.length} remaining set${unlogged.length > 1 ? 's' : ''}`);
+}
+
+// Remove an exercise from the active workout entirely. If it has logged sets,
+// those are deleted server-side (with confirmation); otherwise it's just
+// dropped from the in-progress list.
+async function removeExerciseFromWorkout(exerciseId) {
+  const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exerciseId);
+  if (!ex) return;
+  const loggedCount = workoutState.loggedSets.filter((s) => s.exercise_id === exerciseId).length;
+  const ok = await confirmSheet({
+    title: 'Remove exercise',
+    message: loggedCount
+      ? `Remove "${ex.name}" and delete its ${loggedCount} logged set${loggedCount > 1 ? 's' : ''}? This can't be undone.`
+      : `Remove "${ex.name}" from this workout?`,
+    confirmText: 'Remove',
+    danger: true
+  });
+  if (!ok) return;
+  if (loggedCount) {
+    try { await API.removeWorkoutExercise(workoutState.workout.id, exerciseId); }
+    catch (err) { return toast(err.message); }
+    workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.exercise_id !== exerciseId);
+  }
+  workoutState.programDay.exercises = workoutState.programDay.exercises.filter((x) => x.exercise_id !== exerciseId);
+  // Scrub any per-exercise draft state so it doesn't resurrect on reload.
+  if (workoutState.draft.setCounts) delete workoutState.draft.setCounts[exerciseId];
+  if (workoutState.draft.skipped) delete workoutState.draft.skipped[exerciseId];
+  for (const k of Object.keys(workoutState.draft.inputs || {})) {
+    if (k.startsWith(`${exerciseId}-`)) delete workoutState.draft.inputs[k];
+  }
+  persistExerciseList();
+  haptic(20);
+  toast(`Removed ${ex.name}`);
+  renderWorkoutView();
 }
 
 const EQUIPMENT_OPTIONS = [
@@ -1039,7 +1073,8 @@ async function openSwapPicker(currentExerciseId) {
       </div>
       <div class="sheet__body">
         <div class="card__subtitle" style="margin-bottom:10px">Pick a replacement. This only affects today's workout.</div>
-        <input class="input" id="swap-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <input class="input" id="swap-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+        ${pickerChipsHTML(keys)}
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>
@@ -1071,15 +1106,7 @@ async function openSwapPicker(currentExerciseId) {
     }
   });
 
-  const search = document.getElementById('swap-search');
-  search.oninput = () => {
-    const q = search.value.trim().toLowerCase();
-    picker.querySelectorAll('.picker-row').forEach((r) => r.classList.toggle('hidden', q && !r.dataset.name.includes(q)));
-    picker.querySelectorAll('.picker-group').forEach((g) => {
-      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
-      g.classList.toggle('hidden', !any);
-    });
-  };
+  setupPickerFilter(picker);
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
@@ -1152,7 +1179,8 @@ async function openWorkoutAddExercisePicker() {
         <button class="btn--icon" id="wkadd-create" title="Create new exercise" style="font-size:20px;font-weight:700">+</button>
       </div>
       <div class="sheet__body">
-        <input class="input" id="wkadd-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <input class="input" id="wkadd-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+        ${pickerChipsHTML(keys)}
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>
@@ -1165,15 +1193,7 @@ async function openWorkoutAddExercisePicker() {
       </div>
     </div>`;
 
-  const search = document.getElementById('wkadd-search');
-  search.oninput = () => {
-    const q = search.value.trim().toLowerCase();
-    picker.querySelectorAll('.picker-row').forEach((r) => r.classList.toggle('hidden', q && !r.dataset.name.includes(q)));
-    picker.querySelectorAll('.picker-group').forEach((g) => {
-      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
-      g.classList.toggle('hidden', !any);
-    });
-  };
+  setupPickerFilter(picker);
 
   document.getElementById('wkadd-create').onclick = () => openWorkoutNewExerciseForm(picker, {
     onBack: () => openWorkoutAddExercisePicker(),
@@ -1223,6 +1243,11 @@ async function openWorkoutAddExercisePicker() {
     hideSheet(picker);
     haptic(20);
     toast(`Added ${newEx.name}`);
+    // Pull this exercise's previous numbers so prefill + hints show right away.
+    try {
+      const m = await API.lastByExercise([exId]);
+      workoutState.lastByExercise = { ...(workoutState.lastByExercise || {}), ...m };
+    } catch { /* optional — render without prefill */ }
     renderWorkoutView();
   };
 }
