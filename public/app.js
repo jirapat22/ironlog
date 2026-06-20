@@ -211,6 +211,12 @@ function registerServiceWorker() {
         if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdateBanner(nw);
       });
     });
+    // Actively check for a new worker whenever the app is reopened. iOS keeps
+    // installed PWAs warm and rarely checks on its own, which is how phones got
+    // stuck on stale code; this forces the check on every foreground.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg.update().catch(() => {});
+    });
   }).catch(() => {});
 }
 

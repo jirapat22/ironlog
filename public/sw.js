@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v80';
+const VERSION = 'ironlog-v81';
 const SHELL = [
   '/',
   '/index.html',
@@ -52,22 +52,45 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell: cache-first with background refresh
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req)
-        .then((res) => {
-          if (res.ok && url.origin === self.location.origin) {
-            const copy = res.clone();
-            caches.open(VERSION).then((cache) => cache.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
-  );
+  // App shell: NETWORK-FIRST with a short timeout, falling back to cache.
+  // Cache-first used to leave installed phones running stale code for days
+  // (iOS keeps the PWA warm, so background refresh rarely ran). Network-first
+  // means an online launch always gets the latest code; offline or slow
+  // launches fall back to the cached copy so the app still opens instantly.
+  event.respondWith(networkFirst(req, url));
 });
+
+const SHELL_TIMEOUT_MS = 2500;
+
+async function networkFirst(req, url) {
+  const cache = await caches.open(VERSION);
+  const cached = await cache.match(req);
+
+  const fromNetwork = fetch(req)
+    .then((res) => {
+      if (res && res.ok && url.origin === self.location.origin) cache.put(req, res.clone());
+      return res;
+    });
+
+  // No cached copy yet: we have to wait for the network (or fail to the shell).
+  if (!cached) {
+    try { return await fromNetwork; }
+    catch { return (await cache.match('/index.html')) || Response.error(); }
+  }
+
+  // Have a cached copy: prefer fresh, but don't let a slow network stall the
+  // launch. If the network doesn't answer within the timeout, serve cache —
+  // the fetch keeps running and updates the cache for next time.
+  try {
+    const fresh = await Promise.race([
+      fromNetwork,
+      new Promise((resolve) => setTimeout(() => resolve(null), SHELL_TIMEOUT_MS))
+    ]);
+    return fresh || cached;
+  } catch {
+    return cached;
+  }
+}
 
 // Allow page to ask SW to show a notification (used for local rest-timer alerts).
 self.addEventListener('message', (event) => {
