@@ -186,15 +186,17 @@ function showInstallHintIfNeeded() {
 
 // ---------- Service worker + update prompt ----------
 let swRegistered = false;
+let updateAccepted = false; // set only when the user taps "Refresh"
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || swRegistered) return;
   swRegistered = true;
 
-  // When the freshly-installed worker takes control (after the user taps
-  // Refresh), reload once so the new assets are actually used.
+  // Reload once the new worker takes control — but ONLY after the user accepted
+  // an update. The first-ever install also fires controllerchange (via
+  // clients.claim()); reloading then would bounce the page on first load.
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading) return;
+    if (!updateAccepted || reloading) return;
     reloading = true;
     window.location.reload();
   });
@@ -230,6 +232,7 @@ function showUpdateBanner(worker) {
     <button class="update-banner__btn" id="update-refresh">Refresh</button>`;
   document.body.appendChild(banner);
   banner.querySelector('#update-refresh').onclick = () => {
+    updateAccepted = true;
     worker.postMessage({ type: 'skip-waiting' });
     banner.remove();
   };

@@ -79,14 +79,15 @@ async function networkFirst(req, url) {
   }
 
   // Have a cached copy: prefer fresh, but don't let a slow network stall the
-  // launch. If the network doesn't answer within the timeout, serve cache —
-  // the fetch keeps running and updates the cache for next time.
+  // launch. Serve cache if the network is slow (timeout -> null), errors, OR
+  // returns a non-ok status (e.g. a 500 mid-deploy) — a bad deploy must never
+  // replace working cached code with an error page.
   try {
     const fresh = await Promise.race([
       fromNetwork,
       new Promise((resolve) => setTimeout(() => resolve(null), SHELL_TIMEOUT_MS))
     ]);
-    return fresh || cached;
+    return fresh && fresh.ok ? fresh : cached;
   } catch {
     return cached;
   }
