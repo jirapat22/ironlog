@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v82';
+const VERSION = 'ironlog-v83';
 const SHELL = [
   '/',
   '/index.html',
@@ -52,7 +52,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell: NETWORK-FIRST with a short timeout, falling back to cache.
+  // Immutable vendor/static assets: cache-first (instant, no per-launch
+  // network cost — the chart lib alone is ~200 KB). These only change on a
+  // VERSION bump, and install's cache.addAll() refreshes them then, so
+  // cache-first within the versioned cache never serves them stale.
+  if (CACHE_FIRST.has(url.pathname)) {
+    event.respondWith(cacheFirst(req, url));
+    return;
+  }
+
+  // App shell code: NETWORK-FIRST with a short timeout, falling back to cache.
   // Cache-first used to leave installed phones running stale code for days
   // (iOS keeps the PWA warm, so background refresh rarely ran). Network-first
   // means an online launch always gets the latest code; offline or slow
@@ -61,6 +70,20 @@ self.addEventListener('fetch', (event) => {
 });
 
 const SHELL_TIMEOUT_MS = 2500;
+const CACHE_FIRST = new Set(['/chart.umd.min.js', '/icon.svg', '/manifest.json']);
+
+async function cacheFirst(req, url) {
+  const cache = await caches.open(VERSION);
+  const cached = await cache.match(req);
+  if (cached) return cached;
+  try {
+    const res = await fetch(req);
+    if (res && res.ok && url.origin === self.location.origin) cache.put(req, res.clone());
+    return res;
+  } catch {
+    return Response.error();
+  }
+}
 
 async function networkFirst(req, url) {
   const cache = await caches.open(VERSION);
