@@ -175,9 +175,12 @@ router.patch('/:id/finish', (req, res) => {
     .prepare('SELECT s.reps, s.is_warmup, e.met FROM sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ?')
     .all(id);
   const caloriesBurned = caloriesFromSets(setRows, bwKg);
-  assertInvariant(Number.isFinite(caloriesBurned) && caloriesBurned >= 0, 'calories_burned is not a finite number >= 0', {
-    profileId: req.profileId, workoutId: id, caloriesBurned, setCount: setRows.length
-  });
+  // null is legitimate — it means no bodyweight has been logged yet, so the
+  // model can't estimate. Only a non-null, non-finite, or negative value is a bug.
+  assertInvariant(caloriesBurned == null || (Number.isFinite(caloriesBurned) && caloriesBurned >= 0),
+    'calories_burned is not a finite number >= 0', {
+      profileId: req.profileId, workoutId: id, caloriesBurned, setCount: setRows.length
+    });
 
   db.prepare('UPDATE workouts SET finished_at = ?, bw_kg = ?, calories_burned = ? WHERE id = ?')
     .run(finishedAt, bwKg, caloriesBurned, id);
