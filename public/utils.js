@@ -109,10 +109,6 @@ function fmtDuration(startIso, endIso) {
   return `${mm}:${String(ss).padStart(2, '0')}`;
 }
 
-function stepFor(unit) {
-  return unit === 'lbs' ? 5 : 2.5;
-}
-
 function stepForExercise(unit, ex) {
   // Use equipment field if available; fall back to name regex for older data
   const equipment = ex?.equipment
@@ -608,7 +604,7 @@ function isStandalone() {
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
-  stepFor, stepForExercise, skeletonBlocks, showPRFlash,
+  stepForExercise, skeletonBlocks, showPRFlash,
   e1RM, toKg, fmtSetWeight,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,

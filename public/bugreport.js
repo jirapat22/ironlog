@@ -163,12 +163,10 @@ function assert(condition, message, ctx = {}) {
 }
 
 // Manual "Report a bug" / "Idea" — user-supplied description plus current
-// context. `type` is 'bug_report' (default) or 'idea'; `details` is an
-// optional free-text addendum (steps to reproduce, links, etc.). Bypasses
-// the automatic-report cap and dedupe, and queues for retry on failure.
-function reportBugManually(description, { type = 'bug_report', details = '', extraContext = {} } = {}) {
+// context. `type` is 'bug_report' (default) or 'idea'. Bypasses the
+// automatic-report cap and dedupe, and queues for retry on failure.
+function reportBugManually(description, { type = 'bug_report', extraContext = {} } = {}) {
   const context = { ...baseContext(), ...extraContext };
-  if (details) context.details = details;
   const payload = { source: 'manual', type, message: description, context };
   return API.reportBug(payload).catch((err) => { queueForRetry(payload); throw err; });
 }

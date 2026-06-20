@@ -46,4 +46,4 @@ function caloriesFromSets(sets, bwKg) {
   return Math.round(Math.min(kcal, 1500));
 }
 
-module.exports = { caloriesFromSets, effectiveMinutesForSet };
+module.exports = { caloriesFromSets };
