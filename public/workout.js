@@ -1284,8 +1284,21 @@ async function finishWorkout() {
   const id = workoutState?.workout?.id;
   if (!id) return;
   if ((workoutState.loggedSets || []).length === 0) {
-    const ok = await confirmSheet({ title: 'Finish workout', message: 'No sets logged. Finish this workout anyway? It will show in History as empty.', confirmText: 'Finish' });
+    // Nothing logged — discard instead of saving an empty workout that would
+    // just clutter History.
+    const ok = await confirmSheet({ title: 'Nothing logged', message: 'No sets were logged. Discard this workout?', confirmText: 'Discard', danger: true });
     if (!ok) return;
+    clearDraft(id);
+    try { await API.deleteWorkout(id); } catch { /* sets cascade with the workout */ }
+    localStorage.removeItem(LS.activeWorkoutId);
+    localStorage.removeItem(LS.activeProgramDayId);
+    localStorage.removeItem(LS.activeWorkoutStart);
+    if (stickyTimerHandle) clearInterval(stickyTimerHandle);
+    releaseWakeLock();
+    cancelRestCountdown();
+    toast('Workout discarded');
+    document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
+    return;
   }
   try {
     const finishedWorkout = await API.finishWorkout(id);

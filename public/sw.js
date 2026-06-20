@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v79';
+const VERSION = 'ironlog-v80';
 const SHELL = [
   '/',
   '/index.html',
@@ -19,9 +19,11 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
-  );
+  // Precache the new shell but DON'T skipWaiting here — the new worker waits
+  // until the page tells it to (via the "Update available" prompt), or until
+  // the next cold launch. This avoids swapping assets out from under a running
+  // page. The page posts {type:'skip-waiting'} when the user taps Refresh.
+  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)));
 });
 
 self.addEventListener('activate', (event) => {
@@ -70,6 +72,11 @@ self.addEventListener('fetch', (event) => {
 // Allow page to ask SW to show a notification (used for local rest-timer alerts).
 self.addEventListener('message', (event) => {
   const data = event.data || {};
+  if (data.type === 'skip-waiting') {
+    // User tapped "Refresh" on the update prompt — activate now and take over.
+    self.skipWaiting();
+    return;
+  }
   if (data.type === 'show-notification') {
     const title = data.title || 'IronLog';
     const options = {

@@ -184,6 +184,51 @@ function showInstallHintIfNeeded() {
   };
 }
 
+// ---------- Service worker + update prompt ----------
+let swRegistered = false;
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || swRegistered) return;
+  swRegistered = true;
+
+  // When the freshly-installed worker takes control (after the user taps
+  // Refresh), reload once so the new assets are actually used.
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+
+  navigator.serviceWorker.register('/sw.js').then((reg) => {
+    // A new version may already be waiting from a previous visit.
+    if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        // "installed" while a controller already exists = an update (not first
+        // install). Prompt the user instead of swapping silently.
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdateBanner(nw);
+      });
+    });
+  }).catch(() => {});
+}
+
+function showUpdateBanner(worker) {
+  if (document.getElementById('update-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.className = 'update-banner';
+  banner.innerHTML = `
+    <span class="update-banner__text">A new version is ready</span>
+    <button class="update-banner__btn" id="update-refresh">Refresh</button>`;
+  document.body.appendChild(banner);
+  banner.querySelector('#update-refresh').onclick = () => {
+    worker.postMessage({ type: 'skip-waiting' });
+    banner.remove();
+  };
+}
+
 async function syncTimezoneOffset() {
   try {
     const current = String(new Date().getTimezoneOffset());
@@ -208,9 +253,7 @@ function boot() {
   const initial = activeId ? 'workout' : saved || 'programs';
   setTab(initial);
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  }
+  registerServiceWorker();
 
   refreshBadgeFromCalendar();
   showInstallHintIfNeeded();

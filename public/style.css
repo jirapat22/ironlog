@@ -2222,6 +2222,41 @@ button {
   }
 }
 
+/* "Update available" prompt — sits just above the bottom nav */
+.update-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: hintIn 0.25s ease-out;
+}
+
+.update-banner__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-banner__btn {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #0c0c0c;
+  font-weight: 700;
+  font-size: 13px;
+}
+
 /* TDEE card */
 .tdee-main {
   text-align: center;

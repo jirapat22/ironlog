@@ -62,9 +62,10 @@ async function renderHistory() {
         const ok = await confirmSheet({ title: 'Remove exercise', message: `Remove "${exName}" and all its sets from this workout? This can't be undone.`, confirmText: 'Remove', danger: true });
         if (!ok) return;
         try {
-          await API.removeWorkoutExercise(Number(card.dataset.id), exId);
+          const resp = await API.removeWorkoutExercise(Number(card.dataset.id), exId);
           haptic(20);
-          await refreshHistoryCard(Number(card.dataset.id));
+          if (resp.workout_deleted) { toast('Workout removed — no exercises left'); card.remove(); }
+          else await refreshHistoryCard(Number(card.dataset.id));
         } catch (err) { toast(err.message); }
         return;
       }

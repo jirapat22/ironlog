@@ -244,7 +244,20 @@ router.delete('/:id/exercises/:exerciseId', (req, res) => {
     .prepare('DELETE FROM sets WHERE workout_id = ? AND exercise_id = ? AND profile_id = ?')
     .run(id, exerciseId, req.profileId);
   recomputePrsForExercise(req.profileId, exerciseId);
-  res.json({ removed: true, sets_removed: Number(r.changes) });
+
+  // If this emptied a FINISHED workout, drop it so History doesn't keep a
+  // sets-less ghost entry. Never delete an in-progress workout — the user may
+  // still be mid-session and about to add exercises back.
+  let workoutDeleted = false;
+  const remaining = db.prepare('SELECT COUNT(*) AS n FROM sets WHERE workout_id = ?').get(id).n;
+  if (remaining === 0) {
+    const w = db.prepare('SELECT finished_at FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
+    if (w && w.finished_at) {
+      db.prepare('DELETE FROM workouts WHERE id = ?').run(id);
+      workoutDeleted = true;
+    }
+  }
+  res.json({ removed: true, sets_removed: Number(r.changes), workout_deleted: workoutDeleted });
 });
 
 router.get('/:id', (req, res) => {
