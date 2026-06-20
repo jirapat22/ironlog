@@ -642,10 +642,10 @@ const SUB_MUSCLE_BY_NAME = {
   'Landmine Press': 'front delt', 'Seated Cable Lateral Raise': 'side delt', 'Band Pull-Apart': 'rear delt',
   'External Rotation': 'rear delt', 'Y-T-W Raise': 'rear delt',
   // Biceps
-  'Barbell Curl': 'biceps', 'Dumbbell Curl': 'biceps', 'Hammer Curl': 'brachialis', 'Preacher Curl': 'biceps',
-  'Incline Dumbbell Curl': 'biceps', 'Cable Curl': 'biceps', 'Concentration Curl': 'biceps',
-  'Spider Curl': 'biceps', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
-  'Machine Curl': 'biceps', 'Bayesian Curl': 'biceps', 'Zottman Curl': 'brachialis',
+  'Barbell Curl': 'biceps', 'Dumbbell Curl': 'biceps', 'Hammer Curl': 'brachialis', 'Preacher Curl': 'short head',
+  'Incline Dumbbell Curl': 'long head', 'Cable Curl': 'biceps', 'Concentration Curl': 'short head',
+  'Spider Curl': 'short head', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
+  'Machine Curl': 'short head', 'Bayesian Curl': 'long head', 'Zottman Curl': 'brachialis',
   // Triceps
   'Tricep Pushdown': 'triceps', 'Rope Pushdown': 'triceps', 'Overhead Tricep Extension': 'triceps',
   'Skull Crusher': 'triceps', 'Close-Grip Bench Press': 'triceps', 'Tricep Dip': 'triceps',
@@ -705,6 +705,20 @@ function populateMuscleAndMet() {
     for (const name of MET_ISO) setMet.run(3.7, name);
     // Core work is low-load; set by group for anything still at the default.
     db.prepare("UPDATE exercises SET met = 3.3 WHERE muscle_group = 'core' AND met = 5").run();
+
+    // One-time: split seeded biceps curls by head (existing DBs already had
+    // these as the generic 'biceps'). Gated on Preacher still carrying the old
+    // tag so it runs once and never clobbers a later user edit.
+    // ponytail: single-exercise guard, fine for seed data.
+    if (db.prepare("SELECT 1 FROM exercises WHERE name = 'Preacher Curl' AND sub_muscle = 'biceps'").get()) {
+      const heads = {
+        'Preacher Curl': 'short head', 'Concentration Curl': 'short head',
+        'Spider Curl': 'short head', 'Machine Curl': 'short head',
+        'Incline Dumbbell Curl': 'long head', 'Bayesian Curl': 'long head'
+      };
+      const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL");
+      for (const [name, sub] of Object.entries(heads)) reSub.run(sub, name);
+    }
   });
 }
 
