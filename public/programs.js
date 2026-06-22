@@ -7,6 +7,50 @@ function fmtRest(s) {
   return m > 0 ? (sec > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${m}m`) : `${s}s`;
 }
 
+// Name + optional description sheet, used for both Create and Edit. Resolves
+// { name, description } or null if cancelled.
+function programFormSheet({ title, name = '', description = '', confirmText = 'Save' }) {
+  return new Promise((resolve) => {
+    const sheet = ensureSheet('program-form-sheet');
+    sheet.innerHTML = `
+      <div class="sheet__inner">
+        <div class="sheet__head">
+          <button class="btn--icon" data-cancel>←</button>
+          <div class="sheet__title">${escapeHtml(title)}</div>
+          <span style="width:40px"></span>
+        </div>
+        <div class="sheet__body">
+          <label class="form-label">Program name</label>
+          <input class="input" id="pf-name" autocomplete="off" maxlength="60" value="${escapeHtml(name)}" placeholder="My Program"/>
+          <label class="form-label" style="margin-top:14px">Description (optional)</label>
+          <textarea class="input" id="pf-desc" rows="2" maxlength="200" placeholder="What's this program for?">${escapeHtml(description)}</textarea>
+          <button class="btn btn--primary btn--block" id="pf-save" style="margin-top:20px">${escapeHtml(confirmText)}</button>
+        </div>
+      </div>`;
+    showSheet(sheet);
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; hideSheet(sheet); resolve(v); };
+    sheet.querySelector('[data-cancel]').onclick = () => finish(null);
+    sheet.querySelector('#pf-save').onclick = () => {
+      const n = sheet.querySelector('#pf-name').value.trim();
+      if (!n) return toast('Name required');
+      finish({ name: n, description: sheet.querySelector('#pf-desc').value.trim() });
+    };
+    setTimeout(() => sheet.querySelector('#pf-name')?.focus(), 60);
+  });
+}
+
+async function createProgramFlow() {
+  const data = await programFormSheet({ title: 'New program', name: 'My Program', confirmText: 'Create' });
+  if (!data) return;
+  try {
+    const p = await API.createProgram(data);
+    const day = await API.addDay(p.id, { day_label: 'Day 1' });
+    haptic(20);
+    openEditDay(p.id, day.id);
+  } catch (err) { toast(err.message); }
+}
+
 // ---------- PROGRAMS tab ----------
 async function renderPrograms() {
   const root = $('#view-programs');
@@ -18,16 +62,7 @@ async function renderPrograms() {
       root.innerHTML = `
         <div class="empty"><div class="empty__icon">&#x1F4C5;</div><div style="margin-bottom:12px">No programs yet</div></div>
         <button class="btn btn--primary btn--block" data-new-program style="margin-top:8px">+ Create program</button>`;
-      root.querySelector('[data-new-program]').addEventListener('click', async () => {
-        const name = await promptSheet({ title: 'New program', label: 'Program name', value: 'My Program', confirmText: 'Create' });
-        if (!name || !name.trim()) return;
-        try {
-          const p = await API.createProgram({ name: name.trim() });
-          const day = await API.addDay(p.id, { day_label: 'Day 1' });
-          haptic(20);
-          openEditDay(p.id, day.id);
-        } catch (err) { toast(err.message); }
-      });
+      root.querySelector('[data-new-program]').addEventListener('click', createProgramFlow);
       return;
     }
 
@@ -57,10 +92,10 @@ async function renderPrograms() {
         e.stopPropagation();
         const id = Number(renameBtn.dataset.renameProgram);
         const src = full.find((p) => p.id === id);
-        const name = await promptSheet({ title: 'Rename program', label: 'New name', value: src?.name || '', confirmText: 'Rename' });
-        if (!name || !name.trim() || name.trim() === src?.name) return;
+        const data = await programFormSheet({ title: 'Edit program', name: src?.name || '', description: src?.description || '', confirmText: 'Save' });
+        if (!data || (data.name === src?.name && data.description === (src?.description || ''))) return;
         try {
-          await API.updateProgram(id, { name: name.trim() });
+          await API.updateProgram(id, data);
           haptic(20); renderPrograms();
         } catch (err) { toast(err.message); }
         return;
@@ -139,17 +174,7 @@ async function renderPrograms() {
     };
 
     // Create new program button (outside the program list)
-    root.querySelector('[data-new-program]')?.addEventListener('click', async () => {
-      const name = await promptSheet({ title: 'New program', label: 'Program name', value: 'My Program', confirmText: 'Create' });
-      if (!name || !name.trim()) return;
-      try {
-        const p = await API.createProgram({ name: name.trim() });
-        haptic(20);
-        // Immediately add a first day so the program isn't empty
-        const day = await API.addDay(p.id, { day_label: 'Day 1' });
-        openEditDay(p.id, day.id);
-      } catch (err) { toast(err.message); }
-    });
+    root.querySelector('[data-new-program]')?.addEventListener('click', createProgramFlow);
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load programs: ${escapeHtml(err.message)}</div>`;
   }
@@ -168,7 +193,7 @@ function programCardHTML(p) {
       <div class="program-card__body">
         <div class="program-card__actions">
           <button class="btn btn--ghost btn--sm" data-dup-program="${p.id}">&#x29C9; Duplicate</button>
-          <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Rename</button>
+          <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Edit</button>
           <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
         </div>
         ${p.days.map((d) => dayCardHTML(d, p.id)).join('')}
