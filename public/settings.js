@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, pickerChipsHTML } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -374,7 +374,7 @@ async function renderExerciseLibraryList(sheet) {
 
   const order = [...new Set([...GROUPS, ...Object.keys(byGroup)])].filter((g) => byGroup[g]);
   const html = order.map((g) => `
-    <div class="ex-lib-group">
+    <div class="ex-lib-group" data-group="${g}">
       <div class="ex-lib-group__title">${g}</div>
       ${byGroup[g].map((ex) => `
         <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
@@ -394,11 +394,23 @@ async function renderExerciseLibraryList(sheet) {
     </div>`).join('');
 
   const unusedCount = stats.filter((e) => e.workout_count === 0).length;
-  document.getElementById('ex-lib-body').innerHTML = `
+  const body = document.getElementById('ex-lib-body');
+  body.innerHTML = `
     <div class="card__subtitle" style="margin-bottom:12px">
       ${stats.length} exercises total · <strong>${unusedCount}</strong> never used
     </div>
+    ${pickerChipsHTML(order)}
     ${html}`;
+
+  // Jump-to-group: no search here, so chips just scroll to the group.
+  const chips = body.querySelector('[data-picker-chips]');
+  chips?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.picker-chip');
+    if (!chip) return;
+    chips.querySelectorAll('.picker-chip').forEach((c) => c.classList.toggle('picker-chip--active', c === chip));
+    if (chip.dataset.chip) body.querySelector(`.ex-lib-group[data-group="${chip.dataset.chip}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else body.scrollTo({ top: 0, behavior: 'smooth' });
+  });
 
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
