@@ -228,8 +228,8 @@ async function renderMuscleFrequency() {
         const row = byKey.get(`${g}|${sub}`);
         const days = row ? daysSince(row.last_trained_at) : null;
         if (days != null && (groupDays == null || days < groupDays)) groupDays = days;
-        const displayName = sub === g ? 'Unspecified' : sub;
-        if (days == null || days >= 7) stale.push(displayName === 'Unspecified' ? `${g} (unspecified)` : displayName);
+        const displayName = sub === g ? 'Whole muscle' : sub;
+        if (days == null || days >= 7) stale.push(displayName === 'Whole muscle' ? `${g} (whole muscle)` : displayName);
         const label = days == null ? 'Never' : days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
         const color = freqColor(days);
         return `

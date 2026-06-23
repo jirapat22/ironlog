@@ -311,6 +311,20 @@ async function openAddSetSheet(exerciseId, workoutId, nextSetNumber, exName) {
   showSheet(sheet);
 }
 
+// Small "≈ X kg/lb" hint under the weight — handy when an old set was logged
+// in the other unit (e.g. after switching gyms).
+function updateWeightEq() {
+  const wEl = document.getElementById('se-weight');
+  const uEl = document.getElementById('se-unit');
+  const eq = document.getElementById('se-weight-eq');
+  if (!wEl || !uEl || !eq) return;
+  const w = parseFloat(wEl.value);
+  if (!Number.isFinite(w) || w <= 0) { eq.textContent = ''; return; }
+  eq.textContent = uEl.textContent.trim() === 'kg'
+    ? `≈ ${+(w / 0.45359237).toFixed(1)} lb`
+    : `≈ ${+(w * 0.45359237).toFixed(1)} kg`;
+}
+
 function renderSetEditSheet() {
   const sheet = document.getElementById('set-edit-sheet');
   const s = setEditState;
@@ -328,6 +342,7 @@ function renderSetEditSheet() {
           </div>
           <button class="unit-toggle ${s.weight_unit === 'kg' ? 'kg' : 'lbs'}" id="se-unit">${s.weight_unit}</button>
         </div>
+        <div class="card__subtitle" id="se-weight-eq" style="margin-top:6px"></div>
         <label class="form-label" style="margin-top:14px">Reps</label>
         <div class="num-input" data-field="reps">
           <button class="num-input__btn" data-se-step-reps="-1">−</button>
@@ -349,7 +364,7 @@ function renderSetEditSheet() {
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
     const unitBtn = e.target.closest('#se-unit');
-    if (unitBtn) { const next = unitBtn.textContent.trim() === 'kg' ? 'lbs' : 'kg'; unitBtn.textContent = next; unitBtn.classList.toggle('kg', next === 'kg'); return; }
+    if (unitBtn) { const next = unitBtn.textContent.trim() === 'kg' ? 'lbs' : 'kg'; unitBtn.textContent = next; unitBtn.classList.toggle('kg', next === 'kg'); updateWeightEq(); return; }
     const wStep = e.target.closest('[data-se-step]');
     if (wStep) {
       const input = document.getElementById('se-weight');
@@ -358,7 +373,7 @@ function renderSetEditSheet() {
       const unit = document.getElementById('se-unit').textContent.trim();
       const delta = Number(wStep.dataset.seStep) * stepForExercise(unit, { name: s.exerciseName });
       let next = v + delta; if (next < 0) next = 0;
-      input.value = String(+next.toFixed(2)); haptic(10); return;
+      input.value = String(+next.toFixed(2)); updateWeightEq(); haptic(10); return;
     }
     const rStep = e.target.closest('[data-se-step-reps]');
     if (rStep) {
@@ -401,6 +416,9 @@ function renderSetEditSheet() {
       catch (err) { toast(err.message); }
     }
   };
+
+  document.getElementById('se-weight')?.addEventListener('input', updateWeightEq);
+  updateWeightEq();
 }
 
 async function openHistoryAddExercisePicker(workoutId) {
