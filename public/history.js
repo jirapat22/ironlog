@@ -1,4 +1,6 @@
-import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg } from './utils.js';
+
+let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
 import { saveAsTemplate } from './workout.js';
 import { reportHandled } from './bugreport.js';
@@ -12,7 +14,8 @@ async function renderHistory() {
   `;
 
   try {
-    const history = await API.history();
+    const [history, settings] = await Promise.all([API.history(), API.settings().catch(() => ({}))]);
+    showEquiv = settings.show_weight_equiv !== '0';
     const list = $('#history-list');
 
     if (!history.length) { list.innerHTML = `<div class="empty">No workouts yet</div>`; return; }
@@ -190,7 +193,8 @@ async function loadHistoryCardBody(card) {
             <button class="history-ex__set" data-edit-set="${s.id}">
               <span class="history-ex__set-n">Set ${s.set_number}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps}</span>
-              ${s.weight_unit === 'lbs' && s.weight > 0 && !s.is_bodyweight && !s.is_assisted ? `<span style="color:var(--text-dim);font-size:11px">≈${+(s.weight * 0.45359237).toFixed(1)}kg</span>` : ''}
+              ${showEquiv && !s.is_bodyweight && !s.is_assisted && weightEquiv(s.weight, s.weight_unit) ? `<span class="history-ex__set-aux">${weightEquiv(s.weight, s.weight_unit)}</span>` : ''}
+              ${!s.is_warmup && !s.is_bodyweight && !s.is_assisted && s.reps > 0 && s.weight > 0 ? `<span class="history-ex__set-aux">~${Math.round(e1RM(toKg(s.weight, s.weight_unit), s.reps))}kg 1RM</span>` : ''}
               ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}
               ${s.rpe != null ? `<span class="history-ex__set-rpe">@${s.rpe}</span>` : ''}
               ${s.notes ? `<span class="history-ex__set-note">${escapeHtml(s.notes)}</span>` : ''}

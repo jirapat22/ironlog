@@ -24,6 +24,7 @@ async function openSettingsSheet() {
   const nudgeOn = serverSettings.nudge_enabled === '1';
   const nudgeDays = Number(serverSettings.nudge_threshold_days || 3);
   const prefUnit = serverSettings.preferred_unit || 'kg';
+  const equivOn = serverSettings.show_weight_equiv !== '0';
   const weeklyOn = serverSettings.weekly_summary_enabled === '1';
 
   let notifBody = '';
@@ -97,6 +98,10 @@ async function openSettingsSheet() {
               <button class="unit-btn ${prefUnit === 'lbs' ? 'unit-btn--active' : ''}" data-pref-unit="lbs">lbs</button>
             </div>
           </div>
+          <label class="settings-row">
+            <span>Show kg/lb equivalent on sets</span>
+            <button class="toggle ${equivOn ? 'toggle--on' : ''}" id="toggle-equiv" aria-pressed="${equivOn}"><span class="toggle__dot"></span></button>
+          </label>
         </div>
 
         <div class="settings-group__title">Notifications</div>
@@ -283,6 +288,14 @@ async function openSettingsSheet() {
       const btn = e.target.closest('#toggle-weekly');
       const on = btn.classList.contains('toggle--on');
       try { await API.updateSettings({ weekly_summary_enabled: on ? '0' : '1' }); haptic(10); openSettingsSheet(); }
+      catch (err) { toast(err.message); }
+      return;
+    }
+
+    if (e.target.closest('#toggle-equiv')) {
+      const btn = e.target.closest('#toggle-equiv');
+      const on = btn.classList.contains('toggle--on');
+      try { await API.updateSettings({ show_weight_equiv: on ? '0' : '1' }); haptic(10); openSettingsSheet(); }
       catch (err) { toast(err.message); }
       return;
     }

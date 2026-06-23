@@ -151,6 +151,14 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
+// Small "≈ X kg/lb" equivalent for a logged weight (the opposite unit). Empty
+// for non-positive weights. Used as a tag on set rows.
+function weightEquiv(weight, unit) {
+  const w = Number(weight);
+  if (!Number.isFinite(w) || w <= 0) return '';
+  return unit === 'lbs' ? `≈ ${+(w * 0.45359237).toFixed(1)} kg` : `≈ ${+(w / 0.45359237).toFixed(1)} lb`;
+}
+
 function fmtSetWeight(weight, unit, isBw, isAssisted) {
   if (isAssisted) {
     if (!weight || weight === 0) return 'BW';
@@ -605,7 +613,7 @@ export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, skeletonBlocks, showPRFlash,
-  e1RM, toKg, fmtSetWeight,
+  e1RM, toKg, fmtSetWeight, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,

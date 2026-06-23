@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 
@@ -93,6 +93,16 @@ function clearDraftInput(workoutId, exId, setNum) {
     delete workoutState.draft.inputs[key];
     saveDraft(workoutId, workoutState.draft);
   }
+}
+
+// Live "≈ X kg/lb" tag on a set row, recomputed as weight/unit change.
+function updateRowEquiv(row) {
+  const eqEl = row?.querySelector('[data-eq]');
+  if (!eqEl) return;
+  if (!workoutState?.showEquiv) { eqEl.textContent = ''; return; }
+  const w = row.querySelector('[data-field="weight"] .num-input__field')?.value;
+  const u = row.querySelector('[data-unit]')?.textContent.trim();
+  eqEl.textContent = weightEquiv(w, u);
 }
 
 function markRowTouched(row) {
@@ -191,7 +201,8 @@ async function renderWorkout() {
       loggedSets: [...(workout.sets || [])],
       openExtras: new Set(),
       draft,
-      preferredUnit: settings.preferred_unit || 'kg'
+      preferredUnit: settings.preferred_unit || 'kg',
+      showEquiv: settings.show_weight_equiv !== '0'
     };
 
     // Reconstruct any exercises that were added mid-workout (not in the program template).
@@ -538,6 +549,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
         <button class="rpe-btn rpe-btn--clear" data-rir-clear ${effRir !== '' && effRir != null ? '' : 'style="visibility:hidden"'}>×</button>
         <button class="set-row__note-toggle" data-toggle-note title="Add a note">&#x270E;</button>
         <button data-rest class="rest-timer">rest</button>
+        <span class="set-row__eq" data-eq>${workoutState?.showEquiv ? weightEquiv(w, u) : ''}</span>
       </div>
       <div class="set-row__extras">
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
@@ -630,11 +642,12 @@ function wireWorkoutView() {
       unitBtn.textContent = next;
       unitBtn.classList.toggle('kg', next === 'kg');
       markRowTouched(row);
+      updateRowEquiv(row);
       return;
     }
 
     const stepBtn = e.target.closest('.num-input__btn');
-    if (stepBtn) { fireStep(stepBtn, row); return; }
+    if (stepBtn) { fireStep(stepBtn, row); updateRowEquiv(row); return; }
 
     const confirm = e.target.closest('[data-confirm]');
     if (confirm) return confirmSet(row);
@@ -690,7 +703,9 @@ function wireWorkoutView() {
   root.oninput = (e) => {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
-    markRowTouched(input.closest('.set-row'));
+    const row = input.closest('.set-row');
+    markRowTouched(row);
+    updateRowEquiv(row);
   };
 
   root.onfocusin = (e) => {

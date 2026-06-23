@@ -1095,6 +1095,12 @@ button {
   border-radius: 6px;
 }
 
+.set-row__eq {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .set-row__note-toggle:active {
   background: var(--surface-2);
 }
@@ -1962,6 +1968,12 @@ button {
   color: var(--accent);
   font-weight: 600;
   font-size: 12px;
+}
+
+.history-ex__set-aux {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Program actions */
