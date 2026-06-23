@@ -674,8 +674,8 @@ const SUB_MUSCLE_BY_NAME = {
   'Sit-Up': 'abs', 'Dead Bug': 'abs', 'Mountain Climber': 'abs', 'Leg Raise': 'abs',
   'Pallof Press': 'obliques', 'Hollow Body Hold': 'abs', 'L-Sit': 'abs', 'Toes to Bar': 'abs',
   'Cable Woodchop': 'obliques',
-  // Forearms
-  'Wrist Curl': 'wrist flexors', 'Reverse Curl': 'wrist extensors', 'Farmer Carry': 'grip'
+  // Forearms (Farmer Carry left whole — grip is incidental, not its own region)
+  'Wrist Curl': 'wrist flexors', 'Reverse Curl': 'wrist extensors'
 };
 
 // Big multi-joint lifts — highest energy cost.
@@ -743,9 +743,12 @@ function populateMuscleAndMet() {
     }
     // Forearm sub-muscles (were the generic 'forearms'). Gated on Wrist Curl.
     if (db.prepare("SELECT 1 FROM exercises WHERE name = 'Wrist Curl' AND sub_muscle = 'forearms'").get()) {
-      const fa = { 'Wrist Curl': 'wrist flexors', 'Reverse Curl': 'wrist extensors', 'Farmer Carry': 'grip' };
-      for (const [name, sub] of Object.entries(fa)) reSub.run(sub, name);
+      reSub.run('wrist flexors', 'Wrist Curl');
+      reSub.run('wrist extensors', 'Reverse Curl');
     }
+    // Drop sub-muscles since removed from the taxonomy (an earlier deploy may
+    // have set them): Farmer Carry's 'grip' and the unused triceps 'medial head'.
+    db.prepare("UPDATE exercises SET sub_muscle = NULL WHERE sub_muscle IN ('grip', 'medial head') AND created_by_profile_id IS NULL").run();
   });
 }
 
@@ -759,10 +762,10 @@ const GROUP_SUB_MUSCLES = {
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
   biceps: ['biceps', 'long head', 'short head', 'brachialis'],
-  triceps: ['long head', 'lateral head', 'medial head'],
+  triceps: ['long head', 'lateral head'],
+  forearms: ['wrist flexors', 'wrist extensors'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
-  core: ['abs', 'obliques'],
-  forearms: ['wrist flexors', 'wrist extensors', 'grip']
+  core: ['abs', 'obliques']
 };
 const REGION_TO_GROUP = {};
 for (const [g, subs] of Object.entries(GROUP_SUB_MUSCLES)) {

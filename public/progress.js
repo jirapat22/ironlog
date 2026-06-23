@@ -228,13 +228,15 @@ async function renderMuscleFrequency() {
         const row = byKey.get(`${g}|${sub}`);
         const days = row ? daysSince(row.last_trained_at) : null;
         if (days != null && (groupDays == null || days < groupDays)) groupDays = days;
-        const displayName = sub === g ? 'Whole muscle' : sub;
-        if (days == null || days >= 7) stale.push(displayName === 'Whole muscle' ? `${g} (whole muscle)` : displayName);
+        // Untagged "whole muscle" work still counts toward the group's recency
+        // (above) but gets no row of its own — it's noise in the breakdown.
+        if (sub === g) return '';
+        if (days == null || days >= 7) stale.push(sub);
         const label = days == null ? 'Never' : days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
         const color = freqColor(days);
         return `
           <div class="mfreq-row mfreq-row--sub">
-            <span class="mfreq-sub-name">${escapeHtml(displayName)}</span>
+            <span class="mfreq-sub-name">${escapeHtml(sub)}</span>
             <div class="mfreq-bar-wrap"><div class="mfreq-bar" style="background:${color}"></div></div>
             <span class="mfreq-label" style="color:${color}">${label}</span>
           </div>`;

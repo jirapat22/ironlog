@@ -190,6 +190,7 @@ async function loadHistoryCardBody(card) {
             <button class="history-ex__set" data-edit-set="${s.id}">
               <span class="history-ex__set-n">Set ${s.set_number}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps}</span>
+              ${s.weight_unit === 'lbs' && s.weight > 0 && !s.is_bodyweight && !s.is_assisted ? `<span style="color:var(--text-dim);font-size:11px">≈${+(s.weight * 0.45359237).toFixed(1)}kg</span>` : ''}
               ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}
               ${s.rpe != null ? `<span class="history-ex__set-rpe">@${s.rpe}</span>` : ''}
               ${s.notes ? `<span class="history-ex__set-note">${escapeHtml(s.notes)}</span>` : ''}

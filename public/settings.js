@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, pickerChipsHTML } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, pickerChipsHTML, PICKER_GROUP_ORDER } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -357,7 +357,7 @@ async function renderExerciseLibraryList(sheet) {
     return;
   }
 
-  const GROUPS = ['chest','back','shoulders','biceps','triceps','forearms','legs','core'];
+  const GROUPS = PICKER_GROUP_ORDER;
   const byGroup = {};
   for (const ex of stats) {
     const g = ex.muscle_group || 'other';

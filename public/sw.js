@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v88';
+const VERSION = 'ironlog-v89';
 const SHELL = [
   '/',
   '/index.html',

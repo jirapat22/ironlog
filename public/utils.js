@@ -364,10 +364,25 @@ function confirmSheet({ title, message = '', confirmText = 'Confirm', cancelText
   });
 }
 
+// ---------- Sub-muscle taxonomy ----------
+// Single source of truth: canonical regions per muscle group, in display order.
+// Drives the sub-muscle picker (exercise add/edit), the Muscle Detail analytics
+// (progress.js clones this), AND the group lists below — so there's one list to
+// edit. An empty sub-muscle choice ('') = whole muscle, stored as null.
+const SUB_MUSCLES = {
+  chest: ['upper chest', 'mid chest', 'lower chest'],
+  back: ['lats', 'upper back', 'lower back', 'traps'],
+  shoulders: ['front delt', 'side delt', 'rear delt'],
+  biceps: ['biceps', 'long head', 'short head', 'brachialis'],
+  triceps: ['long head', 'lateral head'],
+  forearms: ['wrist flexors', 'wrist extensors'],
+  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
+  core: ['abs', 'obliques']
+};
+
 // ---------- Constants ----------
-const PICKER_GROUP_ORDER = [
-  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'legs', 'core'
-];
+// Group order + the exercise-form group list both derive from SUB_MUSCLES keys.
+const PICKER_GROUP_ORDER = Object.keys(SUB_MUSCLES);
 
 const FEEL_OPTIONS = [
   { v: 1, emoji: '😴', label: 'Dead' },
@@ -381,21 +396,6 @@ function feelEmoji(rating) {
   return FEEL_OPTIONS.find((o) => o.v === rating)?.emoji || '';
 }
 
-// ---------- Sub-muscle taxonomy ----------
-// Canonical regions per muscle group. Single source of truth for the
-// sub-muscle picker on the exercise add/edit forms AND the Muscle Detail
-// analytics (progress.js clones this). An empty choice ('') = whole muscle,
-// stored as null.
-const SUB_MUSCLES = {
-  chest: ['upper chest', 'mid chest', 'lower chest'],
-  back: ['lats', 'upper back', 'lower back', 'traps'],
-  shoulders: ['front delt', 'side delt', 'rear delt'],
-  biceps: ['biceps', 'long head', 'short head', 'brachialis'],
-  triceps: ['long head', 'lateral head', 'medial head'],
-  legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
-  core: ['abs', 'obliques'],
-  forearms: ['wrist flexors', 'wrist extensors', 'grip']
-};
 
 // Build <option> markup for a group's sub-muscle dropdown. `selected` is the
 // currently-saved sub_muscle (may be null/''). A saved value outside the
@@ -448,7 +448,7 @@ function createSecondaryPicker(containerEl, getPrimary, initial = []) {
 // ---------- Exercise edit form ----------
 // Renders the "Edit exercise" form into containerEl and wires save/delete.
 // Callbacks: onBack() — go back/close; onSaved(updatedExercise); onDeleted().
-const EXERCISE_GROUPS = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'legs', 'core'];
+const EXERCISE_GROUPS = PICKER_GROUP_ORDER;
 const EXERCISE_EQUIPMENT = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
 
 function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, onCleared } = {}) {
