@@ -513,11 +513,11 @@ const CANONICAL_EXERCISES = [
   ['Reverse Hyperextension', 'back', 'Reverse hyper machine — glutes and spinal decompression'],
   ['Good Morning', 'back', 'Barbell on back, hip hinge — posterior chain and erectors'],
 
-  // Arms — forearms / grip
-  ['Wrist Curl', 'arms', 'Barbell or dumbbell, forearm flexors'],
-  ['Reverse Curl', 'arms', 'Overhand barbell — brachialis and forearm extensors'],
+  // Forearms — flexors / extensors / grip
+  ['Wrist Curl', 'forearms', 'Barbell or dumbbell, forearm flexors'],
+  ['Reverse Curl', 'forearms', 'Overhand barbell — brachialis and forearm extensors'],
   ['Zottman Curl', 'biceps', 'Curl up with supination, lower with pronation — full arm development'],
-  ['Farmer Carry', 'arms', 'Heavy dumbbells or trap bar — grip, stability, full-body tension'],
+  ['Farmer Carry', 'forearms', 'Heavy dumbbells or trap bar — grip, stability, full-body tension'],
 
   // Legs — power / functional / posterior chain
   ['Kettlebell Swing', 'legs', 'Hip hinge power, ballistic glute and hamstring drive'],
@@ -652,11 +652,11 @@ const SUB_MUSCLE_BY_NAME = {
   'Incline Dumbbell Curl': 'long head', 'Cable Curl': 'biceps', 'Concentration Curl': 'short head',
   'Spider Curl': 'short head', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
   'Machine Curl': 'short head', 'Bayesian Curl': 'long head', 'Zottman Curl': 'brachialis',
-  // Triceps
-  'Tricep Pushdown': 'triceps', 'Rope Pushdown': 'triceps', 'Overhead Tricep Extension': 'triceps',
-  'Skull Crusher': 'triceps', 'Close-Grip Bench Press': 'triceps', 'Tricep Dip': 'triceps',
-  'Tricep Kickback': 'triceps', 'Diamond Push-Up': 'triceps', 'Cable Overhead Tricep Extension': 'triceps',
-  'Machine Tricep Extension': 'triceps', 'Assisted Chin-Up': 'biceps', 'Assisted Pull-Up': 'lats',
+  // Triceps — long (overhead/stretch) / lateral (pushdowns/pressing)
+  'Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Overhead Tricep Extension': 'long head',
+  'Skull Crusher': 'long head', 'Close-Grip Bench Press': 'lateral head', 'Tricep Dip': 'lateral head',
+  'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head', 'Cable Overhead Tricep Extension': 'long head',
+  'Machine Tricep Extension': 'lateral head', 'Assisted Chin-Up': 'biceps', 'Assisted Pull-Up': 'lats',
   // Legs
   'Back Squat': 'quads', 'Front Squat': 'quads', 'Goblet Squat': 'quads', 'Romanian Deadlift': 'hamstrings',
   'Stiff-Leg Deadlift': 'hamstrings', 'Leg Press': 'quads', 'Hack Squat': 'quads',
@@ -674,8 +674,8 @@ const SUB_MUSCLE_BY_NAME = {
   'Sit-Up': 'abs', 'Dead Bug': 'abs', 'Mountain Climber': 'abs', 'Leg Raise': 'abs',
   'Pallof Press': 'obliques', 'Hollow Body Hold': 'abs', 'L-Sit': 'abs', 'Toes to Bar': 'abs',
   'Cable Woodchop': 'obliques',
-  // Arms / forearms
-  'Wrist Curl': 'forearms', 'Reverse Curl': 'forearms', 'Farmer Carry': 'forearms'
+  // Forearms
+  'Wrist Curl': 'wrist flexors', 'Reverse Curl': 'wrist extensors', 'Farmer Carry': 'grip'
 };
 
 // Big multi-joint lifts — highest energy cost.
@@ -725,6 +725,27 @@ function populateMuscleAndMet() {
       const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL");
       for (const [name, sub] of Object.entries(heads)) reSub.run(sub, name);
     }
+
+    // Retire the 'arms' group → 'forearms' for existing DBs (idempotent: no-op
+    // once nothing is left in 'arms').
+    db.prepare("UPDATE exercises SET muscle_group = 'forearms' WHERE muscle_group = 'arms'").run();
+
+    const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL");
+    // Split seeded triceps by head (were the generic 'triceps'). Gated like biceps.
+    if (db.prepare("SELECT 1 FROM exercises WHERE name = 'Tricep Pushdown' AND sub_muscle = 'triceps'").get()) {
+      const tri = {
+        'Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Close-Grip Bench Press': 'lateral head',
+        'Tricep Dip': 'lateral head', 'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head',
+        'Machine Tricep Extension': 'lateral head', 'Overhead Tricep Extension': 'long head',
+        'Cable Overhead Tricep Extension': 'long head', 'Skull Crusher': 'long head'
+      };
+      for (const [name, sub] of Object.entries(tri)) reSub.run(sub, name);
+    }
+    // Forearm sub-muscles (were the generic 'forearms'). Gated on Wrist Curl.
+    if (db.prepare("SELECT 1 FROM exercises WHERE name = 'Wrist Curl' AND sub_muscle = 'forearms'").get()) {
+      const fa = { 'Wrist Curl': 'wrist flexors', 'Reverse Curl': 'wrist extensors', 'Farmer Carry': 'grip' };
+      for (const [name, sub] of Object.entries(fa)) reSub.run(sub, name);
+    }
   });
 }
 
@@ -738,10 +759,10 @@ const GROUP_SUB_MUSCLES = {
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
   biceps: ['biceps', 'long head', 'short head', 'brachialis'],
-  triceps: ['triceps'],
+  triceps: ['long head', 'lateral head', 'medial head'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
   core: ['abs', 'obliques'],
-  arms: ['forearms']
+  forearms: ['wrist flexors', 'wrist extensors', 'grip']
 };
 const REGION_TO_GROUP = {};
 for (const [g, subs] of Object.entries(GROUP_SUB_MUSCLES)) {

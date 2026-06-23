@@ -366,7 +366,7 @@ function confirmSheet({ title, message = '', confirmText = 'Confirm', cancelText
 
 // ---------- Constants ----------
 const PICKER_GROUP_ORDER = [
-  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'arms', 'legs', 'core'
+  'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'legs', 'core'
 ];
 
 const FEEL_OPTIONS = [
@@ -391,10 +391,10 @@ const SUB_MUSCLES = {
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
   biceps: ['biceps', 'long head', 'short head', 'brachialis'],
-  triceps: ['triceps'],
+  triceps: ['long head', 'lateral head', 'medial head'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
   core: ['abs', 'obliques'],
-  arms: ['forearms']
+  forearms: ['wrist flexors', 'wrist extensors', 'grip']
 };
 
 // Build <option> markup for a group's sub-muscle dropdown. `selected` is the
@@ -448,7 +448,7 @@ function createSecondaryPicker(containerEl, getPrimary, initial = []) {
 // ---------- Exercise edit form ----------
 // Renders the "Edit exercise" form into containerEl and wires save/delete.
 // Callbacks: onBack() — go back/close; onSaved(updatedExercise); onDeleted().
-const EXERCISE_GROUPS = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'arms', 'legs', 'core'];
+const EXERCISE_GROUPS = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms', 'legs', 'core'];
 const EXERCISE_EQUIPMENT = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
 
 function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, onCleared } = {}) {

@@ -357,7 +357,7 @@ async function renderExerciseLibraryList(sheet) {
     return;
   }
 
-  const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  const GROUPS = ['chest','back','shoulders','biceps','triceps','forearms','legs','core'];
   const byGroup = {};
   for (const ex of stats) {
     const g = ex.muscle_group || 'other';
