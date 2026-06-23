@@ -112,13 +112,13 @@ router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM programs WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'program not found' });
-  const fields = ['name', 'description'];
+  const fields = ['name', 'description', 'sort_order'];
   const updates = [];
   const values = [];
   for (const f of fields) {
     if (f in (req.body || {})) {
       updates.push(`${f} = ?`);
-      values.push(req.body[f]);
+      values.push(f === 'sort_order' ? Number(req.body[f]) : req.body[f]);
     }
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
@@ -137,7 +137,7 @@ router.delete('/:id', (req, res) => {
 });
 
 router.get('/', (req, res) => {
-  const rows = db.prepare('SELECT id, name, description FROM programs WHERE profile_id = ? ORDER BY id').all(req.profileId);
+  const rows = db.prepare('SELECT id, name, description FROM programs WHERE profile_id = ? ORDER BY COALESCE(sort_order, id), id').all(req.profileId);
   res.json(rows);
 });
 

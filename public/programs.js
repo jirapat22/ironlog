@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -72,6 +72,26 @@ async function renderPrograms() {
     await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
 
     root.onclick = async (e) => {
+      const moveBtn = e.target.closest('[data-move-program]');
+      if (moveBtn) {
+        e.stopPropagation();
+        const id = Number(moveBtn.dataset.programId);
+        const dir = moveBtn.dataset.moveProgram === 'up' ? -1 : 1;
+        const idx = full.findIndex((p) => p.id === id);
+        const swap = idx + dir;
+        if (swap < 0 || swap >= full.length) return;
+        [full[idx], full[swap]] = [full[swap], full[idx]];
+        haptic(10);
+        try {
+          // ponytail: rewrite every program's sort_order to its index — N is a
+          // handful, so a per-program PATCH is simpler than a diff and robust
+          // when some rows still have NULL sort_order.
+          await Promise.all(full.map((p, i) => API.updateProgram(p.id, { sort_order: i })));
+          renderPrograms();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
       const dupBtn = e.target.closest('[data-dup-program]');
       if (dupBtn) {
         e.stopPropagation();
@@ -192,6 +212,8 @@ function programCardHTML(p) {
       </button>
       <div class="program-card__body">
         <div class="program-card__actions">
+          <button class="btn btn--ghost btn--sm" data-move-program="up" data-program-id="${p.id}" title="Move up">&#x2191;</button>
+          <button class="btn btn--ghost btn--sm" data-move-program="down" data-program-id="${p.id}" title="Move down">&#x2193;</button>
           <button class="btn btn--ghost btn--sm" data-dup-program="${p.id}">&#x29C9; Duplicate</button>
           <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Edit</button>
           <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
@@ -429,8 +451,9 @@ async function openPicker() {
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body">
-        <input class="input" id="picker-search" placeholder="Search exercises…" style="margin-bottom:12px"/>
-        <button class="btn btn--ghost btn--block" data-new-exercise style="margin-bottom:16px">+ Create custom exercise</button>
+        <input class="input" id="picker-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <button class="btn btn--ghost btn--block" data-new-exercise style="margin-bottom:12px">+ Create custom exercise</button>
+        ${pickerChipsHTML(keys)}
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>
@@ -447,16 +470,7 @@ async function openPicker() {
     </div>
   `;
   showSheet(picker);
-
-  const search = document.getElementById('picker-search');
-  search.oninput = () => {
-    const q = search.value.trim().toLowerCase();
-    picker.querySelectorAll('.picker-row').forEach((r) => r.classList.toggle('hidden', q && !r.dataset.name.includes(q)));
-    picker.querySelectorAll('.picker-group').forEach((g) => {
-      const any = [...g.querySelectorAll('.picker-row')].some((r) => !r.classList.contains('hidden'));
-      g.classList.toggle('hidden', !any);
-    });
-  };
+  setupPickerFilter(picker);
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-picker]')) return hideSheet(picker);

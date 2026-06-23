@@ -293,6 +293,12 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE exercises ADD COLUMN created_by_profile_id INTEGER');
   }
 
+  // programs.sort_order: user-defined ordering of the program list. NULL falls
+  // back to id (insertion order).
+  if (!columnExists('programs', 'sort_order')) {
+    db.exec('ALTER TABLE programs ADD COLUMN sort_order INTEGER');
+  }
+
   // 2. app_settings: primary key must become (profile_id, key). Rebuild.
   if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
     tx(() => {
