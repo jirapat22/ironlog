@@ -476,6 +476,13 @@ button {
   transition: opacity 0.18s ease-out;
 }
 
+/* Confirm/prompt dialogs open ON TOP of another sheet (e.g. delete a note
+   from the Notes sheet), so they need a higher layer or they hide behind it. */
+#confirm-sheet,
+#prompt-sheet {
+  z-index: 600;
+}
+
 .sheet.open {
   opacity: 1;
 }
