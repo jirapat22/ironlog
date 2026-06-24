@@ -352,6 +352,15 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const rec = recommendForNext(ex, lastSets);
   const drafts = workoutState?.draft?.inputs || {};
 
+  // The most recent working set logged for THIS exercise in THIS session.
+  // Unlogged sets prefill from it so they follow what you just did — and keep
+  // following it across re-renders (the in-place cascade alone didn't survive
+  // a re-render).
+  const loggedThisEx = workoutState.loggedSets
+    .filter((s) => s.exercise_id === ex.exercise_id && !s.is_warmup)
+    .sort((a, b) => a.set_number - b.set_number);
+  const lastLogged = loggedThisEx[loggedThisEx.length - 1];
+
   const isSkipped = !!(workoutState.draft.skipped?.[ex.exercise_id]);
   const rows = [];
   let firstUnloggedSet = null;
@@ -363,9 +372,9 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const prevSet = lastSets.find((s) => s.set_number === i) || prevReference;
     const draft = drafts[key];
 
-    const w = logged?.weight ?? draft?.w ?? rec?.recWeight ?? prevSet?.weight ?? prefillWeight;
-    const u = logged?.weight_unit ?? draft?.u ?? rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit;
-    const r = logged?.reps ?? draft?.r ?? prevSet?.reps ?? prefillReps;
+    const w = logged?.weight ?? draft?.w ?? lastLogged?.weight ?? rec?.recWeight ?? prevSet?.weight ?? prefillWeight;
+    const u = logged?.weight_unit ?? draft?.u ?? lastLogged?.weight_unit ?? rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit;
+    const r = logged?.reps ?? draft?.r ?? lastLogged?.reps ?? prevSet?.reps ?? prefillReps;
     const rir = draft?.rir ?? null;
 
     if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
