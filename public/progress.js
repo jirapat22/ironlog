@@ -438,17 +438,22 @@ async function renderOverloadCharts() {
     // lift got weaker mid-session — the top set is the honest progression
     // signal. Need 2+ distinct sessions to draw a meaningful trend.
     const series = [];
+    let anyFatigued = false;
     for (const ex of history) {
       const byDay = new Map();
       for (const s of ex.sets) {
         const val = calcE1RM(s, ex, bwKg);
         if (!val) continue; // skip sets that can't yield a real e1RM (e.g. unlogged-BW)
         const day = s.logged_at.slice(0, 10);
-        if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
+        // Keep the day's best e1RM, and whether THAT set was pre-fatigued
+        // (a same-muscle exercise was trained earlier in the session).
+        if (!byDay.has(day) || val > byDay.get(day).value) byDay.set(day, { value: val, fatigued: !!s.fatigued });
       }
       const days = [...byDay.keys()].sort();
       if (days.length < 2) continue;
-      const values = days.map((d) => Math.round(byDay.get(d)));
+      const values = days.map((d) => Math.round(byDay.get(d).value));
+      const fatigued = days.map((d) => byDay.get(d).fatigued);
+      if (fatigued.some(Boolean)) anyFatigued = true;
       series.push({
         exercise_id: ex.exercise_id,
         exercise_name: ex.exercise_name,
@@ -456,6 +461,7 @@ async function renderOverloadCharts() {
         sub_muscle: ex.sub_muscle || null,
         labels: days,
         values,
+        fatigued,
         plateau: detectPlateau(values)
       });
     }
@@ -478,7 +484,7 @@ async function renderOverloadCharts() {
       return ia - ib;
     });
 
-    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift.</div>`;
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift.${anyFatigued ? ' <span style="color:#f0a92c">Amber</span> points were done pre-fatigued (a same-muscle exercise came earlier that session), so a dip there is order, not regression.' : ''}</div>`;
 
     root.innerHTML = subtitle + groupOrder.map((group) => {
       const exercises = [...byGroup.get(group)].sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
@@ -518,12 +524,17 @@ function renderOverloadChart(s) {
         // 'monotone' keeps the curve from overshooting below/above the actual
         // points — plain bezier tension invents phantom dips between values.
         cubicInterpolationMode: 'monotone', tension: 0.25,
-        fill: true, pointRadius: 2, pointBackgroundColor: '#5ac46a', pointBorderColor: '#0f0f0f'
+        fill: true,
+        // Amber dot (slightly larger) for pre-fatigued sessions so a dip reads
+        // as exercise order, not a true drop.
+        pointRadius: (s.fatigued || []).map((f) => (f ? 4 : 2)),
+        pointBackgroundColor: (s.fatigued || []).map((f) => (f ? '#f0a92c' : '#5ac46a')),
+        pointBorderColor: '#0f0f0f'
       }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg` } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg${(s.fatigued || [])[ctx.dataIndex] ? ' · pre-fatigued' : ''}` } } },
       scales: { x: { ...d, ticks: { ...d.ticks, maxTicksLimit: 6 } }, y: { ...d, beginAtZero: false } }
     }
   });
@@ -544,7 +555,7 @@ async function renderPrTimeline() {
         events.push({
           exerciseName: g.exercise_name, muscleGroup: g.muscle_group,
           weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, achievedAt: r.achieved_at,
-          isBodyweight: !!ex?.is_bodyweight, isAssisted: !!ex?.is_assisted,
+          isBodyweight: !!ex?.is_bodyweight, isAssisted: !!ex?.is_assisted, fatigued: !!r.fatigued,
           e1rm: calcE1RM(r, ex, bwKg)
         });
       }
@@ -564,7 +575,7 @@ async function renderPrTimeline() {
         ${list.map((ev) => `<div class="pr-event">
           <div class="pr-event__date">${ev.reps}-rep max</div>
           <div class="pr-event__body">
-            <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight, ev.isAssisted)} × ${ev.reps}</span>
+            <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight, ev.isAssisted)} × ${ev.reps}${ev.fatigued ? ' <span class="pr-event__fatigued" title="Set while pre-fatigued — a same-muscle exercise came earlier that session">💪 pre-fatigued</span>' : ''}</span>
             <span class="pr-event__e1rm">${formatDateShort(ev.achievedAt)} · e1RM ${Math.round(ev.e1rm)} kg</span>
           </div></div>`).join('')}
       </div>`;
