@@ -169,15 +169,7 @@ router.get('/strength-history', (req, res) => {
   const rows = db.prepare(`
     SELECT e.id as exercise_id, e.name as exercise_name, e.muscle_group, e.sub_muscle,
            e.is_bodyweight, e.is_assisted,
-           s.weight, s.weight_unit, s.reps, s.logged_at,
-           EXISTS (
-             SELECT 1 FROM sets s2 JOIN exercises e2 ON e2.id = s2.exercise_id
-             WHERE s2.workout_id = s.workout_id
-               AND e2.muscle_group = e.muscle_group
-               AND s2.exercise_id <> s.exercise_id
-               AND s2.is_warmup = 0
-               AND s2.logged_at < s.logged_at
-           ) AS fatigued
+           s.weight, s.weight_unit, s.reps, s.logged_at
     FROM sets s
     JOIN exercises e ON e.id = s.exercise_id
     WHERE s.profile_id = ? AND s.is_warmup = 0
@@ -197,7 +189,7 @@ router.get('/strength-history', (req, res) => {
         sets: []
       });
     }
-    byExercise.get(r.exercise_id).sets.push({ weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, logged_at: r.logged_at, fatigued: !!r.fatigued });
+    byExercise.get(r.exercise_id).sets.push({ weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, logged_at: r.logged_at });
   }
   res.json([...byExercise.values()]);
 });
@@ -206,18 +198,7 @@ router.get('/prs', (req, res) => {
   const rows = db
     .prepare(
       `SELECT pr.id, pr.weight, pr.weight_unit, pr.reps, pr.achieved_at,
-              e.id as exercise_id, e.name as exercise_name, e.muscle_group,
-              EXISTS (
-                SELECT 1 FROM sets s
-                WHERE s.profile_id = pr.profile_id AND s.exercise_id = pr.exercise_id
-                  AND s.reps = pr.reps AND s.logged_at = pr.achieved_at
-                  AND EXISTS (
-                    SELECT 1 FROM sets s2 JOIN exercises e2 ON e2.id = s2.exercise_id
-                    WHERE s2.workout_id = s.workout_id AND e2.muscle_group = e.muscle_group
-                      AND s2.exercise_id <> s.exercise_id AND s2.is_warmup = 0
-                      AND s2.logged_at < s.logged_at
-                  )
-              ) AS fatigued
+              e.id as exercise_id, e.name as exercise_name, e.muscle_group
        FROM personal_records pr
        JOIN exercises e ON e.id = pr.exercise_id
        WHERE pr.profile_id = ?
@@ -240,8 +221,7 @@ router.get('/prs', (req, res) => {
       weight: row.weight,
       weight_unit: row.weight_unit,
       reps: row.reps,
-      achieved_at: row.achieved_at,
-      fatigued: !!row.fatigued
+      achieved_at: row.achieved_at
     });
   }
 

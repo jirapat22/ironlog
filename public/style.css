@@ -2640,16 +2640,6 @@ button {
   color: var(--text-dim);
 }
 
-.pr-event__fatigued {
-  font-size: 10px;
-  font-weight: 700;
-  color: #f0a92c;
-  background: rgba(240, 169, 44, 0.15);
-  padding: 1px 6px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
 /* Progressive overload charts */
 .overload-group {
   padding: 10px 0;
