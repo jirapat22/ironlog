@@ -149,4 +149,16 @@ router.delete('/notes/:id', (req, res) => {
   res.json({ deleted: true, id });
 });
 
+// PATCH /api/orbit/notes/:id — alternative to DELETE: mark a note resolved
+// (done) in place instead of removing it, if Orbit prefers to keep the record.
+// Body { done } — omitted/true => resolved. Same gate as above.
+router.patch('/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const done = req.body && 'done' in req.body ? (req.body.done ? 1 : 0) : 1;
+  const result = db.prepare('UPDATE notes SET done = ? WHERE id = ?').run(done, id);
+  if (result.changes === 0) return res.status(404).json({ error: 'not found' });
+  res.json({ updated: true, id, done });
+});
+
 module.exports = router;
