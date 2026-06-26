@@ -218,18 +218,38 @@ async function renderMuscleFrequency() {
     }
     const collapsedSet = new Set(collapsedGroups);
 
+    // Per-group recency (min days-ago across its sub-muscles), so we can sort
+    // the most-overdue muscles to the top — "what needs attention" at a glance.
+    const groupDaysMap = new Map();
+    for (const g of groupOrder) {
+      let gd = null;
+      for (const sub of (SUB_MUSCLE_MAP[g] || [])) {
+        const row = byKey.get(`${g}|${sub}`);
+        const days = row ? daysSince(row.last_trained_at) : null;
+        if (days != null && (gd == null || days < gd)) gd = days;
+      }
+      groupDaysMap.set(g, gd);
+    }
+    // Most days since training first; never-trained groups sink to the bottom.
+    const sortedGroups = [...groupOrder].sort((a, b) => {
+      const da = groupDaysMap.get(a), dbb = groupDaysMap.get(b);
+      if (da == null && dbb == null) return 0;
+      if (da == null) return 1;
+      if (dbb == null) return -1;
+      return dbb - da;
+    });
+
     // Per-group HTML for both states, swapped on toggle without a full re-render.
     const groupContent = new Map();
 
-    const html = groupOrder.map((g) => {
+    const html = sortedGroups.map((g) => {
       const subs = SUB_MUSCLE_MAP[g] || [];
-      let groupDays = null;
+      const groupDays = groupDaysMap.get(g);
       const subRows = subs.map((sub) => {
         const row = byKey.get(`${g}|${sub}`);
         const days = row ? daysSince(row.last_trained_at) : null;
-        if (days != null && (groupDays == null || days < groupDays)) groupDays = days;
-        // Untagged "whole muscle" work still counts toward the group's recency
-        // (above) but gets no row of its own — it's noise in the breakdown.
+        // Untagged "whole muscle" work counts toward group recency above but
+        // gets no row of its own — it's noise in the breakdown.
         if (sub === g) return '';
         if (days == null || days >= 7) stale.push(sub);
         const label = days == null ? 'Never' : days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days}d ago`;
@@ -242,12 +262,12 @@ async function renderMuscleFrequency() {
           </div>`;
       }).join('');
 
-      // Collapsed summary: most-recent "last trained" across this group's sub-muscles.
+      // Collapsed view (the default): one clean colored "last trained" line.
       const groupLabel = groupDays == null ? 'Never' : groupDays === 0 ? 'Today' : groupDays === 1 ? 'Yesterday' : `${groupDays}d ago`;
       const groupColor = freqColor(groupDays);
       const summaryRow = `
         <div class="mfreq-row mfreq-row--sub mfreq-row--summary">
-          <span class="mfreq-sub-name">Last trained</span>
+          <span class="mfreq-sub-name" style="color:var(--text-dim)">${groupDays == null ? 'Not trained yet' : 'Last trained'}</span>
           <div class="mfreq-bar-wrap"><div class="mfreq-bar" style="background:${groupColor}"></div></div>
           <span class="mfreq-label" style="color:${groupColor}">${groupLabel}</span>
         </div>`;
@@ -386,7 +406,7 @@ function renderCalendar(entries) {
 
   root.innerHTML = `
     <div class="cal-stats">
-      <div class="cal-stat"><div class="cal-stat__val">${currentStreak}</div><div class="cal-stat__lbl">wk streak</div></div>
+      <div class="cal-stat"><div class="cal-stat__val" style="${currentStreak > 0 ? 'color:var(--success)' : ''}">${currentStreak}</div><div class="cal-stat__lbl">wk streak</div></div>
       <div class="cal-stat"><div class="cal-stat__val">${best}</div><div class="cal-stat__lbl">best</div></div>
       <div class="cal-stat"><div class="cal-stat__val">${thisMonth}</div><div class="cal-stat__lbl">this month</div></div>
       <div class="cal-stat"><div class="cal-stat__val">${total}</div><div class="cal-stat__lbl">total</div></div>
@@ -561,12 +581,12 @@ async function renderPrTimeline() {
     root.innerHTML = subtitle + groupOrder.map((name) => {
       const list = [...byExercise.get(name)].sort((a, b) => a.reps - b.reps);
       return `<div class="pr-group"><div class="pr-group__name">${escapeHtml(name)}</div>
-        ${list.map((ev) => `<div class="pr-event">
+        ${list.map((ev) => { const recent = (daysAgo(ev.achievedAt) ?? 99) <= 14; return `<div class="pr-event${recent ? ' pr-event--recent' : ''}">
           <div class="pr-event__date">${ev.reps}-rep max</div>
           <div class="pr-event__body">
-            <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight, ev.isAssisted)} × ${ev.reps}</span>
+            <span class="pr-event__main">${fmtSetWeight(ev.weight, ev.weight_unit, ev.isBodyweight, ev.isAssisted)} × ${ev.reps}${recent ? ' <span class="pr-event__new">✨ new</span>' : ''}</span>
             <span class="pr-event__e1rm">${formatDateShort(ev.achievedAt)} · e1RM ${Math.round(ev.e1rm)} kg</span>
-          </div></div>`).join('')}
+          </div></div>`; }).join('')}
       </div>`;
     }).join('');
   } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
