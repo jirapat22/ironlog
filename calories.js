@@ -46,4 +46,42 @@ function caloriesFromSets(sets, bwKg) {
   return Math.round(Math.min(kcal, 1500));
 }
 
-module.exports = { caloriesFromSets };
+// ---------------------------------------------------------------------------
+// Non-strength "activity" sessions (a HYROX class, a run, cardio) are
+// duration-based, so the per-set model above doesn't apply. Estimate them the
+// standard way: MET(activity) × bodyweight × hours, nudged by how hard it was.
+// ---------------------------------------------------------------------------
+const ACTIVITY_MET = {
+  run: 10,
+  row: 8.5,
+  hyrox: 8,
+  class: 8,
+  cycle: 7.5,
+  cardio: 7.5,
+  swim: 8,
+  walk: 4
+};
+const ACTIVITY_MET_DEFAULT = 6; // unknown / "other"
+
+/**
+ * @param {string} type      activity key (run, hyrox, cardio, …)
+ * @param {number} minutes   session duration
+ * @param {number|null} rpe  how hard, 6–10 (null = moderate)
+ * @param {number|null} bwKg bodyweight snapshot in kg
+ * @returns {number|null}    estimated calories, or null if bodyweight unknown
+ */
+function activityCalories(type, minutes, rpe, bwKg) {
+  if (!bwKg || !Number.isFinite(Number(bwKg))) return null;
+  const mins = Number(minutes);
+  if (!Number.isFinite(mins) || mins <= 0) return 0;
+  const met = ACTIVITY_MET[type] || ACTIVITY_MET_DEFAULT;
+  // RPE 6–10 -> 0.80–1.04 multiplier; missing/blank rpe is moderate (8).
+  // (Guard null/'' explicitly: Number(null) is 0, which would wrongly floor it.)
+  const rNum = (rpe == null || rpe === '' || !Number.isFinite(Number(rpe))) ? 8 : Number(rpe);
+  const r = Math.max(6, Math.min(10, rNum));
+  const mult = 0.8 + (r - 6) * 0.06;
+  const kcal = met * mult * Number(bwKg) * (mins / 60);
+  return Math.round(Math.min(kcal, 1500));
+}
+
+module.exports = { caloriesFromSets, activityCalories };

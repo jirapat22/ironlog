@@ -175,6 +175,26 @@ async function loadHistoryCardBody(card) {
   body.innerHTML = `<div class="skeleton" style="height:80px"></div>`;
   try {
     const [sets, workout] = await Promise.all([API.workoutSets(id), API.workout(id)]);
+
+    if (workout.kind === 'activity') {
+      let tags = [];
+      try { tags = JSON.parse(workout.muscle_tags || '[]'); } catch { tags = []; }
+      body.innerHTML = `
+        <div class="history-activity">
+          <div class="history-activity__line"><span>Duration</span><strong>${workout.duration_min || 0} min</strong></div>
+          ${workout.distance ? `<div class="history-activity__line"><span>Distance</span><strong>${workout.distance} ${escapeHtml(workout.distance_unit || '')}</strong></div>` : ''}
+          ${workout.rpe ? `<div class="history-activity__line"><span>Intensity</span><strong>RPE ${workout.rpe}</strong></div>` : ''}
+          ${workout.calories_burned ? `<div class="history-activity__line"><span>Calories</span><strong>~${workout.calories_burned} kcal</strong></div>` : ''}
+          ${tags.length ? `<div class="history-activity__line"><span>Worked</span><strong>${tags.map(escapeHtml).join(', ')}</strong></div>` : ''}
+        </div>
+        <label class="form-label" style="margin-top:12px">Notes</label>
+        <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(workout.notes || '')}" placeholder="How did it go?">${escapeHtml(workout.notes || '')}</textarea>
+        <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger);margin-top:10px">Delete</button>`;
+      card.dataset.loaded = '1';
+      card.dataset.exerciseNames = '';
+      return;
+    }
+
     const grouped = {};
     for (const s of sets) {
       if (!grouped[s.exercise_id]) grouped[s.exercise_id] = { exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sets: [] };
@@ -259,8 +279,37 @@ async function refreshHistoryCard(workoutId) {
   } catch (err) { toast(err.message); }
 }
 
+const ACTIVITY_LABELS = {
+  hyrox: 'HYROX', run: 'Run', cycle: 'Cycle', row: 'Row', swim: 'Swim',
+  walk: 'Walk', cardio: 'Cardio', class: 'Class', other: 'Activity'
+};
+
 function historyCardHTML(w) {
   const started = new Date(w.started_at.replace(' ', 'T') + 'Z');
+
+  if (w.kind === 'activity') {
+    const label = ACTIVITY_LABELS[w.activity_type] || 'Activity';
+    let tags = [];
+    try { tags = JSON.parse(w.muscle_tags || '[]'); } catch { tags = []; }
+    const badges = tags.map((g) => `<span class="badge badge--group badge--g-${g}">${escapeHtml(g)}</span>`).join('');
+    const dist = w.distance ? ` · ${w.distance}${w.distance_unit || ''}` : '';
+    const meta = `${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${w.duration_min || 0}m${w.rpe ? ` · RPE ${w.rpe}` : ''}${dist}`;
+    return `
+      <div class="history-card history-card--activity" data-id="${w.id}">
+        <button class="history-card__head">
+          <div>
+            <div class="history-card__title">${escapeHtml(label)} <span class="history-card__kind">activity</span></div>
+            <div class="history-card__meta">${meta}</div>
+            ${badges ? `<div class="history-card__groups">${badges}</div>` : ''}
+          </div>
+          <div class="history-card__stats">
+            ${w.calories_burned ? `~${w.calories_burned}<br/><span style="font-size:11px;color:var(--text-dim)">kcal</span>` : '<span style="font-size:11px;color:var(--text-dim)">no kcal</span>'}
+          </div>
+        </button>
+        <div class="history-card__body"></div>
+      </div>`;
+  }
+
   const finished = w.finished_at ? new Date(w.finished_at.replace(' ', 'T') + 'Z') : null;
   const durMs = finished ? finished - started : 0;
   const durMin = Math.floor(durMs / 60000);

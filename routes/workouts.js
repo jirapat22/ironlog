@@ -1,10 +1,54 @@
 const express = require('express');
 const { db } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
-const { caloriesFromSets } = require('../calories');
+const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
+const { REGION_TO_GROUP } = require('../db');
 
 const router = express.Router();
+
+const MUSCLE_GROUPS = [...new Set(Object.values(REGION_TO_GROUP))];
+
+// Log a non-strength session (HYROX class, run, cardio). Reuses the workouts
+// table (kind='activity') so it counts toward consistency + calories with no
+// extra plumbing. Logged after the fact: created already-finished, with
+// started_at backdated by the duration so History shows the right length.
+router.post('/activity', (req, res) => {
+  const b = req.body || {};
+  const minutes = Number(b.duration_min);
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) {
+    return res.status(400).json({ error: 'duration_min must be 1–600 minutes' });
+  }
+  const activityType = String(b.activity_type || 'other').slice(0, 40);
+  const rpe = b.rpe == null ? null : Math.max(6, Math.min(10, Number(b.rpe) || 8));
+  const distance = Number.isFinite(Number(b.distance)) && Number(b.distance) > 0 ? Number(b.distance) : null;
+  const distanceUnit = distance != null && ['km', 'mi', 'm'].includes(b.distance_unit) ? b.distance_unit : null;
+  const tags = Array.isArray(b.muscle_tags)
+    ? [...new Set(b.muscle_tags.filter((t) => MUSCLE_GROUPS.includes(t)))]
+    : [];
+  const notes = b.notes ? String(b.notes).slice(0, 500) : null;
+
+  const latestBw = db.prepare(
+    'SELECT weight, weight_unit FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT 1'
+  ).get(req.profileId);
+  const bwKg = latestBw ? (latestBw.weight_unit === 'lbs' ? latestBw.weight * 0.45359237 : latestBw.weight) : null;
+  const kcal = activityCalories(activityType, minutes, rpe, bwKg);
+
+  const finishMs = Date.now();
+  const startMs = finishMs - minutes * 60 * 1000;
+  const fmt = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+
+  const info = db.prepare(
+    `INSERT INTO workouts
+       (profile_id, kind, started_at, finished_at, calories_burned, bw_kg, notes,
+        activity_type, duration_min, rpe, distance, distance_unit, muscle_tags)
+     VALUES (?, 'activity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    req.profileId, fmt(startMs), fmt(finishMs), kcal, bwKg, notes,
+    activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags)
+  );
+  res.status(201).json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid));
+});
 
 router.post('/', (req, res) => {
   const { program_day_id } = req.body || {};
@@ -26,6 +70,7 @@ router.get('/history', (req, res) => {
   const rows = db
     .prepare(
       `SELECT w.id, w.started_at, w.finished_at, w.notes, w.feel_rating, w.calories_burned,
+              w.kind, w.activity_type, w.duration_min, w.rpe, w.distance, w.distance_unit, w.muscle_tags,
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,

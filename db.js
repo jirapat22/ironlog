@@ -299,6 +299,22 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE programs ADD COLUMN sort_order INTEGER');
   }
 
+  // workouts.kind + activity fields: non-strength sessions (a HYROX class, a
+  // run, cardio) reuse the workouts table so they count toward consistency and
+  // the calorie pipeline for free. kind = 'strength' (default) | 'activity'.
+  // An activity has no sets; its detail lives in these columns.
+  for (const [col, type] of [
+    ['kind', "TEXT NOT NULL DEFAULT 'strength'"],
+    ['activity_type', 'TEXT'],
+    ['duration_min', 'INTEGER'],
+    ['rpe', 'INTEGER'],
+    ['distance', 'REAL'],
+    ['distance_unit', 'TEXT'],
+    ['muscle_tags', 'TEXT'] // JSON array of muscle groups it refreshed
+  ]) {
+    if (!columnExists('workouts', col)) db.exec(`ALTER TABLE workouts ADD COLUMN ${col} ${type}`);
+  }
+
   // 2. app_settings: primary key must become (profile_id, key). Rebuild.
   if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
     tx(() => {

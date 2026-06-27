@@ -159,6 +159,30 @@ router.get('/sub-muscle-frequency', (req, res) => {
     if (!r.last_trained_at || lastAt > r.last_trained_at) r.last_trained_at = lastAt;
   }
 
+  // Non-strength activities (HYROX/cardio/etc.) refresh recency for the muscle
+  // groups they were tagged with — recency only, no volume — so "what needs
+  // attention" knows your legs are fresh after a class. Keyed at the whole
+  // group (group|group), which feeds the group's recency in the UI.
+  const actRows = db.prepare(
+    `SELECT muscle_tags, started_at FROM workouts
+     WHERE profile_id = ? AND kind = 'activity' AND finished_at IS NOT NULL AND muscle_tags IS NOT NULL`
+  ).all(req.profileId);
+  for (const a of actRows) {
+    let groups;
+    try { groups = JSON.parse(a.muscle_tags); } catch { groups = []; }
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      const key = `${group}|${group}`;
+      let r = byKey.get(key);
+      if (!r) {
+        r = { muscle_group: group, sub_muscle: group, last_trained_at: null, total_workouts: 0, volume_kg: 0 };
+        byKey.set(key, r);
+        rows.push(r);
+      }
+      if (!r.last_trained_at || a.started_at > r.last_trained_at) r.last_trained_at = a.started_at;
+    }
+  }
+
   res.json(rows);
 });
 

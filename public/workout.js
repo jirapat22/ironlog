@@ -133,6 +133,79 @@ function getSetCount(ex) {
   return Math.max(override ?? ex.target_sets, loggedMax);
 }
 
+// ---------- Log a non-strength activity (class / run / cardio) ----------
+const ACTIVITY_TYPES = [
+  ['hyrox', 'HYROX'], ['run', 'Run'], ['cycle', 'Cycle'], ['row', 'Row'],
+  ['swim', 'Swim'], ['walk', 'Walk'], ['cardio', 'Cardio'], ['class', 'Class'], ['other', 'Other']
+];
+
+function openActivitySheet() {
+  const sheet = ensureSheet('activity-sheet');
+  const chip = (val, label, attr, active) =>
+    `<button class="act-chip ${active ? 'act-chip--on' : ''}" data-${attr}="${val}">${escapeHtml(label)}</button>`;
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">Log activity</div><span style="width:40px"></span></div>
+      <div class="sheet__body">
+        <label class="form-label">Type</label>
+        <div class="act-chips">${ACTIVITY_TYPES.map(([v, l], i) => chip(v, l, 'act-type', i === 0)).join('')}</div>
+
+        <label class="form-label" style="margin-top:16px">Duration (minutes)</label>
+        <input class="input" id="act-dur" type="text" inputmode="numeric" placeholder="e.g. 45"/>
+
+        <label class="form-label" style="margin-top:16px">How hard? <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
+        <div class="act-chips">${[6, 7, 8, 9, 10].map((n) => chip(n, 'RPE ' + n, 'act-rpe', false)).join('')}</div>
+
+        <label class="form-label" style="margin-top:16px">Distance <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
+        <div class="set-edit__row">
+          <input class="input" id="act-dist" type="text" inputmode="decimal" placeholder="e.g. 5.2" style="flex:1"/>
+          <button class="unit-toggle kg" id="act-dist-unit">km</button>
+        </div>
+
+        <label class="form-label" style="margin-top:16px">Muscles worked <span style="color:var(--text-dim);font-weight:400">· keeps recovery honest</span></label>
+        <div class="act-chips">${PICKER_GROUP_ORDER.map((g) => chip(g, g, 'act-mg', false)).join('')}</div>
+
+        <label class="form-label" style="margin-top:16px">Notes</label>
+        <input class="input" id="act-notes" placeholder="Optional"/>
+
+        <button class="btn btn--primary btn--block" id="act-save" style="margin-top:20px">Save activity</button>
+      </div>
+    </div>`;
+  showSheet(sheet);
+
+  sheet.onclick = async (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+    const t = e.target.closest('[data-act-type]');
+    if (t) { sheet.querySelectorAll('[data-act-type]').forEach((b) => b.classList.toggle('act-chip--on', b === t)); return; }
+    const r = e.target.closest('[data-act-rpe]');
+    if (r) { const on = r.classList.contains('act-chip--on'); sheet.querySelectorAll('[data-act-rpe]').forEach((b) => b.classList.remove('act-chip--on')); if (!on) r.classList.add('act-chip--on'); return; }
+    const mg = e.target.closest('[data-act-mg]');
+    if (mg) { mg.classList.toggle('act-chip--on'); haptic(8); return; }
+    const u = e.target.closest('#act-dist-unit');
+    if (u) { const next = u.textContent.trim() === 'km' ? 'mi' : 'km'; u.textContent = next; u.classList.toggle('kg', next === 'km'); return; }
+
+    if (e.target.closest('#act-save')) {
+      const minutes = parseInt(document.getElementById('act-dur').value || '0', 10);
+      if (!minutes || minutes <= 0) return toast('Enter the duration in minutes');
+      const activity_type = sheet.querySelector('[data-act-type].act-chip--on')?.dataset.actType || 'other';
+      const rpeEl = sheet.querySelector('[data-act-rpe].act-chip--on');
+      const rpe = rpeEl ? Number(rpeEl.dataset.actRpe) : null;
+      const distVal = parseFloat(document.getElementById('act-dist').value || '');
+      const distance = Number.isFinite(distVal) && distVal > 0 ? distVal : null;
+      const distance_unit = distance != null ? document.getElementById('act-dist-unit').textContent.trim() : null;
+      const muscle_tags = [...sheet.querySelectorAll('[data-act-mg].act-chip--on')].map((b) => b.dataset.actMg);
+      const notes = document.getElementById('act-notes').value.trim() || null;
+      const btn = document.getElementById('act-save');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        await API.logActivity({ activity_type, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes });
+        haptic(20); hideSheet(sheet); toast('Activity logged');
+        document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'history' }));
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Save activity'; }
+    }
+  };
+}
+
 // ---------- Workout rendering ----------
 async function renderWorkout() {
   const root = $('#view-workout');
@@ -145,10 +218,12 @@ async function renderWorkout() {
         <div style="margin-bottom:12px">No active workout</div>
         <button class="btn btn--primary btn--block" data-start-quick>Quick workout</button>
         <button class="btn btn--ghost btn--block" data-go-programs style="margin-top:8px">Pick a program</button>
+        <button class="btn btn--ghost btn--block" data-log-activity style="margin-top:8px">Log a class / run / cardio</button>
       </div>`;
     root.onclick = async (e) => {
       if (e.target.closest('[data-go-programs]'))
         document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
+      if (e.target.closest('[data-log-activity]')) return openActivitySheet();
       if (e.target.closest('[data-start-quick]')) {
         const btn = e.target.closest('[data-start-quick]');
         btn.disabled = true; btn.textContent = 'Starting…';
