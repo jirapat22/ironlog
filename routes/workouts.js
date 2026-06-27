@@ -34,9 +34,11 @@ router.post('/activity', (req, res) => {
   const bwKg = latestBw ? (latestBw.weight_unit === 'lbs' ? latestBw.weight * 0.45359237 : latestBw.weight) : null;
   const kcal = activityCalories(activityType, minutes, rpe, bwKg);
 
-  const finishMs = Date.now();
-  const startMs = finishMs - minutes * 60 * 1000;
-  const fmt = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  // Logged after the fact, so it happened "now" for consistency purposes.
+  // started_at == finished_at (don't back-date by duration — that can push the
+  // session onto the previous local day near midnight, misattributing the
+  // streak). duration_min is the single source of truth for length.
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
   const info = db.prepare(
     `INSERT INTO workouts
@@ -44,7 +46,7 @@ router.post('/activity', (req, res) => {
         activity_type, duration_min, rpe, distance, distance_unit, muscle_tags)
      VALUES (?, 'activity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    req.profileId, fmt(startMs), fmt(finishMs), kcal, bwKg, notes,
+    req.profileId, now, now, kcal, bwKg, notes,
     activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags)
   );
   res.status(201).json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid));
