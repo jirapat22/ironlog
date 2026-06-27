@@ -157,7 +157,7 @@ async function renderProgress() {
 
 function chartDefaults() {
   return {
-    ticks: { color: '#8a8a8a' },
+    ticks: { color: '#9a8f7e' },
     grid: { color: 'rgba(255,255,255,0.06)' },
     border: { display: false }
   };
@@ -179,8 +179,11 @@ function localDateStr(d) {
 const SUB_MUSCLE_MAP = JSON.parse(JSON.stringify(SUB_MUSCLES));
 
 function freqColor(days) {
-  if (days == null) return '#8a8a8a';
-  return days >= 7 ? '#ff8a8a' : days >= 4 ? '#ffb347' : days >= 2 ? '#9effa8' : 'var(--accent)';
+  if (days == null) return '#9a8f7e';                      // steel — never
+  return days >= 7 ? '#c8492b'                              // oxide — overdue
+    : days >= 4 ? '#d99a3c'                                 // amber — getting stale
+    : days >= 2 ? '#8fb45a'                                 // sage — ok
+    : '#b6d06a';                                            // bright sage — fresh
 }
 
 async function renderMuscleFrequency() {
@@ -534,11 +537,11 @@ function renderOverloadChart(s) {
     data: {
       labels: s.labels,
       datasets: [{
-        data: s.values, borderColor: '#5ac46a', backgroundColor: 'rgba(90,196,106,0.12)',
+        data: s.values, borderColor: '#e07a3c', backgroundColor: 'rgba(224,122,60,0.14)',
         // 'monotone' keeps the curve from overshooting below/above the actual
         // points — plain bezier tension invents phantom dips between values.
         cubicInterpolationMode: 'monotone', tension: 0.25,
-        fill: true, pointRadius: 2, pointBackgroundColor: '#5ac46a', pointBorderColor: '#0f0f0f'
+        fill: true, pointRadius: 2, pointBackgroundColor: '#e07a3c', pointBorderColor: '#16130f'
       }]
     },
     options: {
@@ -825,7 +828,7 @@ function renderBwChart(rows) {
   const d = chartDefaults();
   chartInstances.bw = new Chart(canvas, {
     type: 'line',
-    data: { labels, datasets: [{ data: values, borderColor: '#62d8ff', backgroundColor: 'rgba(98,216,255,0.12)', tension: 0.25, fill: true, pointRadius: 3, pointBackgroundColor: '#62d8ff', pointBorderColor: '#0f0f0f' }] },
+    data: { labels, datasets: [{ data: values, borderColor: '#cfc4b2', backgroundColor: 'rgba(207,196,178,0.10)', tension: 0.25, fill: true, pointRadius: 3, pointBackgroundColor: '#cfc4b2', pointBorderColor: '#16130f' }] },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} kg` } } },

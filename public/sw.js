@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v95';
+const VERSION = 'ironlog-v96';
 const SHELL = [
   '/',
   '/index.html',
@@ -15,7 +15,13 @@ const SHELL = [
   '/settings.js',
   '/chart.umd.min.js',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.svg',
+  '/fonts/saira-condensed-700.woff2',
+  '/fonts/saira-condensed-800.woff2',
+  '/fonts/hanken-grotesk-400.woff2',
+  '/fonts/hanken-grotesk-600.woff2',
+  '/fonts/jetbrains-mono-500.woff2',
+  '/fonts/jetbrains-mono-700.woff2'
 ];
 
 self.addEventListener('install', (event) => {
@@ -56,7 +62,7 @@ self.addEventListener('fetch', (event) => {
   // network cost — the chart lib alone is ~200 KB). These only change on a
   // VERSION bump, and install's cache.addAll() refreshes them then, so
   // cache-first within the versioned cache never serves them stale.
-  if (CACHE_FIRST.has(url.pathname)) {
+  if (CACHE_FIRST.has(url.pathname) || url.pathname.startsWith('/fonts/')) {
     event.respondWith(cacheFirst(req, url));
     return;
   }

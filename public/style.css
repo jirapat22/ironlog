@@ -1,20 +1,34 @@
+/* ---- Iron Ledger typefaces (self-hosted, offline-safe) ----
+   Saira Condensed = industrial display; Hanken Grotesk = body;
+   JetBrains Mono = the ledger numerals. */
+@font-face { font-family: 'Saira Condensed'; font-weight: 700; font-display: swap; src: url('/fonts/saira-condensed-700.woff2') format('woff2'); }
+@font-face { font-family: 'Saira Condensed'; font-weight: 800; font-display: swap; src: url('/fonts/saira-condensed-800.woff2') format('woff2'); }
+@font-face { font-family: 'Hanken Grotesk'; font-weight: 400; font-display: swap; src: url('/fonts/hanken-grotesk-400.woff2') format('woff2'); }
+@font-face { font-family: 'Hanken Grotesk'; font-weight: 600; font-display: swap; src: url('/fonts/hanken-grotesk-600.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 500; font-display: swap; src: url('/fonts/jetbrains-mono-500.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 700; font-display: swap; src: url('/fonts/jetbrains-mono-700.woff2') format('woff2'); }
+
 :root {
-  --bg: #0f0f0f;
-  --surface: #1a1a1a;
-  --surface-2: #232323;
-  --border: #2a2a2a;
-  --text: #f2f2f2;
-  --text-dim: #8a8a8a;
-  --accent: #e8ff47;
-  --accent-dim: #8fa02e;
-  --danger: #ff5c5c;
-  --success: #5cff8f;
-  --radius: 14px;
-  --radius-sm: 10px;
+  /* Iron Ledger palette — seasoned iron, chalk, molten-metal accent. */
+  --bg: #16130f;        /* seasoned iron (warm near-black) */
+  --surface: #201a14;
+  --surface-2: #2a2219;
+  --border: #372d21;    /* warm steel edge */
+  --text: #ece3d3;      /* chalk */
+  --text-dim: #9a8f7e;  /* steel */
+  --accent: #e07a3c;    /* molten metal — brand / action */
+  --accent-dim: #9a4e22;
+  --danger: #c8492b;    /* oxide red — destructive / overdue */
+  --success: #8fb45a;   /* sage — fresh / on-track */
+  --radius: 9px;
+  --radius-sm: 6px;
   --nav-h: 68px;
   /* Includes the top safe-area inset (Dynamic Island / notch) so sticky
      sub-headers that offset from the main header stay aligned with it. */
   --header-h: calc(56px + env(safe-area-inset-top));
+  --font-display: 'Saira Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --font-body: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 * {
@@ -28,9 +42,40 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: var(--font-body);
   font-size: 16px;
+  /* Tabular figures everywhere so weights/reps/days line up like a ledger. */
+  font-variant-numeric: tabular-nums;
   overscroll-behavior: none;
+}
+
+/* Industrial condensed display for titles + big numerals. */
+.app__title,
+.sheet__title,
+.progress-section__title,
+.program-card__title,
+.history-card__title,
+.pr-group__name,
+.tdee-main__val,
+.cal-stat__val,
+.bw-current__weight {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+/* The ledger: inline data numerals in mono so columns align. (Big hero
+   numbers above stay in the condensed display face.) */
+.num-input__field,
+.mfreq-label,
+.set-row__e1rm,
+.set-row__eq,
+.history-ex__set-w,
+.history-ex__set-aux,
+.pr-event__main,
+.pr-event__e1rm,
+.tdee-breakdown {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 body {
