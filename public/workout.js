@@ -369,13 +369,7 @@ async function renderWorkout() {
 }
 
 async function fetchDayDetails(dayId) {
-  const programs = await API.programs();
-  for (const p of programs) {
-    const full = await API.program(p.id);
-    const day = full.days.find((d) => d.id === dayId);
-    if (day) return { ...day, program_name: full.name };
-  }
-  throw new Error('Program day not found');
+  return API.dayDetails(dayId);
 }
 
 function renderWorkoutView() {

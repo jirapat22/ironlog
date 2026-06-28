@@ -76,6 +76,7 @@ const API = {
   addExercise: (data) => api('/api/exercises', { method: 'POST', body: data }),
   programs: () => api('/api/programs'),
   program: (id) => api(`/api/programs/${id}`),
+  dayDetails: (dayId) => api(`/api/programs/days/${dayId}`),
   addDayExercise: (programId, dayId, data) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises`, { method: 'POST', body: data }),
   replaceDayExercises: (programId, dayId, data) =>

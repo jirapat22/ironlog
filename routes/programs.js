@@ -141,6 +141,32 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
+// Direct day lookup by id — lets the workout screen fetch a program day's
+// exercises in one request instead of listing every program and fetching
+// each one in turn until the matching day turns up (that scaled with total
+// program count, not with anything relevant to the workout being started).
+router.get('/days/:dayId', (req, res) => {
+  const dayId = Number(req.params.dayId);
+  const day = db.prepare(
+    `SELECT pd.*, p.name as program_name
+     FROM program_days pd
+     JOIN programs p ON p.id = pd.program_id
+     WHERE pd.id = ? AND p.profile_id = ?`
+  ).get(dayId, req.profileId);
+  if (!day) return res.status(404).json({ error: 'program day not found' });
+
+  day.exercises = db.prepare(`
+    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+           e.id as exercise_id, e.name, e.muscle_group, e.notes, e.is_bodyweight, e.is_assisted, e.equipment
+    FROM program_day_exercises pde
+    JOIN exercises e ON e.id = pde.exercise_id
+    WHERE pde.program_day_id = ?
+    ORDER BY pde.order_index
+  `).all(dayId);
+
+  res.json(day);
+});
+
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id);
   const program = db.prepare('SELECT * FROM programs WHERE id = ? AND profile_id = ?').get(id, req.profileId);
