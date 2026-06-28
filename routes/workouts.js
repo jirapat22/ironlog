@@ -9,15 +9,12 @@ const router = express.Router();
 
 const MUSCLE_GROUPS = [...new Set(Object.values(REGION_TO_GROUP))];
 
-// Log a non-strength session (HYROX class, run, cardio). Reuses the workouts
-// table (kind='activity') so it counts toward consistency + calories with no
-// extra plumbing. Logged after the fact: created already-finished, with
-// started_at backdated by the duration so History shows the right length.
-router.post('/activity', (req, res) => {
-  const b = req.body || {};
+// Shared validation for activity create/edit — keeps the two routes from
+// drifting (duration cap, allowed distance units, etc.) out of sync.
+function parseActivityBody(b) {
   const minutes = Number(b.duration_min);
   if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) {
-    return res.status(400).json({ error: 'duration_min must be 1–600 minutes' });
+    return { error: 'duration_min must be 1–600 minutes' };
   }
   const activityType = String(b.activity_type || 'other').slice(0, 40);
   const rpe = b.rpe == null ? null : Math.max(6, Math.min(10, Number(b.rpe) || 8));
@@ -27,11 +24,26 @@ router.post('/activity', (req, res) => {
     ? [...new Set(b.muscle_tags.filter((t) => MUSCLE_GROUPS.includes(t)))]
     : [];
   const notes = b.notes ? String(b.notes).slice(0, 500) : null;
+  return { activityType, minutes, rpe, distance, distanceUnit, tags, notes };
+}
 
+function latestBwKg(profileId) {
   const latestBw = db.prepare(
     'SELECT weight, weight_unit FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT 1'
-  ).get(req.profileId);
-  const bwKg = latestBw ? (latestBw.weight_unit === 'lbs' ? latestBw.weight * 0.45359237 : latestBw.weight) : null;
+  ).get(profileId);
+  return latestBw ? (latestBw.weight_unit === 'lbs' ? latestBw.weight * 0.45359237 : latestBw.weight) : null;
+}
+
+// Log a non-strength session (HYROX class, run, cardio). Reuses the workouts
+// table (kind='activity') so it counts toward consistency + calories with no
+// extra plumbing. Logged after the fact: created already-finished, with
+// started_at backdated by the duration so History shows the right length.
+router.post('/activity', (req, res) => {
+  const parsed = parseActivityBody(req.body || {});
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { activityType, minutes, rpe, distance, distanceUnit, tags, notes } = parsed;
+
+  const bwKg = latestBwKg(req.profileId);
   const kcal = activityCalories(activityType, minutes, rpe, bwKg);
 
   // Logged after the fact, so it happened "now" for consistency purposes.
@@ -161,30 +173,24 @@ router.patch('/:id/activity', (req, res) => {
   const existing = db.prepare(`SELECT * FROM workouts WHERE id = ? AND profile_id = ? AND kind = 'activity'`).get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'activity not found' });
 
-  const b = req.body || {};
-  const minutes = Number(b.duration_min);
-  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) {
-    return res.status(400).json({ error: 'duration_min must be 1–600 minutes' });
-  }
-  const activityType = String(b.activity_type || 'other').slice(0, 40);
-  const rpe = b.rpe == null ? null : Math.max(6, Math.min(10, Number(b.rpe) || 8));
-  const distance = Number.isFinite(Number(b.distance)) && Number(b.distance) > 0 ? Number(b.distance) : null;
-  const distanceUnit = distance != null && ['km', 'mi', 'm'].includes(b.distance_unit) ? b.distance_unit : null;
-  const tags = Array.isArray(b.muscle_tags)
-    ? [...new Set(b.muscle_tags.filter((t) => MUSCLE_GROUPS.includes(t)))]
-    : [];
-  const notes = b.notes ? String(b.notes).slice(0, 500) : null;
+  const parsed = parseActivityBody(req.body || {});
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { activityType, minutes, rpe, distance, distanceUnit, tags, notes } = parsed;
 
-  // Recompute calories from the (possibly-edited) duration/type/RPE against
-  // the bodyweight already snapshotted at log time — not today's bodyweight,
-  // so editing notes on an old entry doesn't silently reprice it.
-  const kcal = activityCalories(activityType, minutes, rpe, existing.bw_kg);
+  // Recompute calories from the (possibly-edited) duration/type/RPE. Reuse the
+  // bodyweight already snapshotted at log time so editing an already-priced
+  // entry doesn't silently reprice it if bodyweight has since changed — but
+  // if none was known yet (bw_kg null), look it up now, so logging bodyweight
+  // in response to the "no estimate" nudge and then fixing a typo here
+  // actually produces an estimate instead of staying null forever.
+  const bwKg = existing.bw_kg ?? latestBwKg(req.profileId);
+  const kcal = activityCalories(activityType, minutes, rpe, bwKg);
 
   db.prepare(
     `UPDATE workouts
-       SET activity_type = ?, duration_min = ?, rpe = ?, distance = ?, distance_unit = ?, muscle_tags = ?, notes = ?, calories_burned = ?
+       SET activity_type = ?, duration_min = ?, rpe = ?, distance = ?, distance_unit = ?, muscle_tags = ?, notes = ?, calories_burned = ?, bw_kg = ?
      WHERE id = ?`
-  ).run(activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), notes, kcal, id);
+  ).run(activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), notes, kcal, bwKg, id);
 
   res.json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(id));
 });

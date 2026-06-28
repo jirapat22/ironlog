@@ -227,7 +227,7 @@ function programCardHTML(p) {
 
 function dayCardHTML(d, programId) {
   const exList = d.exercises.length
-    ? d.exercises.map((e) => `<span data-day-ex="${e.exercise_id}">${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span><span class="day-card__ex-last" data-ex-last="${e.exercise_id}"></span></span>`).join(' · ')
+    ? d.exercises.map((e) => `<span>${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span><span class="day-card__ex-last" data-ex-last="${e.exercise_id}"></span></span>`).join(' · ')
     : '<em style="opacity:.5">No exercises yet — tap Edit to add some</em>';
   return `
     <div class="day-card" data-day-id="${d.id}">

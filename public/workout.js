@@ -1269,12 +1269,15 @@ async function openSwapPicker(currentExerciseId) {
     // there's a real template slot (currentEx.id) and a real program day
     // (not a quick workout) to write it back to. The swap itself stays
     // local/ephemeral unless the user opts in, so the common "just today"
-    // case stays frictionless.
-    const canPersist = currentEx.id && workoutState.programDay.id && workoutState.programDay.program_id;
+    // case stays frictionless. Captured now (not re-read from workoutState
+    // inside the toast's callback) because the toast can outlive this
+    // workout — finishing it nulls out workoutState before the 5s toast expires.
+    const { id: dayId, program_id: programId } = workoutState.programDay;
+    const canPersist = currentEx.id && dayId && programId;
     if (canPersist) {
       actionToast(`Swapped to ${newEx.name}`, 'Keep for next time', async () => {
         try {
-          await API.updateDayExercise(workoutState.programDay.program_id, workoutState.programDay.id, currentEx.id, { exercise_id: newExId });
+          await API.updateDayExercise(programId, dayId, currentEx.id, { exercise_id: newExId });
           toast(`${newEx.name} saved to this program day`);
         } catch (err) { toast(err.message); }
       });

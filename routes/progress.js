@@ -9,13 +9,15 @@ router.get('/progress/:exerciseId', (req, res) => {
     .prepare('SELECT id, name, muscle_group, is_bodyweight, is_assisted FROM exercises WHERE id = ?')
     .get(exerciseId);
 
+  // Warmups excluded — they aren't working sets and would skew the e1RM trend,
+  // same as /strength-history (which feeds the overload chart this drills into).
   const rows = db
     .prepare(
       `SELECT s.id, s.weight, s.weight_unit, s.reps, s.rpe, s.logged_at,
               w.started_at, w.id as workout_id
        FROM sets s
        JOIN workouts w ON w.id = s.workout_id
-       WHERE s.exercise_id = ? AND s.profile_id = ?
+       WHERE s.exercise_id = ? AND s.profile_id = ? AND s.is_warmup = 0
        ORDER BY s.logged_at ASC`
     )
     .all(exerciseId, req.profileId);
