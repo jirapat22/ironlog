@@ -71,6 +71,19 @@ function toast(msg, ms = 2000) {
   toast._t = setTimeout(() => el.classList.add('hidden'), ms);
 }
 
+// Toast with an inline action button — for opt-in follow-ups to something that
+// just happened (e.g. "Swapped to X" → "Keep for next time?") where forcing a
+// blocking dialog would slow down the common case that doesn't need it.
+function actionToast(msg, actionLabel, onAction, ms = 5000) {
+  const el = $('#toast');
+  el.innerHTML = `<span>${escapeHtml(msg)}</span> <button type="button" class="toast__action">${escapeHtml(actionLabel)}</button>`;
+  el.classList.remove('hidden');
+  clearTimeout(toast._t);
+  const btn = el.querySelector('.toast__action');
+  btn.onclick = () => { clearTimeout(toast._t); el.classList.add('hidden'); onAction(); };
+  toast._t = setTimeout(() => el.classList.add('hidden'), ms);
+}
+
 function formatDateShort(iso) {
   if (!iso) return '';
   const d = new Date(iso.replace(' ', 'T') + 'Z');
@@ -610,7 +623,7 @@ function isStandalone() {
 }
 
 export {
-  LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast,
+  LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, skeletonBlocks, showPRFlash,
   e1RM, toKg, fmtSetWeight, weightEquiv,

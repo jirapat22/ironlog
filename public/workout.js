@@ -1,6 +1,7 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
+import { openBodyweightSheet } from './progress.js';
 
 // ---------- Body-weight tracking (for e1RM / load calculations) ----------
 let userBwKg = 0;
@@ -139,36 +140,43 @@ const ACTIVITY_TYPES = [
   ['swim', 'Swim'], ['walk', 'Walk'], ['cardio', 'Cardio'], ['class', 'Class'], ['other', 'Other']
 ];
 
-function openActivitySheet() {
+// `existing` (a workout row with kind='activity') switches this into edit
+// mode: prefills every field and PATCHes instead of POSTing on save. Editing
+// in place beats delete-and-relog because the latter loses the original
+// logged_at/started_at and is needlessly fiddly for a typo fix.
+function openActivitySheet(existing = null, { onSaved } = {}) {
   const sheet = ensureSheet('activity-sheet');
   const chip = (val, label, attr, active) =>
     `<button class="act-chip ${active ? 'act-chip--on' : ''}" data-${attr}="${val}">${escapeHtml(label)}</button>`;
+  let existingTags = [];
+  if (existing) { try { existingTags = JSON.parse(existing.muscle_tags || '[]'); } catch { existingTags = []; } }
   sheet.innerHTML = `
     <div class="sheet__inner">
-      <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">Log activity</div><span style="width:40px"></span></div>
+      <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">${existing ? 'Edit activity' : 'Log activity'}</div><span style="width:40px"></span></div>
       <div class="sheet__body">
         <label class="form-label">Type</label>
-        <div class="act-chips">${ACTIVITY_TYPES.map(([v, l], i) => chip(v, l, 'act-type', i === 0)).join('')}</div>
+        <div class="act-chips">${ACTIVITY_TYPES.map(([v, l]) => chip(v, l, 'act-type', existing ? existing.activity_type === v : v === ACTIVITY_TYPES[0][0])).join('')}</div>
 
         <label class="form-label" style="margin-top:16px">Duration (minutes)</label>
-        <input class="input" id="act-dur" type="text" inputmode="numeric" placeholder="e.g. 45"/>
+        <input class="input" id="act-dur" type="text" inputmode="numeric" placeholder="e.g. 45" value="${existing ? existing.duration_min : ''}"/>
 
         <label class="form-label" style="margin-top:16px">How hard? <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
-        <div class="act-chips">${[6, 7, 8, 9, 10].map((n) => chip(n, 'RPE ' + n, 'act-rpe', false)).join('')}</div>
+        <div class="card__subtitle" style="margin:-4px 0 8px">RPE, 6 = easy session, 10 = max effort — a different scale than the RIR on your strength sets.</div>
+        <div class="act-chips">${[6, 7, 8, 9, 10].map((n) => chip(n, 'RPE ' + n, 'act-rpe', existing?.rpe === n)).join('')}</div>
 
         <label class="form-label" style="margin-top:16px">Distance <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
         <div class="set-edit__row">
-          <input class="input" id="act-dist" type="text" inputmode="decimal" placeholder="e.g. 5.2" style="flex:1"/>
-          <button class="unit-toggle kg" id="act-dist-unit">km</button>
+          <input class="input" id="act-dist" type="text" inputmode="decimal" placeholder="e.g. 5.2" style="flex:1" value="${existing?.distance ?? ''}"/>
+          <button class="unit-toggle kg" id="act-dist-unit">${existing?.distance_unit || 'km'}</button>
         </div>
 
         <label class="form-label" style="margin-top:16px">Muscles worked <span style="color:var(--text-dim);font-weight:400">· keeps recovery honest</span></label>
-        <div class="act-chips">${PICKER_GROUP_ORDER.map((g) => chip(g, g, 'act-mg', false)).join('')}</div>
+        <div class="act-chips">${PICKER_GROUP_ORDER.map((g) => chip(g, g, 'act-mg', existingTags.includes(g))).join('')}</div>
 
         <label class="form-label" style="margin-top:16px">Notes</label>
-        <input class="input" id="act-notes" placeholder="Optional"/>
+        <input class="input" id="act-notes" placeholder="Optional" value="${escapeHtml(existing?.notes || '')}"/>
 
-        <button class="btn btn--primary btn--block" id="act-save" style="margin-top:20px">Save activity</button>
+        <button class="btn btn--primary btn--block" id="act-save" style="margin-top:20px">${existing ? 'Update activity' : 'Save activity'}</button>
       </div>
     </div>`;
   showSheet(sheet);
@@ -197,11 +205,22 @@ function openActivitySheet() {
       const notes = document.getElementById('act-notes').value.trim() || null;
       const btn = document.getElementById('act-save');
       btn.disabled = true; btn.textContent = 'Saving…';
+      const payload = { activity_type, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes };
       try {
-        await API.logActivity({ activity_type, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes });
-        haptic(20); hideSheet(sheet); toast('Activity logged');
-        document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'history' }));
-      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Save activity'; }
+        const saved = existing ? await API.updateActivity(existing.id, payload) : await API.logActivity(payload);
+        haptic(20); hideSheet(sheet);
+        if (existing) {
+          toast('Activity updated');
+          onSaved?.(saved);
+        } else {
+          document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'history' }));
+          if (saved.calories_burned == null) {
+            actionToast('Activity logged — no calorie estimate (no bodyweight on file)', 'Log weight', () => openBodyweightSheet());
+          } else {
+            toast('Activity logged');
+          }
+        }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = existing ? 'Update activity' : 'Save activity'; }
     }
   };
 }
@@ -1245,7 +1264,23 @@ async function openSwapPicker(currentExerciseId) {
     persistExerciseList();
     hideSheet(picker);
     haptic(20);
-    toast(`Swapped to ${newEx.name}`);
+
+    // Offer to persist the swap into the program template — but only when
+    // there's a real template slot (currentEx.id) and a real program day
+    // (not a quick workout) to write it back to. The swap itself stays
+    // local/ephemeral unless the user opts in, so the common "just today"
+    // case stays frictionless.
+    const canPersist = currentEx.id && workoutState.programDay.id && workoutState.programDay.program_id;
+    if (canPersist) {
+      actionToast(`Swapped to ${newEx.name}`, 'Keep for next time', async () => {
+        try {
+          await API.updateDayExercise(workoutState.programDay.program_id, workoutState.programDay.id, currentEx.id, { exercise_id: newExId });
+          toast(`${newEx.name} saved to this program day`);
+        } catch (err) { toast(err.message); }
+      });
+    } else {
+      toast(`Swapped to ${newEx.name}`);
+    }
     renderWorkoutView();
   };
 }
@@ -1474,7 +1509,7 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
   const root = $('#view-workout');
   const calTile = calories
     ? `<div class="summary__tile"><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value">${calories}&nbsp;kcal</div></div>`
-    : '';
+    : `<button class="summary__tile summary__tile--nudge" data-log-bw-nudge><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value" style="font-size:13px">Log weight to see this →</div></button>`;
   root.innerHTML = `
     <div class="summary">
       <div class="summary__stat">${escapeHtml(dayLabel)}</div>
@@ -1509,6 +1544,7 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
       return document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
     if (e.target.closest('[data-save-template]'))
       return saveAsTemplate(templateExercises, dayLabel, programId, dayId);
+    if (e.target.closest('[data-log-bw-nudge]')) return openBodyweightSheet();
     const feelBtn = e.target.closest('[data-feel]');
     if (feelBtn && workoutId) {
       const rating = Number(feelBtn.dataset.feel);
@@ -1643,5 +1679,5 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
 export {
   renderWorkout, workoutState, flushWorkoutNotes,
   userBwKg, syncUserBodyweight, loadKg, e1RMForSet,
-  saveAsTemplate
+  saveAsTemplate, openActivitySheet
 };

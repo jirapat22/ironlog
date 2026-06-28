@@ -75,6 +75,15 @@ async function renderProgress() {
         <div id="muscle-frequency"></div>
       </div>
     </div>
+    <div class="progress-section" id="ps-volume">
+      <div class="progress-section__head">
+        <div class="progress-section__title" style="margin:0">Weekly Volume</div>
+        <button class="ps-toggle" data-ps-toggle="ps-volume">▾</button>
+      </div>
+      <div class="ps-body">
+        <div id="volume-chart-wrap"></div>
+      </div>
+    </div>
     <div class="progress-section" id="ps-tdee">
       <div class="progress-section__head">
         <div class="progress-section__title" style="margin:0">Daily Calories</div>
@@ -111,6 +120,9 @@ async function renderProgress() {
     if (e.target.closest('[data-log-bw]')) return openBodyweightSheet();
     if (e.target.closest('[data-edit-profile]')) return openProfileSheet();
 
+    const movementDetail = e.target.closest('[data-movement-detail]');
+    if (movementDetail) return openMovementDetail(movementDetail.dataset.movementDetail);
+
     const toggle = e.target.closest('[data-ps-toggle]');
     if (toggle) {
       const sectionId = toggle.dataset.psToggle;
@@ -145,6 +157,7 @@ async function renderProgress() {
     await renderBodyweightSection();
     renderCalendar(calendarDates);
     renderMuscleFrequency();
+    renderVolumeSection();
     renderOverloadCharts();
     renderPrTimeline();
     renderTdeeSection();
@@ -325,6 +338,59 @@ async function renderMuscleFrequency() {
   } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
 }
 
+const VOLUME_PALETTE = ['#e07a3c', '#8fb45a', '#d99a3c', '#c8492b', '#6d9bc3', '#a47ec0', '#cfc4b2', '#5fb3a3'];
+
+async function renderVolumeSection() {
+  const root = $('#volume-chart-wrap');
+  if (!root) return;
+  root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+  try {
+    const rows = await API.weeklyVolume(8);
+    if (!rows.length) {
+      root.innerHTML = `<div class="bw-current__empty">Log some working sets to see weekly volume by muscle group.</div>`;
+      return;
+    }
+    const weeks = [...new Set(rows.map((r) => r.week))].sort();
+    const groups = [...new Set(rows.map((r) => r.muscle_group))].sort((a, b) => {
+      const ia = PICKER_GROUP_ORDER.indexOf(a), ib = PICKER_GROUP_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+    const byKey = new Map(rows.map((r) => [`${r.week}|${r.muscle_group}`, r.volume]));
+    // strftime('%Y-%W') -> "2026-25"; just show the week number, the trend matters more than the date.
+    const weekLabel = (w) => `Wk ${Number(w.slice(5))}`;
+
+    root.innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:10px">Total working-set volume (kg) per week, by muscle group — are you trending up overall?</div>
+      <div class="chart-wrap"><canvas id="volume-chart"></canvas></div>`;
+
+    const canvas = document.getElementById('volume-chart');
+    if (chartInstances.volume) chartInstances.volume.destroy();
+    const d = chartDefaults();
+    chartInstances.volume = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: weeks.map(weekLabel),
+        datasets: groups.map((g, i) => ({
+          label: g,
+          data: weeks.map((w) => Math.round(byKey.get(`${w}|${g}`) || 0)),
+          backgroundColor: VOLUME_PALETTE[i % VOLUME_PALETTE.length]
+        }))
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#9a8f7e', boxWidth: 10, font: { size: 10 } } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} kg` } }
+        },
+        scales: { x: { ...d, stacked: true }, y: { ...d, stacked: true, beginAtZero: true } }
+      }
+    });
+  } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
+}
+
 function renderCalendar(entries) {
   const root = $('#calendar');
   const countMap = new Map(entries.map((e) => [e.date, e.count]));
@@ -442,8 +508,16 @@ function detectPlateau(values) {
   return recentBest <= priorBest * 1.01;
 }
 
-// Estimated-1RM trend per set, grouped by muscle group then exercise.
-// Needs at least 2 sets on an exercise to draw a meaningful line.
+// Estimated-1RM trend, grouped by muscle group then movement. Same-sub_muscle
+// exercises whose active date ranges DON'T overlap are merged into one trend —
+// that's the swap-by-machine-availability pattern (Leg Press this week, Hack
+// Squat next week because Leg Press was taken). Exercises whose ranges DO
+// overlap were deliberately programmed together (e.g. Leg Press as the main
+// lift + Leg Extension as an accessory, every week) and stay on separate lines
+// — merging those would blend incompatible load magnitudes into a meaningless
+// zigzag. Needs at least 2 distinct sessions (after merging) to draw a line.
+let lastOverloadSeries = [];
+
 async function renderOverloadCharts() {
   const root = $('#overload-charts');
   if (!root) return;
@@ -458,9 +532,8 @@ async function renderOverloadCharts() {
 
     // Collapse each exercise to one point per SESSION: the best working-set
     // e1RM that day. Plotting every set makes back-off/drop sets look like the
-    // lift got weaker mid-session — the top set is the honest progression
-    // signal. Need 2+ distinct sessions to draw a meaningful trend.
-    const series = [];
+    // lift got weaker mid-session — the top set is the honest progression signal.
+    const perExercise = [];
     for (const ex of history) {
       const byDay = new Map();
       for (const s of ex.sets) {
@@ -470,18 +543,67 @@ async function renderOverloadCharts() {
         if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
       }
       const days = [...byDay.keys()].sort();
-      if (days.length < 2) continue;
-      const values = days.map((d) => Math.round(byDay.get(d)));
-      series.push({
+      if (!days.length) continue;
+      perExercise.push({
         exercise_id: ex.exercise_id,
         exercise_name: ex.exercise_name,
         muscle_group: ex.muscle_group,
         sub_muscle: ex.sub_muscle || null,
-        labels: days,
-        values,
-        plateau: detectPlateau(values)
+        byDay,
+        minDay: days[0],
+        maxDay: days[days.length - 1]
       });
     }
+
+    const byMovement = new Map();
+    for (const ex of perExercise) {
+      const key = `${ex.muscle_group}|${ex.sub_muscle || ex.muscle_group}`;
+      if (!byMovement.has(key)) byMovement.set(key, []);
+      byMovement.get(key).push(ex);
+    }
+
+    const series = [];
+    let seriesIdx = 0;
+    for (const candidates of byMovement.values()) {
+      candidates.sort((a, b) => a.minDay.localeCompare(b.minDay));
+      let cluster = null;
+      const flush = () => {
+        if (!cluster) return;
+        const days = [...cluster.byDay.keys()].sort();
+        if (days.length >= 2) {
+          const values = days.map((d) => Math.round(cluster.byDay.get(d)));
+          const first = cluster.contributors[0];
+          series.push({
+            key: `movement-${seriesIdx++}`,
+            title: cluster.contributors.length > 1 ? (first.sub_muscle || first.muscle_group) : first.exercise_name,
+            muscle_group: first.muscle_group,
+            sub_muscle: first.sub_muscle,
+            contributors: cluster.contributors,
+            labels: days,
+            values,
+            plateau: detectPlateau(values)
+          });
+        }
+        cluster = null;
+      };
+      for (const ex of candidates) {
+        if (cluster && ex.minDay > cluster.maxDay) {
+          // Starts after everything seen in the cluster so far — no overlap,
+          // treat as a continuation (swap) of the same movement.
+          for (const [d, v] of ex.byDay) {
+            if (!cluster.byDay.has(d) || v > cluster.byDay.get(d)) cluster.byDay.set(d, v);
+          }
+          cluster.contributors.push(ex);
+          if (ex.maxDay > cluster.maxDay) cluster.maxDay = ex.maxDay;
+        } else {
+          flush();
+          cluster = { byDay: new Map(ex.byDay), maxDay: ex.maxDay, contributors: [ex] };
+        }
+      }
+      flush();
+    }
+
+    lastOverloadSeries = series;
 
     if (!series.length) {
       root.innerHTML = `<div class="bw-current__empty">Train an exercise across at least 2 sessions to see its trend.</div>`;
@@ -501,20 +623,21 @@ async function renderOverloadCharts() {
       return ia - ib;
     });
 
-    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift.</div>`;
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift. Tap a lift to see its full history. Swapped between equivalent exercises (e.g. machine availability)? They're combined into one trend here.</div>`;
 
     root.innerHTML = subtitle + groupOrder.map((group) => {
-      const exercises = [...byGroup.get(group)].sort((a, b) => a.exercise_name.localeCompare(b.exercise_name));
+      const movements = [...byGroup.get(group)].sort((a, b) => a.title.localeCompare(b.title));
       return `<div class="overload-group">
         <div class="overload-group__name">${escapeHtml(group)}</div>
-        ${exercises.map((ex) => `
+        ${movements.map((s) => `
           <div class="overload-exercise">
-            <div class="overload-exercise__name">
-              ${escapeHtml(ex.exercise_name)}
-              ${ex.plateau ? '<span class="overload-plateau-badge">Plateau</span>' : ''}
+            <div class="overload-exercise__name" data-movement-detail="${s.key}" role="button" tabindex="0">
+              ${escapeHtml(s.title)}
+              ${s.contributors.length > 1 ? `<span class="overload-exercise__sub">${s.contributors.map((c) => escapeHtml(c.exercise_name)).join(' + ')}</span>` : ''}
+              ${s.plateau ? '<span class="overload-plateau-badge">Plateau</span>' : ''}
             </div>
-            <div class="overload-chart-wrap"><canvas id="overload-chart-${ex.exercise_id}"></canvas></div>
-            ${ex.plateau ? `<div class="overload-plateau-tip">No new high in 3 sessions — train <strong>${escapeHtml(ex.sub_muscle || ex.muscle_group)}</strong> more often to break the stall.</div>` : ''}
+            <div class="overload-chart-wrap"><canvas id="overload-chart-${s.key}"></canvas></div>
+            ${s.plateau ? `<div class="overload-plateau-tip">No new high in 3 sessions — train <strong>${escapeHtml(s.sub_muscle || s.muscle_group)}</strong> more often to break the stall.</div>` : ''}
           </div>`).join('')}
       </div>`;
     }).join('');
@@ -526,9 +649,9 @@ async function renderOverloadCharts() {
 }
 
 function renderOverloadChart(s) {
-  const canvas = document.getElementById(`overload-chart-${s.exercise_id}`);
+  const canvas = document.getElementById(`overload-chart-${s.key}`);
   if (!canvas) return;
-  const key = `overload-${s.exercise_id}`;
+  const key = `overload-${s.key}`;
   if (chartInstances[key]) chartInstances[key].destroy();
 
   const d = chartDefaults();
@@ -540,6 +663,102 @@ function renderOverloadChart(s) {
         data: s.values, borderColor: '#e07a3c', backgroundColor: 'rgba(224,122,60,0.14)',
         // 'monotone' keeps the curve from overshooting below/above the actual
         // points — plain bezier tension invents phantom dips between values.
+        cubicInterpolationMode: 'monotone', tension: 0.25,
+        fill: true, pointRadius: 2, pointBackgroundColor: '#e07a3c', pointBorderColor: '#16130f'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg` } } },
+      scales: { x: { ...d, ticks: { ...d.ticks, maxTicksLimit: 6 } }, y: { ...d, beginAtZero: false } }
+    }
+  });
+}
+
+// ---------- Fix #3: per-exercise drill-in (tap a lift in the overload list) ----------
+function openMovementDetail(seriesKey) {
+  const s = lastOverloadSeries.find((x) => x.key === seriesKey);
+  if (!s) return;
+  if (s.contributors.length > 1) openMovementChooser(s);
+  else openExerciseDetailSheet(s.contributors[0].exercise_id, s.contributors[0].exercise_name);
+}
+
+function openMovementChooser(s) {
+  const sheet = ensureSheet('movement-chooser-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">${escapeHtml(s.title)}</div><span style="width:40px"></span></div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:10px">This trend combines sessions across the exercises you swapped between. Pick one to see its full history.</div>
+        ${s.contributors.map((c) => `<button class="picker-row" data-detail-pick="${c.exercise_id}" data-detail-name="${escapeHtml(c.exercise_name)}"><span>${escapeHtml(c.exercise_name)}</span><span class="picker-row__state">view</span></button>`).join('')}
+      </div>
+    </div>`;
+  showSheet(sheet);
+  sheet.onclick = (e) => {
+    if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+    const pick = e.target.closest('[data-detail-pick]');
+    if (pick) { hideSheet(sheet); openExerciseDetailSheet(Number(pick.dataset.detailPick), pick.dataset.detailName); }
+  };
+}
+
+async function openExerciseDetailSheet(exerciseId, displayName) {
+  const sheet = ensureSheet('exercise-detail-sheet');
+  sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:160px"></div></div></div>`;
+  showSheet(sheet);
+  const closeHandler = (e) => { if (e.target.closest('[data-close-sheet]')) hideSheet(sheet); };
+  try {
+    const [data, bwRows] = await Promise.all([API.progress(exerciseId), API.bodyweight().catch(() => [])]);
+    const bwKg = bwRows.length ? toKg(bwRows[0].weight, bwRows[0].weight_unit) : 0;
+    const { sets, prs, exercise } = data;
+    const name = displayName || exercise?.name || 'Exercise';
+
+    const byDay = new Map();
+    for (const s of sets) {
+      const val = calcE1RM(s, exercise, bwKg);
+      if (!val) continue;
+      const day = s.logged_at.slice(0, 10);
+      if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
+    }
+    const days = [...byDay.keys()].sort();
+    const values = days.map((d) => Math.round(byDay.get(d)));
+
+    const recentSets = [...sets].reverse().slice(0, 15);
+    const prRows = [...prs].sort((a, b) => a.reps - b.reps);
+
+    sheet.innerHTML = `
+      <div class="sheet__inner">
+        <div class="sheet__head">
+          <button class="btn--icon" data-close-sheet>←</button>
+          <div class="sheet__title">${escapeHtml(name)}</div>
+          <span style="width:40px"></span>
+        </div>
+        <div class="sheet__body">
+          ${days.length >= 2 ? `<div class="chart-wrap" style="height:160px"><canvas id="ex-detail-chart"></canvas></div>` : `<div class="bw-current__empty">Log this exercise across 2+ sessions to see a trend.</div>`}
+          ${prRows.length ? `<div class="form-label" style="margin-top:14px">Personal records</div>
+            ${prRows.map((r) => `<div class="history-activity__line"><span>${r.reps}-rep max</span><strong>${fmtSetWeight(r.weight, r.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} · ${formatDateShort(r.achieved_at)}</strong></div>`).join('')}` : ''}
+          <div class="form-label" style="margin-top:14px">Recent sets</div>
+          ${recentSets.length ? recentSets.map((s) => `<div class="history-activity__line"><span>${formatDateShort(s.logged_at)}</span><strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}</strong></div>`).join('') : '<div class="bw-current__empty">No sets logged yet.</div>'}
+        </div>
+      </div>`;
+    sheet.onclick = closeHandler;
+    if (days.length >= 2) renderExerciseDetailChart(days, values);
+  } catch (err) {
+    sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    sheet.onclick = closeHandler;
+  }
+}
+
+function renderExerciseDetailChart(days, values) {
+  const canvas = document.getElementById('ex-detail-chart');
+  if (!canvas) return;
+  if (chartInstances.exDetail) chartInstances.exDetail.destroy();
+  const d = chartDefaults();
+  chartInstances.exDetail = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: days,
+      datasets: [{
+        data: values, borderColor: '#e07a3c', backgroundColor: 'rgba(224,122,60,0.14)',
         cubicInterpolationMode: 'monotone', tension: 0.25,
         fill: true, pointRadius: 2, pointBackgroundColor: '#e07a3c', pointBorderColor: '#16130f'
       }]
@@ -907,4 +1126,4 @@ function openBodyweightSheet() {
   };
 }
 
-export { renderProgress };
+export { renderProgress, openBodyweightSheet };

@@ -2,7 +2,7 @@ import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, 
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
-import { saveAsTemplate } from './workout.js';
+import { saveAsTemplate, openActivitySheet } from './workout.js';
 import { reportHandled } from './bugreport.js';
 
 // ---------- HISTORY tab ----------
@@ -92,6 +92,18 @@ async function renderHistory() {
             meta.textContent = newVal ? `${baseText} · ${feelEmoji(newVal)}` : baseText;
           }
           haptic(15);
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
+      const editActivityBtn = e.target.closest('[data-edit-activity]');
+      if (editActivityBtn) {
+        e.stopPropagation();
+        const card = editActivityBtn.closest('.history-card');
+        const id = Number(card.dataset.id);
+        try {
+          const workout = await API.workout(id);
+          openActivitySheet(workout, { onSaved: () => refreshHistoryCard(id) });
         } catch (err) { toast(err.message); }
         return;
       }
@@ -189,7 +201,10 @@ async function loadHistoryCardBody(card) {
         </div>
         <label class="form-label" style="margin-top:12px">Notes</label>
         <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(workout.notes || '')}" placeholder="How did it go?">${escapeHtml(workout.notes || '')}</textarea>
-        <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger);margin-top:10px">Delete</button>`;
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn--ghost btn--sm" data-edit-activity style="flex:1">Edit</button>
+          <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger)">Delete</button>
+        </div>`;
       card.dataset.loaded = '1';
       card.dataset.exerciseNames = '';
       return;
@@ -273,9 +288,19 @@ async function refreshHistoryCard(workoutId) {
     const card = document.querySelector(`.history-card[data-id="${workoutId}"]`);
     if (!card) return renderHistory();
     if (!w) return renderHistory();
+    const wasExpanded = card.classList.contains('expanded');
+    if (w.kind === 'activity') {
+      // Activity head (meta line, calorie stat) is derived straight from the
+      // row, so a field edit (duration/RPE/etc.) needs the whole head
+      // re-rendered, not just the stats tile the strength-workout path patches.
+      card.outerHTML = historyCardHTML(w);
+      const fresh = document.querySelector(`.history-card[data-id="${workoutId}"]`);
+      if (wasExpanded && fresh) { fresh.classList.add('expanded'); await loadHistoryCardBody(fresh); }
+      return;
+    }
     const stats = card.querySelector('.history-card__stats');
     if (stats) stats.innerHTML = `${w.total_sets} sets<br/>${Math.round(w.total_volume).toLocaleString()} kg`;
-    if (card.classList.contains('expanded')) { card.dataset.loaded = ''; await loadHistoryCardBody(card); }
+    if (wasExpanded) { card.dataset.loaded = ''; await loadHistoryCardBody(card); }
   } catch (err) { toast(err.message); }
 }
 

@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm, pickerChipsHTML, setupPickerFilter, fmtSetWeight } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -227,7 +227,7 @@ function programCardHTML(p) {
 
 function dayCardHTML(d, programId) {
   const exList = d.exercises.length
-    ? d.exercises.map((e) => `${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span>`).join(' · ')
+    ? d.exercises.map((e) => `<span data-day-ex="${e.exercise_id}">${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span><span class="day-card__ex-last" data-ex-last="${e.exercise_id}"></span></span>`).join(' · ')
     : '<em style="opacity:.5">No exercises yet — tap Edit to add some</em>';
   return `
     <div class="day-card" data-day-id="${d.id}">
@@ -249,8 +249,25 @@ async function decorateLastTrained(dayId) {
   try {
     const last = await API.lastWorkout(dayId);
     const el = document.querySelector(`[data-last="${dayId}"]`);
-    if (!el) return;
-    el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
+    if (el) el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
+    if (!last?.sets?.length) return;
+
+    // Best non-warmup set per exercise (heaviest, ties broken by more reps) —
+    // gives a load to plan from before the user even taps Start.
+    const bestByEx = new Map();
+    for (const s of last.sets) {
+      if (s.is_warmup) continue;
+      const cur = bestByEx.get(s.exercise_id);
+      if (!cur || s.weight > cur.weight || (s.weight === cur.weight && s.reps > cur.reps)) {
+        bestByEx.set(s.exercise_id, s);
+      }
+    }
+    const dayCard = document.querySelector(`[data-day-id="${dayId}"]`);
+    if (!dayCard) return;
+    for (const [exId, s] of bestByEx) {
+      const lastEl = dayCard.querySelector(`[data-ex-last="${exId}"]`);
+      if (lastEl) lastEl.textContent = ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}`;
+    }
   } catch { /* ignore */ }
 }
 

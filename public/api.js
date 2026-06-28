@@ -96,6 +96,7 @@ const API = {
     api('/api/workouts', { method: 'POST', body: { program_day_id: programDayId } }),
   startQuickWorkout: () => api('/api/workouts', { method: 'POST', body: {} }),
   logActivity: (data) => api('/api/workouts/activity', { method: 'POST', body: data }),
+  updateActivity: (id, data) => api(`/api/workouts/${id}/activity`, { method: 'PATCH', body: data }),
   finishWorkout: (id) => api(`/api/workouts/${id}/finish`, { method: 'PATCH' }),
   logSet: (data) => api('/api/sets', { method: 'POST', body: data }),
   updateSet: (id, data) => api(`/api/sets/${id}`, { method: 'PATCH', body: data }),

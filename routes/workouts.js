@@ -154,6 +154,41 @@ router.get('/last/:programDayId', (req, res) => {
   res.json(workout);
 });
 
+// Edit a logged activity in place (kind='activity' only) — same validation as
+// POST /activity, plus a calorie recompute since duration/type/RPE all feed it.
+router.patch('/:id/activity', (req, res) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare(`SELECT * FROM workouts WHERE id = ? AND profile_id = ? AND kind = 'activity'`).get(id, req.profileId);
+  if (!existing) return res.status(404).json({ error: 'activity not found' });
+
+  const b = req.body || {};
+  const minutes = Number(b.duration_min);
+  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) {
+    return res.status(400).json({ error: 'duration_min must be 1–600 minutes' });
+  }
+  const activityType = String(b.activity_type || 'other').slice(0, 40);
+  const rpe = b.rpe == null ? null : Math.max(6, Math.min(10, Number(b.rpe) || 8));
+  const distance = Number.isFinite(Number(b.distance)) && Number(b.distance) > 0 ? Number(b.distance) : null;
+  const distanceUnit = distance != null && ['km', 'mi', 'm'].includes(b.distance_unit) ? b.distance_unit : null;
+  const tags = Array.isArray(b.muscle_tags)
+    ? [...new Set(b.muscle_tags.filter((t) => MUSCLE_GROUPS.includes(t)))]
+    : [];
+  const notes = b.notes ? String(b.notes).slice(0, 500) : null;
+
+  // Recompute calories from the (possibly-edited) duration/type/RPE against
+  // the bodyweight already snapshotted at log time — not today's bodyweight,
+  // so editing notes on an old entry doesn't silently reprice it.
+  const kcal = activityCalories(activityType, minutes, rpe, existing.bw_kg);
+
+  db.prepare(
+    `UPDATE workouts
+       SET activity_type = ?, duration_min = ?, rpe = ?, distance = ?, distance_unit = ?, muscle_tags = ?, notes = ?, calories_burned = ?
+     WHERE id = ?`
+  ).run(activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), notes, kcal, id);
+
+  res.json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(id));
+});
+
 router.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT * FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
