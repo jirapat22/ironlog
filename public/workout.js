@@ -1591,9 +1591,7 @@ async function saveAsTemplate(exercises, dayLabel, programId, dayId) {
   try {
     const prog = await API.createProgram({ name: name.trim() });
     const day = await API.addDay(prog.id, { day_label: dayLabel || 'Day 1' });
-    for (const ex of payload) {
-      await API.addDayExercise(prog.id, day.id, ex);
-    }
+    await API.replaceDayExercises(prog.id, day.id, { exercises: payload });
     haptic(20);
     toast(`Saved as "${name.trim()}" — find it in Programs`);
   } catch (err) {
