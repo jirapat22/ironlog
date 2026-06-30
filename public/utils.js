@@ -123,6 +123,14 @@ function fmtDuration(startIso, endIso) {
 }
 
 function stepForExercise(unit, ex) {
+  // A per-exercise custom increment (stored in kg) overrides the equipment
+  // default entirely — e.g. a pin-loaded machine that jumps 20kg per stack
+  // notch instead of the generic 2.5kg machine default.
+  if (ex?.step_override != null && Number.isFinite(Number(ex.step_override))) {
+    const kg = Number(ex.step_override);
+    return unit === 'lbs' ? Math.round((kg / 0.45359237) * 10) / 10 : kg;
+  }
+
   // Use equipment field if available; fall back to name regex for older data
   const equipment = ex?.equipment
     || (/dumbbell|\bdb\b/i.test(ex?.name || '') ? 'dumbbell'
@@ -495,6 +503,15 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         <select class="input" id="edit-ex-equipment">
           ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${e}</option>`).join('')}
         </select>
+        <div id="edit-ex-weightmode-wrap" style="${ex.equipment === 'dumbbell' ? '' : 'display:none'}">
+          <label class="form-label" style="margin-top:14px">Weight entry</label>
+          <select class="input" id="edit-ex-weightmode">
+            <option value="per_arm" ${ex.weight_mode !== 'combined' ? 'selected' : ''}>Per arm (doubled for volume)</option>
+            <option value="combined" ${ex.weight_mode === 'combined' ? 'selected' : ''}>Combined (already the full load)</option>
+          </select>
+        </div>
+        <label class="form-label" style="margin-top:14px">Custom weight step (kg, optional)</label>
+        <input class="input" type="number" step="0.5" min="0" id="edit-ex-step" value="${ex.step_override != null ? ex.step_override : ''}" placeholder="Default for ${ex.equipment || 'this equipment'}"/>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
@@ -518,16 +535,27 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   };
   subSel.onchange = () => sub2.render();
 
+  const weightModeWrap = containerEl.querySelector('#edit-ex-weightmode-wrap');
+  containerEl.querySelector('#edit-ex-equipment').onchange = (e) => {
+    weightModeWrap.style.display = e.target.value === 'dumbbell' ? '' : 'none';
+  };
+
   containerEl.querySelector('#edit-ex-save').onclick = async () => {
     const name = containerEl.querySelector('#edit-ex-name').value.trim();
     const muscle_group = containerEl.querySelector('#edit-ex-muscle').value;
     const sub_muscle = subSel.value || null;
     const secondary_muscles = sub2.getSelected();
     const equipment = containerEl.querySelector('#edit-ex-equipment').value;
+    const weight_mode = containerEl.querySelector('#edit-ex-weightmode').value;
+    const stepRaw = containerEl.querySelector('#edit-ex-step').value.trim();
+    if (stepRaw && (!Number.isFinite(Number(stepRaw)) || Number(stepRaw) <= 0)) {
+      return toast('Custom step must be a positive number');
+    }
+    const step_override = stepRaw ? Number(stepRaw) : null;
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const updated = await API.updateExercise(ex.id, { name, muscle_group, sub_muscle, secondary_muscles, equipment, notes });
+      const updated = await API.updateExercise(ex.id, { name, muscle_group, sub_muscle, secondary_muscles, equipment, weight_mode, step_override, notes });
       haptic(10);
       toast('Saved');
       if (onSaved) onSaved(updated);

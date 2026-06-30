@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../db');
+const { db, effectiveLoadKgSql } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
@@ -96,7 +96,7 @@ router.get('/history', (req, res) => {
                               ELSE (w.bw_kg - (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END)) * s.reps END
                   WHEN ex.is_bodyweight = 1 AND w.bw_kg IS NOT NULL
                     THEN (w.bw_kg + (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END)) * s.reps
-                  ELSE (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END) * s.reps
+                  ELSE ${effectiveLoadKgSql('s', 'ex')} * s.reps
                 END
               ELSE 0 END), 0) as total_volume,
               (SELECT GROUP_CONCAT(g, ',') FROM (
@@ -310,7 +310,7 @@ router.get('/:id/sets', (req, res) => {
   if (!owned) return res.status(404).json({ error: 'workout not found' });
   const rows = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment, s.is_warmup
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?

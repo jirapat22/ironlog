@@ -4,7 +4,7 @@ const { db, REGION_TO_GROUP, tx } = require('../db');
 const router = express.Router();
 
 const SELECT_COLS =
-  'id, name, muscle_group, sub_muscle, secondary_muscles, notes, is_bodyweight, is_assisted, equipment';
+  'id, name, muscle_group, sub_muscle, secondary_muscles, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override';
 
 // Parse the stored JSON secondary_muscles into an array for the API response.
 function shapeExercise(row) {
@@ -37,7 +37,7 @@ router.get('/stats', (req, res) => {
   const rows = db.prepare(`
     SELECT
       e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles,
-      e.notes, e.equipment, e.is_bodyweight, e.is_assisted,
+      e.notes, e.equipment, e.is_bodyweight, e.is_assisted, e.weight_mode, e.step_override,
       COUNT(DISTINCT s.workout_id) AS workout_count,
       MAX(w.started_at)            AS last_used_at,
       (SELECT COUNT(*) FROM program_day_exercises pde WHERE pde.exercise_id = e.id) AS program_count
@@ -66,6 +66,18 @@ router.patch('/:id', (req, res) => {
       if (f === 'sub_muscle') v = (v && String(v).trim()) ? String(v).trim() : null;
       updates.push(`${f} = ?`); values.push(v);
     }
+  }
+  if ('weight_mode' in (req.body || {})) {
+    const v = req.body.weight_mode === 'combined' ? 'combined' : 'per_arm';
+    updates.push('weight_mode = ?'); values.push(v);
+  }
+  if ('step_override' in (req.body || {})) {
+    const raw = req.body.step_override;
+    const v = (raw === null || raw === '') ? null : Number(raw);
+    if (v != null && (!Number.isFinite(v) || v <= 0)) {
+      return res.status(400).json({ error: 'step_override must be a positive number' });
+    }
+    updates.push('step_override = ?'); values.push(v);
   }
   if ('secondary_muscles' in (req.body || {})) {
     // Primary to exclude = the new sub_muscle if being set, else the existing one.

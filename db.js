@@ -39,6 +39,17 @@ function columnExists(table, column) {
     .some((c) => c.name === column);
 }
 
+// Shared SQL fragment for one set's effective load in kg: converts lbs to kg,
+// then doubles it for dumbbell exercises (one dumbbell's weight represents
+// both arms working) unless the exercise is flagged 'combined' (the logged
+// number is already the full load, e.g. a single heavy DB held two-handed).
+// Multiply by reps for volume; callers exclude warmups themselves.
+// Takes the sets/exercises table aliases since they vary across queries.
+function effectiveLoadKgSql(setsAlias = 's', exAlias = 'e') {
+  return `(CASE WHEN ${setsAlias}.weight_unit = 'lbs' THEN ${setsAlias}.weight * 0.45359237 ELSE ${setsAlias}.weight END)
+    * (CASE WHEN ${exAlias}.equipment = 'dumbbell' AND ${exAlias}.weight_mode != 'combined' THEN 2 ELSE 1 END)`;
+}
+
 function init() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS profiles (
@@ -292,6 +303,19 @@ function migrateMultiUser() {
   // Drives recency only ("last trained" / Train next), never volume.
   if (!columnExists('exercises', 'secondary_muscles')) {
     db.exec('ALTER TABLE exercises ADD COLUMN secondary_muscles TEXT');
+  }
+  // weight_mode: only meaningful for equipment='dumbbell'. 'per_arm' (default)
+  // means the logged weight is one dumbbell, so volume math doubles it;
+  // 'combined' means the logged number is already the full load (e.g. a
+  // single heavy DB held with both hands), so it isn't doubled.
+  if (!columnExists('exercises', 'weight_mode')) {
+    db.exec("ALTER TABLE exercises ADD COLUMN weight_mode TEXT NOT NULL DEFAULT 'per_arm'");
+  }
+  // step_override: optional custom +/- increment in kg, overriding the
+  // equipment-class default in stepForExercise (e.g. a machine that jumps
+  // 20kg per pin instead of the generic 2.5kg machine default).
+  if (!columnExists('exercises', 'step_override')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN step_override REAL');
   }
 
   // bug_reports.type: 'bug_report' (default) or 'idea' — flows through to Orbit.
@@ -1136,4 +1160,7 @@ function seedDefaultPrograms(profileId) {
   }
 }
 
-module.exports = { db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP };
+module.exports = {
+  db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP,
+  effectiveLoadKgSql
+};
