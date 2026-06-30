@@ -186,6 +186,19 @@ function init() {
     CREATE INDEX IF NOT EXISTS idx_bodyweights_logged ON bodyweights(logged_at DESC);
   `);
 
+  // De-dupe before adding the uniqueness constraint below — older DBs could
+  // have the same exercise inserted into one program day twice (no guard
+  // existed). Keep the lowest id (first added), drop the rest.
+  db.exec(`
+    DELETE FROM program_day_exercises
+    WHERE id NOT IN (
+      SELECT MIN(id) FROM program_day_exercises GROUP BY program_day_id, exercise_id
+    )
+  `);
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_program_day_exercises_unique ON program_day_exercises(program_day_id, exercise_id)'
+  );
+
   // Non-destructive migration: add the column to older DBs that were created
   // before it existed. SQLite throws if the column is already there, so we
   // swallow the specific duplicate-column error.

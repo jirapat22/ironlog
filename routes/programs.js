@@ -206,12 +206,20 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
       .prepare('SELECT COALESCE(MAX(order_index), -1) as m FROM program_day_exercises WHERE program_day_id = ?')
       .get(dayId).m + 1;
 
-  const info = db
-    .prepare(
-      `INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(dayId, exercise_id, target_sets, target_reps, maxOrder, rest_seconds);
+  let info;
+  try {
+    info = db
+      .prepare(
+        `INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(dayId, exercise_id, target_sets, target_reps, maxOrder, rest_seconds);
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'That exercise is already in this day' });
+    }
+    throw err;
+  }
 
   const row = db
     .prepare(
@@ -241,10 +249,14 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
         `INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds)
          VALUES (?, ?, ?, ?, ?, ?)`
       );
-      exercises.forEach((e, i) => {
-        if (!e.exercise_id) return;
+      const seen = new Set();
+      let i = 0;
+      for (const e of exercises) {
+        if (!e.exercise_id || seen.has(e.exercise_id)) continue;
+        seen.add(e.exercise_id);
         ins.run(dayId, e.exercise_id, e.target_sets ?? 3, e.target_reps ?? 10, i, e.rest_seconds ?? null);
-      });
+        i++;
+      }
     });
   } catch (err) {
     console.error(err); return res.status(500).json({ error: 'internal server error' });
@@ -281,7 +293,14 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
   values.push(pdeId);
 
-  db.prepare(`UPDATE program_day_exercises SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  try {
+    db.prepare(`UPDATE program_day_exercises SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return res.status(409).json({ error: 'That exercise is already in this day' });
+    }
+    throw err;
+  }
 
   const row = db
     .prepare(

@@ -1169,6 +1169,9 @@ async function openSwapPicker(currentExerciseId) {
 
   const currentIdx = workoutState.programDay.exercises.findIndex((e) => e.exercise_id === currentExerciseId);
   const currentEx = workoutState.programDay.exercises[currentIdx];
+  const inWorkoutElsewhere = new Set(
+    workoutState.programDay.exercises.filter((e, i) => i !== currentIdx).map((e) => e.exercise_id)
+  );
   const groups = {};
   for (const ex of exercises) {
     if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
@@ -1191,9 +1194,9 @@ async function openSwapPicker(currentExerciseId) {
           <div class="picker-group" data-group="${g}">
             <div class="picker-group__title">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
-              <button class="picker-row ${ex.id === currentExerciseId ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+              <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
                 <span>${escapeHtml(ex.name)}</span>
-                <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : 'pick'}</span>
+                <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
               </button>`).join('')}
           </div>`).join('')}
       </div>
@@ -1226,6 +1229,10 @@ async function openSwapPicker(currentExerciseId) {
     if (!pickBtn) return;
     const newExId = Number(pickBtn.dataset.swapPick);
     if (newExId === currentExerciseId) { toast('Same exercise — nothing to swap'); return; }
+    if (workoutState.programDay.exercises.some((e, i) => i !== currentIdx && e.exercise_id === newExId)) {
+      toast('That exercise is already in this workout');
+      return;
+    }
     const newEx = exercises.find((x) => x.id === newExId);
     if (!newEx) return;
 
