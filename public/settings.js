@@ -400,7 +400,7 @@ async function renderExerciseLibraryList(sheet) {
             </div>
           </div>
           <button class="btn--icon" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
-          ${ex.workout_count === 0
+          ${ex.workout_count === 0 && !ex.program_count
             ? `<button class="btn--icon btn--icon-danger" data-del-ex="${ex.id}" title="Delete">×</button>`
             : ''}
         </div>`).join('')}

@@ -39,7 +39,8 @@ router.get('/stats', (req, res) => {
       e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles,
       e.notes, e.equipment, e.is_bodyweight, e.is_assisted,
       COUNT(DISTINCT s.workout_id) AS workout_count,
-      MAX(w.started_at)            AS last_used_at
+      MAX(w.started_at)            AS last_used_at,
+      (SELECT COUNT(*) FROM program_day_exercises pde WHERE pde.exercise_id = e.id) AS program_count
     FROM exercises e
     LEFT JOIN sets     s ON s.exercise_id = e.id AND s.profile_id = ?
     LEFT JOIN workouts w ON w.id = s.workout_id AND w.finished_at IS NOT NULL

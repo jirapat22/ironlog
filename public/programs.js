@@ -279,7 +279,7 @@ async function openEditDay(programId, dayId) {
   sheet.innerHTML = `<div class="sheet__inner"><div class="skeleton" style="height:120px"></div></div>`;
   showSheet(sheet);
   try {
-    const [program, allExercises] = await Promise.all([API.program(programId), API.exercises()]);
+    const [program, allExercises] = await Promise.all([API.program(programId), API.exerciseStats()]);
     const day = program.days.find((d) => d.id === dayId);
     if (!day) throw new Error('Day not found');
     editDayState = { programId, dayId, day, allExercises };
@@ -575,6 +575,8 @@ function openNewExerciseForm(picker) {
     if (!name) return toast('Name required');
     try {
       const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, notes });
+      ex.workout_count = 0;
+      ex.program_count = 1; // about to be added to this day, below
       editDayState.allExercises.push(ex);
       const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
         exercise_id: ex.id, target_sets: 3, target_reps: 10

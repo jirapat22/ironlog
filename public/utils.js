@@ -500,7 +500,9 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
         ${ex.workout_count > 0
           ? `<button class="btn btn--ghost btn--block" id="edit-ex-clear" style="margin-top:10px;color:var(--danger)">Clear logged data (${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''})</button>`
-          : `<button class="btn btn--ghost btn--block" id="edit-ex-delete" style="margin-top:10px;color:var(--danger)">Delete exercise</button>`}
+          : ex.program_count
+            ? `<div class="card__subtitle" style="margin-top:10px">In ${ex.program_count} program slot${ex.program_count !== 1 ? 's' : ''} — remove it from your program day(s) to delete.</div>`
+            : `<button class="btn btn--ghost btn--block" id="edit-ex-delete" style="margin-top:10px;color:var(--danger)">Delete exercise</button>`}
       </div>
     </div>`;
 
