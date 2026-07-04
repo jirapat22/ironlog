@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, tx } = require('../db');
+const { db, tx, MUSCLE_GROUPS } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { reportHandled } = require('../lib/bugReports');
 
@@ -20,6 +20,16 @@ router.post('/', (req, res) => {
   let importedSets = 0;
   let importedBw = 0;
   const affectedExercises = new Set();
+
+  // Reject unknown muscle groups up front (before the transaction) rather
+  // than silently defaulting them — a mislinked group quietly corrupts every
+  // chart that aggregates by muscle group.
+  const badGroup = exercises.find((e) => e.muscle_group && !MUSCLE_GROUPS.includes(String(e.muscle_group).trim()));
+  if (badGroup) {
+    return res.status(400).json({
+      error: `Exercise "${badGroup.name}" has unknown muscle_group "${badGroup.muscle_group}" — must be one of: ${MUSCLE_GROUPS.join(', ')}`
+    });
+  }
 
   // We need to look up the backup's exercise IDs so we can remap sets
   // correctly even when current DB IDs differ.

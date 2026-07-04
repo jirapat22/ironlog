@@ -824,6 +824,11 @@ const REGION_TO_GROUP = {};
 for (const [g, subs] of Object.entries(GROUP_SUB_MUSCLES)) {
   for (const s of subs) REGION_TO_GROUP[s] = g;
 }
+// Canonical muscle groups — the only valid `exercises.muscle_group` values.
+// The UI's group dropdown mirrors this list (SUB_MUSCLES in public/utils.js);
+// exported so the API write paths can reject anything else, keeping charts,
+// pickers, and the Muscle Detail view free of rogue groups.
+const MUSCLE_GROUPS = Object.keys(GROUP_SUB_MUSCLES);
 
 // Secondary muscles for the seeded compound lifts. Primary stays in
 // SUB_MUSCLE_BY_NAME (it gets the volume); these only feed recency. Applied
@@ -1162,5 +1167,5 @@ function seedDefaultPrograms(profileId) {
 
 module.exports = {
   db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP,
-  effectiveLoadKgSql
+  MUSCLE_GROUPS, effectiveLoadKgSql
 };

@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, REGION_TO_GROUP, tx } = require('../db');
+const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx } = require('../db');
 
 const router = express.Router();
 
@@ -64,6 +64,12 @@ router.patch('/:id', (req, res) => {
       let v = req.body[f];
       // Empty/blank sub_muscle means "whole muscle" — store NULL.
       if (f === 'sub_muscle') v = (v && String(v).trim()) ? String(v).trim() : null;
+      if (f === 'muscle_group') {
+        v = String(v || '').trim();
+        if (!MUSCLE_GROUPS.includes(v)) {
+          return res.status(400).json({ error: `muscle_group must be one of: ${MUSCLE_GROUPS.join(', ')}` });
+        }
+      }
       updates.push(`${f} = ?`); values.push(v);
     }
   }
@@ -121,6 +127,10 @@ router.post('/', (req, res) => {
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
+  const group = String(muscle_group).trim();
+  if (!MUSCLE_GROUPS.includes(group)) {
+    return res.status(400).json({ error: `muscle_group must be one of: ${MUSCLE_GROUPS.join(', ')}` });
+  }
   const validEquipment = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
   const equip = validEquipment.includes(equipment) ? equipment : 'barbell';
   const sub = (sub_muscle && String(sub_muscle).trim()) ? String(sub_muscle).trim() : null;
@@ -128,7 +138,7 @@ router.post('/', (req, res) => {
   try {
     const info = db
       .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(name.trim(), muscle_group.trim(), sub, secondary, notes || null, equip, req.profileId);
+      .run(name.trim(), group, sub, secondary, notes || null, equip, req.profileId);
     const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(shapeExercise(row));
   } catch (err) {
