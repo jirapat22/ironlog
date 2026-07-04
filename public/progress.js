@@ -338,8 +338,6 @@ async function renderMuscleFrequency() {
   } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
 }
 
-const VOLUME_PALETTE = ['#e07a3c', '#8fb45a', '#d99a3c', '#c8492b', '#6d9bc3', '#a47ec0', '#cfc4b2', '#5fb3a3'];
-
 async function renderVolumeSection() {
   const root = $('#volume-chart-wrap');
   if (!root) return;
@@ -351,20 +349,61 @@ async function renderVolumeSection() {
       return;
     }
     const weeks = [...new Set(rows.map((r) => r.week))].sort();
-    const groups = [...new Set(rows.map((r) => r.muscle_group))].sort((a, b) => {
-      const ia = PICKER_GROUP_ORDER.indexOf(a), ib = PICKER_GROUP_ORDER.indexOf(b);
-      if (ia === -1 && ib === -1) return a.localeCompare(b);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
-    });
     const byKey = new Map(rows.map((r) => [`${r.week}|${r.muscle_group}`, r.volume]));
     // strftime('%Y-%W') -> "2026-25"; just show the week number, the trend matters more than the date.
     const weekLabel = (w) => `Wk ${Number(w.slice(5))}`;
 
+    // One total per week (sum across muscle groups) — a single-hue bar trend
+    // answers "am I trending up overall?" at a glance. The old chart stacked
+    // up to 8 muscle-group colors per bar; besides being cramped on a phone
+    // screen, each group's color was picked by its POSITION in that week's
+    // set of trained groups, not a fixed identity — so the same color could
+    // mean "chest" one render and "legs" the next as trained groups came in
+    // and out of the 8-week window. A single hue sidesteps that entirely.
+    const totals = weeks.map((w) => Math.round(
+      [...byKey.keys()].filter((k) => k.startsWith(`${w}|`)).reduce((sum, k) => sum + byKey.get(k), 0)
+    ));
+    const thisWeek = totals[totals.length - 1];
+    const lastWeek = totals.length > 1 ? totals[totals.length - 2] : null;
+    let trendStr = '';
+    if (lastWeek != null && lastWeek > 0) {
+      const diff = thisWeek - lastWeek;
+      const pct = Math.round((diff / lastWeek) * 100);
+      if (Math.abs(pct) >= 1) {
+        const sign = diff > 0 ? '+' : '';
+        trendStr = `<span class="bw-current__trend ${diff > 0 ? 'vol-up' : 'vol-down'}">${sign}${pct}%</span>`;
+      }
+    }
+
+    // Breakdown, by muscle group, for the most recent week that has any
+    // volume — a ranked single-hue bar list. Sorting by volume (not a fixed
+    // group order) makes it read like a leaderboard: what did I actually
+    // train most this week.
+    const latestWeek = weeks[weeks.length - 1];
+    const breakdown = [...byKey.entries()]
+      .filter(([k, v]) => k.startsWith(`${latestWeek}|`) && v > 0)
+      .map(([k, v]) => ({ group: k.split('|')[1], volume: Math.round(v) }))
+      .sort((a, b) => b.volume - a.volume);
+    const maxVol = breakdown[0]?.volume || 1;
+
     root.innerHTML = `
-      <div class="card__subtitle" style="margin-bottom:10px">Total working-set volume (kg) per week, by muscle group — are you trending up overall?</div>
-      <div class="chart-wrap"><canvas id="volume-chart"></canvas></div>`;
+      <div class="card__subtitle" style="margin-bottom:12px">Total working-set volume (kg) per week — are you trending up overall?</div>
+      <div class="bw-current__row" style="margin-bottom:10px">
+        <span class="bw-current__val">${thisWeek.toLocaleString()}</span>
+        <span class="bw-current__unit">kg this week</span>
+        ${trendStr}
+      </div>
+      <div class="chart-wrap" style="height:120px"><canvas id="volume-chart"></canvas></div>
+      ${breakdown.length ? `
+        <div class="volume-breakdown">
+          <div class="volume-breakdown__title">By muscle group — ${weekLabel(latestWeek)}</div>
+          ${breakdown.map((b) => `
+            <div class="volume-row">
+              <span class="volume-row__label">${escapeHtml(b.group)}</span>
+              <span class="volume-row__track"><span class="volume-row__fill" style="width:${Math.max(4, Math.round((b.volume / maxVol) * 100))}%"></span></span>
+              <span class="volume-row__val">${b.volume.toLocaleString()}</span>
+            </div>`).join('')}
+        </div>` : ''}`;
 
     const canvas = document.getElementById('volume-chart');
     if (chartInstances.volume) chartInstances.volume.destroy();
@@ -373,19 +412,20 @@ async function renderVolumeSection() {
       type: 'bar',
       data: {
         labels: weeks.map(weekLabel),
-        datasets: groups.map((g, i) => ({
-          label: g,
-          data: weeks.map((w) => Math.round(byKey.get(`${w}|${g}`) || 0)),
-          backgroundColor: VOLUME_PALETTE[i % VOLUME_PALETTE.length]
-        }))
+        datasets: [{
+          data: totals,
+          backgroundColor: '#e07a3c',
+          borderRadius: 3,
+          maxBarThickness: 28
+        }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom', labels: { color: '#9a8f7e', boxWidth: 10, font: { size: 10 } } },
-          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} kg` } }
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y.toLocaleString()} kg` } }
         },
-        scales: { x: { ...d, stacked: true }, y: { ...d, stacked: true, beginAtZero: true } }
+        scales: { x: d, y: { ...d, beginAtZero: true } }
       }
     });
   } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
