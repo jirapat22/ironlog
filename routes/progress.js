@@ -33,8 +33,11 @@ router.get('/volume/weekly', (req, res) => {
   const weeks = Number.parseInt(req.query.weeks, 10);
   const hasWindow = Number.isFinite(weeks) && weeks > 0;
   // Bind the window as a parameter rather than interpolating into the SQL.
+  // NOTE: SQLite's datetime() has NO 'weeks' modifier — datetime('now','-8 weeks')
+  // returns NULL, so `logged_at >= NULL` silently excluded EVERY row and the
+  // chart came up empty. Convert to days (weeks * 7), which IS supported.
   const dateClause = hasWindow ? `AND s.logged_at >= datetime('now', ?)` : '';
-  const params = hasWindow ? [req.profileId, `-${weeks} weeks`] : [req.profileId];
+  const params = hasWindow ? [req.profileId, `-${weeks * 7} days`] : [req.profileId];
   const rows = db
     .prepare(
       `SELECT
