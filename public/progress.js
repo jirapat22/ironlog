@@ -349,7 +349,6 @@ async function renderVolumeSection() {
       return;
     }
     const weeks = [...new Set(rows.map((r) => r.week))].sort();
-    const byKey = new Map(rows.map((r) => [`${r.week}|${r.muscle_group}`, r.volume]));
     // strftime('%Y-%W') -> "2026-25"; just show the week number, the trend matters more than the date.
     const weekLabel = (w) => `Wk ${Number(w.slice(5))}`;
 
@@ -361,7 +360,7 @@ async function renderVolumeSection() {
     // mean "chest" one render and "legs" the next as trained groups came in
     // and out of the 8-week window. A single hue sidesteps that entirely.
     const totals = weeks.map((w) => Math.round(
-      [...byKey.keys()].filter((k) => k.startsWith(`${w}|`)).reduce((sum, k) => sum + byKey.get(k), 0)
+      rows.filter((r) => r.week === w).reduce((sum, r) => sum + r.volume, 0)
     ));
     const thisWeek = totals[totals.length - 1];
     const lastWeek = totals.length > 1 ? totals[totals.length - 2] : null;
@@ -375,16 +374,19 @@ async function renderVolumeSection() {
       }
     }
 
-    // Breakdown, by muscle group, for the most recent week that has any
-    // volume — a ranked single-hue bar list. Sorting by volume (not a fixed
-    // group order) makes it read like a leaderboard: what did I actually
-    // train most this week.
+    // Breakdown, by muscle group, for the most recent trained week. Bars
+    // encode HARD SETS, not kg — tonnage can't be compared across muscle
+    // groups (legs dwarf everything because squat/leg-press loads are huge),
+    // but sets per group per week is the standard, load-independent training
+    // volume measure, so the bars sit on even footing. The kg figure rides
+    // along per row for detail. Bonus: bodyweight work with no added load
+    // (0 kg tonnage) now shows up instead of being invisible.
     const latestWeek = weeks[weeks.length - 1];
-    const breakdown = [...byKey.entries()]
-      .filter(([k, v]) => k.startsWith(`${latestWeek}|`) && v > 0)
-      .map(([k, v]) => ({ group: k.split('|')[1], volume: Math.round(v) }))
-      .sort((a, b) => b.volume - a.volume);
-    const maxVol = breakdown[0]?.volume || 1;
+    const breakdown = rows
+      .filter((r) => r.week === latestWeek && ((r.sets ?? 0) > 0 || r.volume > 0))
+      .map((r) => ({ group: r.muscle_group, volume: Math.round(r.volume), sets: r.sets ?? 0 }))
+      .sort((a, b) => b.sets - a.sets || b.volume - a.volume);
+    const maxSets = Math.max(1, ...breakdown.map((b) => b.sets));
 
     root.innerHTML = `
       <div class="card__subtitle" style="margin-bottom:12px">Total working-set volume (kg) per week — are you trending up overall?</div>
@@ -400,8 +402,9 @@ async function renderVolumeSection() {
           ${breakdown.map((b) => `
             <div class="volume-row">
               <span class="volume-row__label">${escapeHtml(b.group)}</span>
-              <span class="volume-row__track"><span class="volume-row__fill" style="width:${Math.max(4, Math.round((b.volume / maxVol) * 100))}%"></span></span>
-              <span class="volume-row__val">${b.volume.toLocaleString()}</span>
+              <span class="volume-row__track"><span class="volume-row__fill" style="width:${Math.max(4, Math.round((b.sets / maxSets) * 100))}%"></span></span>
+              <span class="volume-row__sets">${b.sets} set${b.sets === 1 ? '' : 's'}</span>
+              <span class="volume-row__val">${b.volume.toLocaleString()} kg</span>
             </div>`).join('')}
         </div>` : ''}`;
 

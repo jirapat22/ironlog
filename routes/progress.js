@@ -43,7 +43,8 @@ router.get('/volume/weekly', (req, res) => {
       `SELECT
          strftime('%Y-%W', s.logged_at) as week,
          e.muscle_group,
-         SUM(CASE WHEN s.is_warmup = 0 THEN ${effectiveLoadKgSql('s', 'e')} * s.reps ELSE 0 END) as volume
+         SUM(CASE WHEN s.is_warmup = 0 THEN ${effectiveLoadKgSql('s', 'e')} * s.reps ELSE 0 END) as volume,
+         SUM(CASE WHEN s.is_warmup = 0 THEN 1 ELSE 0 END) as sets
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.profile_id = ?

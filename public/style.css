@@ -2925,7 +2925,8 @@ button {
 /* Weekly volume — ranked single-hue breakdown ("ledger" rows) for the most
    recent trained week. One hue throughout (length encodes the value) reads
    faster than a legend of colors, and never needs a color-to-group mapping
-   that could drift as trained groups enter/leave the lookback window. */
+   that could drift as trained groups enter/leave the lookback window.
+   Bars encode hard sets (comparable across groups); kg is the dim detail. */
 .volume-breakdown {
   margin-top: 14px;
   padding-top: 12px;
@@ -2942,7 +2943,7 @@ button {
 
 .volume-row {
   display: grid;
-  grid-template-columns: 72px 1fr auto;
+  grid-template-columns: 72px 1fr auto auto;
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
@@ -2974,13 +2975,24 @@ button {
   background: var(--accent);
 }
 
-.volume-row__val {
+.volume-row__sets {
   font-family: var(--font-mono);
   font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 44px;
+}
+
+.volume-row__val {
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   text-align: right;
+  min-width: 62px;
 }
 
 /* Consistency calendar — stats + grid + legend */
