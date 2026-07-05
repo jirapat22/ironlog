@@ -2792,6 +2792,22 @@ button {
   text-transform: capitalize;
 }
 
+/* Compounds-first ordering nudge in the program-day editor. Same quiet voice
+   as the plateau tip — one dim line, exercise names highlighted, never a
+   block. Hidden (display:none via JS) when the order already reads right. */
+.order-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.order-hint:empty { display: none; }
+
+.order-hint strong {
+  color: #f0a92c;
+}
+
 /* Readiness */
 .ready-row {
   padding: 10px 0;

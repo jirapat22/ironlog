@@ -289,6 +289,36 @@ async function openEditDay(programId, dayId) {
   }
 }
 
+// Compounds-first ordering nudge. Classify by seeded secondary-muscle count:
+// 0 = isolation (curls, laterals, pushdowns...), 1+ = multi-muscle lift.
+// The threshold is 1, not 2, because region validation trims some seeded
+// intents — every chest/shoulder press stores exactly one secondary (its
+// 'triceps' entry isn't a valid region), and missing "laterals before Bench"
+// would defeat the whole feature. One dim line, never a block: big lifts get
+// their best sets when they come before isolation work, and a consistent
+// order also keeps the strength-trend charts comparing like with like.
+function dayOrderHintHTML() {
+  const { day, allExercises } = editDayState;
+  const secCount = new Map(allExercises.map((x) => [x.id, (x.secondary_muscles || []).length]));
+  let firstIso = null;
+  for (const e of day.exercises) {
+    const n = secCount.get(e.exercise_id);
+    if (firstIso === null && n === 0) { firstIso = e; continue; }
+    if (firstIso !== null && n >= 1) {
+      return `Try <strong>${escapeHtml(e.name)}</strong> before <strong>${escapeHtml(firstIso.name)}</strong> — lifts that work more muscles get your freshest effort.`;
+    }
+  }
+  return '';
+}
+
+function refreshOrderHint() {
+  const el = document.getElementById('day-order-hint');
+  if (!el) return;
+  const html = dayOrderHintHTML();
+  el.innerHTML = html;
+  el.style.display = html ? '' : 'none';
+}
+
 function renderEditSheet() {
   const sheet = document.getElementById('edit-sheet');
   const { day, programId, dayId } = editDayState;
@@ -338,6 +368,7 @@ function renderEditSheet() {
       </div>
       <div class="sheet__body">
         <div class="edit-rows" id="edit-rows-container">${rows}</div>
+        <div class="order-hint" id="day-order-hint"></div>
         ${day.exercises.length ? '' : '<div class="empty" style="padding:20px 0">No exercises yet. Add one below.</div>'}
         <button class="btn btn--primary btn--block" data-open-picker style="margin-top:16px">+ Add exercise</button>
       </div>
@@ -346,6 +377,7 @@ function renderEditSheet() {
 
   const rowsContainer = sheet.querySelector('#edit-rows-container');
   if (rowsContainer) enableDragReorder(rowsContainer, persistEditRowOrder);
+  refreshOrderHint();
 
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) {
@@ -433,6 +465,7 @@ async function persistEditRowOrder() {
   if (!container) return;
   const order = [...container.children].map((r) => Number(r.dataset.pde));
   editDayState.day.exercises.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  refreshOrderHint(); // drag doesn't re-render the sheet — recompute in place
   const updates = [];
   for (let i = 0; i < editDayState.day.exercises.length; i++) {
     const ex = editDayState.day.exercises[i];
