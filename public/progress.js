@@ -401,7 +401,7 @@ async function renderVolumeSection() {
           <div class="volume-breakdown__title">By muscle group — ${weekLabel(latestWeek)}</div>
           ${breakdown.map((b) => `
             <div class="volume-row">
-              <span class="volume-row__label">${escapeHtml(b.group)}</span>
+              <span class="volume-row__label mg-title mg-${escapeHtml(b.group)}">${escapeHtml(b.group)}</span>
               <span class="volume-row__track"><span class="volume-row__fill" style="width:${Math.max(4, Math.round((b.sets / maxSets) * 100))}%"></span></span>
               <span class="volume-row__sets">${b.sets} set${b.sets === 1 ? '' : 's'}</span>
               <span class="volume-row__val">${b.volume.toLocaleString()} kg</span>

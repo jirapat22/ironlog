@@ -398,11 +398,11 @@ async function renderExerciseLibraryList(sheet) {
   const order = [...new Set([...GROUPS, ...Object.keys(byGroup)])].filter((g) => byGroup[g]);
   const html = order.map((g) => `
     <div class="ex-lib-group" data-group="${g}">
-      <div class="ex-lib-group__title">${g}</div>
+      <div class="ex-lib-group__title mg-title mg-${g}">${g}</div>
       ${byGroup[g].map((ex) => `
         <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
           <div class="ex-lib-row__info">
-            <div class="ex-lib-row__name">${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</div>
+            <div class="ex-lib-row__name">${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</div>
             <div class="ex-lib-row__meta">
               ${ex.workout_count === 0
                 ? '<span style="color:var(--text-dim)">Never used</span>'

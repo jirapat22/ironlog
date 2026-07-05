@@ -26,6 +26,16 @@
   /* Includes the top safe-area inset (Dynamic Island / notch) so sticky
      sub-headers that offset from the main header stay aligned with it. */
   --header-h: calc(56px + env(safe-area-inset-top));
+  /* One fixed hue per muscle group — used by the .mg-* tag classes so the
+     same group reads the same color everywhere (cards, history, pickers). */
+  --mg-chest: #e05d5d;      /* red */
+  --mg-back: #6d9bc3;       /* blue */
+  --mg-shoulders: #d9a83c;  /* amber */
+  --mg-biceps: #a47ec0;     /* purple */
+  --mg-triceps: #c87ea6;    /* pink */
+  --mg-forearms: #b8a98a;   /* sand */
+  --mg-legs: #8fb45a;       /* green */
+  --mg-core: #5fb3a3;       /* teal */
   --font-display: 'Saira Condensed', 'Arial Narrow', system-ui, sans-serif;
   --font-body: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -2818,6 +2828,9 @@ button {
   font-weight: 400;
 }
 
+/* (Muscle-group color classes live at the END of this file so they win
+   equal-specificity contests against per-site label colors.) */
+
 /* Library search suggestions under the new-exercise Name input */
 .lib-suggest { margin-top: 4px; }
 
@@ -3615,3 +3628,30 @@ button {
 .history-activity { display: flex; flex-direction: column; gap: 6px; }
 .history-activity__line { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-dim); }
 .history-activity__line strong { color: var(--text); font-weight: 600; }
+
+/* ─── Muscle-group colors ─────────────────────────────────────────────
+   One fixed hue per canonical group. .mg-<group> sets --mg; .badge--mg
+   renders the tinted chip, .mg-title colors section titles / labels.
+   Kept LAST in the file so these win equal-specificity contests against
+   per-site label colors (e.g. .volume-row__label). */
+.mg-chest     { --mg: var(--mg-chest); }
+.mg-back      { --mg: var(--mg-back); }
+.mg-shoulders { --mg: var(--mg-shoulders); }
+.mg-biceps    { --mg: var(--mg-biceps); }
+.mg-triceps   { --mg: var(--mg-triceps); }
+.mg-forearms  { --mg: var(--mg-forearms); }
+.mg-legs      { --mg: var(--mg-legs); }
+.mg-core      { --mg: var(--mg-core); }
+.mg-other     { --mg: var(--text-dim); }
+
+.badge--mg {
+  background: color-mix(in srgb, var(--mg) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mg) 32%, transparent);
+  color: var(--mg);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mg-title { color: var(--mg); }

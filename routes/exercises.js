@@ -118,6 +118,18 @@ router.patch('/:id', (req, res) => {
     }
     updates.push('step_override = ?'); values.push(v);
   }
+  // How-to text edits are admin-gated: the catalog is shared across profiles,
+  // so casual edits shouldn't rewrite the how-to everyone sees. Code checked
+  // server-side (ADMIN_CODE env, defaulting to the owner's chosen 2210).
+  if ('instructions' in (req.body || {})) {
+    const code = String(req.body.admin_code ?? '');
+    if (code !== (process.env.ADMIN_CODE || '2210')) {
+      return res.status(403).json({ error: 'admin code required to edit how-to text' });
+    }
+    const v = req.body.instructions;
+    const text = (typeof v === 'string' && v.trim()) ? v.trim().slice(0, 6000) : null;
+    updates.push('instructions = ?'); values.push(text);
+  }
   if ('rep_min' in (req.body || {}) || 'rep_max' in (req.body || {})) {
     const min = parseRepBound('rep_min' in req.body ? req.body.rep_min : existing.rep_min);
     const max = parseRepBound('rep_max' in req.body ? req.body.rep_max : existing.rep_max);

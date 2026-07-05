@@ -130,6 +130,14 @@ function fmtDuration(startIso, endIso) {
   return `${mm}:${String(ss).padStart(2, '0')}`;
 }
 
+// Colored muscle tag — one fixed hue per canonical group (defined in CSS as
+// --mg-* vars), rendered as a tinted chip. Unknown groups fall back to the
+// dim neutral look. Used on workout cards, history, pickers, and the library.
+function muscleTagHTML(group, sub) {
+  const g = PICKER_GROUP_ORDER.includes(group) ? group : 'other';
+  return `<span class="badge badge--mg mg-${g}">${escapeHtml(group || '')}${sub ? ` · ${escapeHtml(sub)}` : ''}</span>`;
+}
+
 // Attach library-search suggestions to a new-exercise Name input: as the user
 // types, matching entries from the vendored exercise library appear below;
 // picking one prefills the form via onPick and returns the full entry
@@ -673,6 +681,9 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         </div>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
+        <div id="edit-ex-howto-wrap" style="margin-top:14px">
+          <button class="btn btn--ghost btn--block" id="edit-ex-howto-unlock">&#x270E; Edit how-to text (admin)</button>
+        </div>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
         ${ex.workout_count > 0
           ? `<button class="btn btn--ghost btn--block" id="edit-ex-clear" style="margin-top:10px;color:var(--danger)">Clear logged data (${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''})</button>`
@@ -702,6 +713,20 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     weightModeSel.value = e.target.value === 'dumbbell' ? 'per_arm' : 'combined';
   };
 
+  // How-to editing is admin-gated (the catalog is shared across profiles).
+  // The code is only collected here; the server verifies it on save.
+  let howtoAdminCode = null;
+  containerEl.querySelector('#edit-ex-howto-unlock').onclick = async () => {
+    const code = await promptSheet({ title: 'Admin code', label: 'Enter the admin code to edit how-to text', confirmText: 'Unlock' });
+    if (!code) return;
+    let current = '';
+    try { current = (await API.exercise(ex.id)).instructions || ''; } catch { /* keep empty */ }
+    howtoAdminCode = code.trim();
+    containerEl.querySelector('#edit-ex-howto-wrap').innerHTML = `
+      <label class="form-label">How-to text (admin)</label>
+      <textarea class="input" id="edit-ex-howto" rows="6" placeholder="Step-by-step instructions shown by the ? button">${escapeHtml(current)}</textarea>`;
+  };
+
   containerEl.querySelector('#edit-ex-save').onclick = async () => {
     const name = containerEl.querySelector('#edit-ex-name').value.trim();
     const muscle_group = containerEl.querySelector('#edit-ex-muscle').value;
@@ -718,8 +743,14 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     if (!repRange.ok) return toast(repRange.error);
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
+    const payload = { name, muscle_group, sub_muscle, secondary_muscles, equipment, weight_mode, step_override, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
+    const howtoEl = containerEl.querySelector('#edit-ex-howto');
+    if (howtoEl && howtoAdminCode !== null) {
+      payload.instructions = howtoEl.value.trim() || null;
+      payload.admin_code = howtoAdminCode;
+    }
     try {
-      const updated = await API.updateExercise(ex.id, { name, muscle_group, sub_muscle, secondary_muscles, equipment, weight_mode, step_override, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes });
+      const updated = await API.updateExercise(ex.id, payload);
       haptic(10);
       toast('Saved');
       if (onSaved) onSaved(updated);
@@ -824,7 +855,7 @@ export {
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
-  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm,
+  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,
   isIOS, isStandalone

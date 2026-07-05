@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, renderNewExerciseForm, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -568,7 +568,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
           ${ex.equipment === 'dumbbell' || ex.weight_mode === 'per_arm' ? `<button class="badge badge--weightmode" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
-          <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}${ex.sub_muscle ? ` · ${escapeHtml(ex.sub_muscle)}` : ''}</span>
+          ${muscleTagHTML(ex.muscle_group, ex.sub_muscle)}
         </div>
       </div>
       ${hint}
@@ -1308,10 +1308,10 @@ async function openSwapPicker(currentExerciseId) {
         ${pickerChipsHTML(keys)}
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
-            <div class="picker-group__title">${escapeHtml(g)}</div>
+            <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
               <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
                 <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
               </button>`).join('')}
           </div>`).join('')}
@@ -1441,10 +1441,10 @@ async function openWorkoutAddExercisePicker() {
         ${pickerChipsHTML(keys)}
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
-            <div class="picker-group__title">${escapeHtml(g)}</div>
+            <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
               <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
                 <span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : 'add'}</span>
               </button>`).join('')}
           </div>`).join('')}

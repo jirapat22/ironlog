@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, setupPickerFilter, fmtSetWeight } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -329,7 +329,7 @@ function renderEditSheet() {
         <button class="edit-row__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
         <div class="edit-row__head-text">
           <div class="edit-row__name">${escapeHtml(e.name)}</div>
-          <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}${e.sub_muscle ? ' · ' + escapeHtml(e.sub_muscle) : ''}${e.notes ? ' · ' + escapeHtml(e.notes) : ''}</div>
+          <div class="edit-row__muscle">${muscleTagHTML(e.muscle_group, e.sub_muscle)}${e.notes ? ` ${escapeHtml(e.notes)}` : ''}</div>
         </div>
       </div>
       <div class="edit-row__controls">
@@ -506,11 +506,11 @@ async function openPicker() {
         ${pickerChipsHTML(keys)}
         ${keys.map((g) => `
           <div class="picker-group" data-group="${g}">
-            <div class="picker-group__title">${escapeHtml(g)}</div>
+            <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
               <div class="picker-row-wrap">
                 <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                  <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+                  <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
                   <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
                 </button>
                 <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>

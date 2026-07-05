@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg } from './utils.js';
+import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -224,7 +224,7 @@ async function loadHistoryCardBody(card) {
     const exHTML = [...grouped.values()].map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
         <div class="history-ex__head">
-          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` <span class="history-ex__muscle">${escapeHtml(g.muscle)}${g.sub ? ` · ${escapeHtml(g.sub)}` : ''}</span>` : ''}</div>
+          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''}</div>
           <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
         </div>
         <div class="history-ex__sets">
