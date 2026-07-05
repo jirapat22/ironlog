@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, readRepRangeInputs, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -60,6 +60,9 @@ function loadDraft(workoutId) {
 // it survives navigation and reload. Without this, the list is rebuilt from the
 // server program template plus logged sets, which re-adds swapped-away
 // exercises and drops swaps/adds that have no logged sets yet.
+// Saved BOTH locally (fast, works offline) and server-side (survives iOS
+// evicting PWA localStorage and resuming on another device — the local-only
+// draft was how swaps "switched back" mid-workout in the field).
 function persistExerciseList() {
   if (!workoutState) return;
   workoutState.draft.exerciseList = workoutState.programDay.exercises.map((e) => ({
@@ -67,16 +70,23 @@ function persistExerciseList() {
     exercise_id: e.exercise_id,
     name: e.name,
     muscle_group: e.muscle_group,
+    sub_muscle: e.sub_muscle ?? null,
     notes: e.notes ?? null,
     is_bodyweight: !!e.is_bodyweight,
     is_assisted: !!e.is_assisted,
     equipment: e.equipment || 'barbell',
+    weight_mode: e.weight_mode || 'per_arm',
     target_sets: e.target_sets,
     target_reps: e.target_reps,
+    rep_min: e.rep_min ?? null,
+    rep_max: e.rep_max ?? null,
     rest_seconds: e.rest_seconds ?? null,
     order_index: e.order_index
   }));
   saveDraft(workoutState.workout.id, workoutState.draft);
+  API.updateWorkout(workoutState.workout.id, {
+    exercise_list: JSON.stringify(workoutState.draft.exerciseList)
+  }).catch(() => { /* best-effort — local draft still covers this device */ });
 }
 
 function saveDraft(workoutId, draft) {
@@ -228,7 +238,22 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
 // ---------- Workout rendering ----------
 async function renderWorkout() {
   const root = $('#view-workout');
-  const activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
+  let activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
+
+  // localStorage gone (iOS storage eviction, new device) but a workout is
+  // still open server-side? Adopt it instead of stranding it invisible.
+  if (!activeId) {
+    try {
+      const active = await API.activeWorkout();
+      if (active?.id) {
+        activeId = active.id;
+        localStorage.setItem(LS.activeWorkoutId, String(active.id));
+        if (active.program_day_id) {
+          localStorage.setItem(LS.activeProgramDayId, String(active.program_day_id));
+        }
+      }
+    } catch { /* offline — fall through to the empty state */ }
+  }
 
   if (!activeId) {
     root.innerHTML = `
@@ -310,10 +335,14 @@ async function renderWorkout() {
           exercise_id: s.exercise_id,
           name: s.exercise_name || `Exercise ${s.exercise_id}`,
           muscle_group: s.muscle_group || '',
+          sub_muscle: s.sub_muscle ?? null,
           notes: null,
           is_bodyweight: !!s.is_bodyweight,
           is_assisted: !!s.is_assisted,
           equipment: s.equipment || null,
+          weight_mode: s.weight_mode || 'per_arm',
+          rep_min: s.rep_min ?? null,
+          rep_max: s.rep_max ?? null,
           target_sets: Math.max(...workoutState.loggedSets.filter(x => x.exercise_id === s.exercise_id).map(x => x.set_number)),
           target_reps: s.reps,
           order_index: workoutState.programDay.exercises.length + extraById.size
@@ -322,12 +351,37 @@ async function renderWorkout() {
     }
     for (const ex of extraById.values()) workoutState.programDay.exercises.push(ex);
 
-    if (draft.exerciseList?.length) {
+    // Local draft first (freshest, survives offline edits); fall back to the
+    // server-side snapshot when localStorage is gone (iOS storage eviction,
+    // another device) so mid-workout swaps/adds don't silently revert.
+    let savedList = draft.exerciseList;
+    if (!savedList?.length && workout.exercise_list) {
+      try { savedList = JSON.parse(workout.exercise_list); } catch { savedList = null; }
+    }
+    if (savedList?.length) {
       // The user modified this workout's exercises (swap/add/reorder), so the
-      // saved list is authoritative. Backfill only exercises that have logged
-      // sets but are missing from it — never re-add a swapped-away template one.
+      // saved list is authoritative for MEMBERSHIP and ORDER. Exercise-level
+      // metadata (name, sub-muscle, weight mode, rep range…) is overlaid from
+      // the fresh server data where we have it — a snapshot taken days ago
+      // must not pin stale fields after the exercise itself was edited.
       const built = workoutState.programDay.exercises;
-      const list = [...draft.exerciseList];
+      const freshById = new Map(built.map((e) => [e.exercise_id, e]));
+      const list = savedList.map((e) => {
+        const fresh = freshById.get(e.exercise_id);
+        if (!fresh) return e; // swapped/added with no logged sets — snapshot only
+        return {
+          ...e,
+          name: fresh.name,
+          muscle_group: fresh.muscle_group,
+          sub_muscle: fresh.sub_muscle ?? null,
+          is_bodyweight: !!fresh.is_bodyweight,
+          is_assisted: !!fresh.is_assisted,
+          equipment: fresh.equipment || e.equipment,
+          weight_mode: fresh.weight_mode || 'per_arm',
+          rep_min: fresh.rep_min ?? null,
+          rep_max: fresh.rep_max ?? null
+        };
+      });
       const inList = new Set(list.map((e) => e.exercise_id));
       for (const ex of built) {
         if (!inList.has(ex.exercise_id) &&
@@ -430,6 +484,16 @@ function renderWorkoutView() {
   }
 }
 
+// " · aim 8–12" when the exercise has a target rep range set (either bound
+// may be missing — "8+" / "≤12"). Distinct from the day slot's single
+// target_reps number shown before it.
+function repRangeLabel(ex) {
+  if (ex.rep_min && ex.rep_max) return ` · aim ${ex.rep_min}–${ex.rep_max}`;
+  if (ex.rep_min) return ` · aim ${ex.rep_min}+`;
+  if (ex.rep_max) return ` · aim ≤${ex.rep_max}`;
+  return '';
+}
+
 function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const target = getSetCount(ex);
   const prevReference = lastSets[0];
@@ -496,13 +560,14 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
             ${escapeHtml(ex.name)}
             ${ex.is_assisted ? ' <span class="badge badge--assisted">ASSISTED</span>' : ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}
           </div>
-          <div class="card__subtitle">${target} × ${ex.target_reps}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
+          <div class="card__subtitle">${target} × ${ex.target_reps}${repRangeLabel(ex)}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
-          <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}</span>
+          ${ex.equipment === 'dumbbell' ? `<button class="badge badge--weightmode" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'combined' ? 'both = total' : 'per arm ×2'}</button>` : ''}
+          <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}${ex.sub_muscle ? ` · ${escapeHtml(ex.sub_muscle)}` : ''}</span>
         </div>
       </div>
       ${hint}
@@ -673,6 +738,26 @@ function wireWorkoutView() {
 
     const equipBtn = e.target.closest('[data-equip-ex]');
     if (equipBtn) { haptic(15); openEquipmentPicker(Number(equipBtn.dataset.equipEx)); return; }
+
+    // Dumbbell "per arm ×2" / "both = total" badge — tap to flip how the
+    // entered weight is interpreted (persisted on the exercise itself).
+    const wmBtn = e.target.closest('[data-weightmode-ex]');
+    if (wmBtn) {
+      haptic(15);
+      const exId = Number(wmBtn.dataset.weightmodeEx);
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      if (!ex) return;
+      const next = ex.weight_mode === 'combined' ? 'per_arm' : 'combined';
+      API.updateExercise(exId, { weight_mode: next }).then(() => {
+        ex.weight_mode = next;
+        persistExerciseList();
+        renderWorkoutView();
+        toast(next === 'combined'
+          ? 'Weight = both dumbbells combined (counted as-is)'
+          : 'Weight = one dumbbell (doubled for volume)');
+      }).catch((err) => toast(err.message));
+      return;
+    }
 
     const skipBtn = e.target.closest('[data-skip-ex]');
     if (skipBtn) {
@@ -1195,7 +1280,7 @@ async function openSwapPicker(currentExerciseId) {
             <div class="picker-group__title">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
               <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}</span>
+                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
                 <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
               </button>`).join('')}
           </div>`).join('')}
@@ -1252,9 +1337,13 @@ async function openSwapPicker(currentExerciseId) {
       exercise_id: newExId,
       name: newEx.name,
       muscle_group: newEx.muscle_group,
+      sub_muscle: newEx.sub_muscle ?? null,
       is_bodyweight: !!newEx.is_bodyweight,
       is_assisted: !!newEx.is_assisted,
       equipment: newEx.equipment || 'barbell',
+      weight_mode: newEx.weight_mode || 'per_arm',
+      rep_min: newEx.rep_min ?? null,
+      rep_max: newEx.rep_max ?? null,
       notes: newEx.notes || null
     };
     if (workoutState.draft.exerciseOrder?.length) {
@@ -1324,7 +1413,7 @@ async function openWorkoutAddExercisePicker() {
             <div class="picker-group__title">${escapeHtml(g)}</div>
             ${groups[g].map((ex) => `
               <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}</span>
+                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
                 <span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : 'add'}</span>
               </button>`).join('')}
           </div>`).join('')}
@@ -1623,7 +1712,9 @@ async function flushWorkoutNotes() {
 // onBack: () => void — returns to the calling picker
 // onCreated: (ex) => void — what to do once exercise is created (add vs swap)
 function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
-  const GROUPS = ['chest','back','shoulders','biceps','triceps','arms','legs','core'];
+  // Canonical groups only — a hardcoded copy here once drifted ('arms', no
+  // 'forearms') and the API's strict validation turned that into a 400.
+  const GROUPS = PICKER_GROUP_ORDER;
   const EQUIPMENT = ['barbell','dumbbell','cable','machine','bodyweight'];
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -1647,6 +1738,12 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
         <select class="input" id="wknew-equipment">
           ${EQUIPMENT.map((e) => `<option value="${e}">${e}</option>`).join('')}
         </select>
+        <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
+        <div class="rep-range-inputs">
+          <input class="input" type="number" min="1" max="100" step="1" id="wknew-repmin" placeholder="min"/>
+          <span class="rep-range-inputs__dash">–</span>
+          <input class="input" type="number" min="1" max="100" step="1" id="wknew-repmax" placeholder="max"/>
+        </div>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="wknew-notes" placeholder="Setup cue or variation"/>
         <button class="btn btn--primary btn--block" id="wknew-save" style="margin-top:20px">Create & add to workout</button>
@@ -1668,10 +1765,12 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
     const sub_muscle = subSel.value || null;
     const secondary_muscles = sub2.getSelected();
     const equipment = document.getElementById('wknew-equipment').value;
+    const repRange = readRepRangeInputs(picker, '#wknew-repmin', '#wknew-repmax');
+    if (!repRange.ok) return toast(repRange.error);
     const notes = document.getElementById('wknew-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, notes });
+      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes });
       haptic(20);
       onCreated(ex);
     } catch (err) { toast(err.message); }

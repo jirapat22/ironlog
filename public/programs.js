@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm, pickerChipsHTML, setupPickerFilter, fmtSetWeight } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm, pickerChipsHTML, setupPickerFilter, fmtSetWeight, readRepRangeInputs } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -329,7 +329,7 @@ function renderEditSheet() {
         <button class="edit-row__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
         <div class="edit-row__head-text">
           <div class="edit-row__name">${escapeHtml(e.name)}</div>
-          <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}${e.notes ? ' · ' + escapeHtml(e.notes) : ''}</div>
+          <div class="edit-row__muscle">${escapeHtml(e.muscle_group)}${e.sub_muscle ? ' · ' + escapeHtml(e.sub_muscle) : ''}${e.notes ? ' · ' + escapeHtml(e.notes) : ''}</div>
         </div>
       </div>
       <div class="edit-row__controls">
@@ -510,7 +510,7 @@ async function openPicker() {
             ${groups[g].map((ex) => `
               <div class="picker-row-wrap">
                 <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                  <span>${escapeHtml(ex.name)}</span>
+                  <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
                   <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
                 </button>
                 <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
@@ -564,10 +564,7 @@ function openNewExerciseForm(picker) {
         <input class="input" id="new-ex-name" placeholder="e.g. Cable Pullover" />
         <label class="form-label" style="margin-top:14px">Muscle group</label>
         <select class="input" id="new-ex-muscle">
-          <option value="chest">chest</option><option value="back">back</option>
-          <option value="shoulders">shoulders</option><option value="biceps">biceps</option>
-          <option value="triceps">triceps</option><option value="legs">legs</option>
-          <option value="arms">arms</option><option value="core">core</option>
+          ${PICKER_GROUP_ORDER.map((g) => `<option value="${g}">${g}</option>`).join('')}
         </select>
         <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
         <select class="input" id="new-ex-sub">${subMuscleOptions('chest', '')}</select>
@@ -581,6 +578,12 @@ function openNewExerciseForm(picker) {
           <option value="machine">Machine</option>
           <option value="bodyweight">Bodyweight</option>
         </select>
+        <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
+        <div class="rep-range-inputs">
+          <input class="input" type="number" min="1" max="100" step="1" id="new-ex-repmin" placeholder="min"/>
+          <span class="rep-range-inputs__dash">–</span>
+          <input class="input" type="number" min="1" max="100" step="1" id="new-ex-repmax" placeholder="max"/>
+        </div>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="new-ex-notes" placeholder="Setup cue or variation" />
         <button class="btn btn--primary btn--block" id="new-ex-save" style="margin-top:20px">Create & add</button>
@@ -604,10 +607,12 @@ function openNewExerciseForm(picker) {
     const sub_muscle = subSel.value || null;
     const secondary_muscles = sub2.getSelected();
     const equipment = picker.querySelector('#new-ex-equipment').value;
+    const repRange = readRepRangeInputs(picker, '#new-ex-repmin', '#new-ex-repmax');
+    if (!repRange.ok) return toast(repRange.error);
     const notes = picker.querySelector('#new-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, notes });
+      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes });
       ex.workout_count = 0;
       ex.program_count = 1; // about to be added to this day, below
       editDayState.allExercises.push(ex);

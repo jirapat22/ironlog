@@ -80,6 +80,19 @@ router.post('/', (req, res) => {
   res.status(201).json(row);
 });
 
+// The most recent unfinished strength workout, if any. Lets a client whose
+// localStorage was evicted (iOS storage pressure) or a second device recover
+// the in-progress workout — previously the active id lived only client-side,
+// so an evicted draft made the session invisible and swaps silently reverted.
+router.get('/active', (req, res) => {
+  const row = db.prepare(
+    `SELECT * FROM workouts
+     WHERE profile_id = ? AND finished_at IS NULL AND (kind IS NULL OR kind != 'activity')
+     ORDER BY started_at DESC LIMIT 1`
+  ).get(req.profileId);
+  res.json(row || null);
+});
+
 router.get('/history', (req, res) => {
   const rows = db
     .prepare(
@@ -208,6 +221,23 @@ router.patch('/:id', (req, res) => {
       updates.push(`${f} = ?`);
       values.push(req.body[f]);
     }
+  }
+  // Server-side snapshot of the workout's exercise list (see db.js migration).
+  // Must be null or a JSON array; capped so a runaway client can't bloat rows.
+  if ('exercise_list' in (req.body || {})) {
+    const v = req.body.exercise_list;
+    if (v !== null) {
+      if (typeof v !== 'string' || v.length > 20000) {
+        return res.status(400).json({ error: 'exercise_list must be a JSON array string (max 20000 chars) or null' });
+      }
+      try {
+        if (!Array.isArray(JSON.parse(v))) throw new Error('not an array');
+      } catch {
+        return res.status(400).json({ error: 'exercise_list must be valid JSON array' });
+      }
+    }
+    updates.push('exercise_list = ?');
+    values.push(v);
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
   values.push(id);
@@ -355,7 +385,7 @@ router.get('/:id', (req, res) => {
 
   // Include exercise metadata so the client can rebuild mid-workout added exercise cards
   const sets = db.prepare(
-    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment
+    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.sub_muscle, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.rep_min, e.rep_max
      FROM sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.workout_id = ?

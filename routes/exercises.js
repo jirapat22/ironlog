@@ -4,7 +4,16 @@ const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx } = require('../db');
 const router = express.Router();
 
 const SELECT_COLS =
-  'id, name, muscle_group, sub_muscle, secondary_muscles, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override';
+  'id, name, muscle_group, sub_muscle, secondary_muscles, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override, rep_min, rep_max';
+
+// Optional target-rep bound: null/'' clears it; otherwise a whole number 1-100.
+// Returns { ok, value } so callers can 400 on bad input instead of coercing.
+function parseRepBound(raw) {
+  if (raw === null || raw === '' || raw === undefined) return { ok: true, value: null };
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 100) return { ok: false };
+  return { ok: true, value: n };
+}
 
 // Parse the stored JSON secondary_muscles into an array for the API response.
 function shapeExercise(row) {
@@ -37,7 +46,7 @@ router.get('/stats', (req, res) => {
   const rows = db.prepare(`
     SELECT
       e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles,
-      e.notes, e.equipment, e.is_bodyweight, e.is_assisted, e.weight_mode, e.step_override,
+      e.notes, e.equipment, e.is_bodyweight, e.is_assisted, e.weight_mode, e.step_override, e.rep_min, e.rep_max,
       COUNT(DISTINCT s.workout_id) AS workout_count,
       MAX(w.started_at)            AS last_used_at,
       (SELECT COUNT(*) FROM program_day_exercises pde WHERE pde.exercise_id = e.id) AS program_count
@@ -85,6 +94,18 @@ router.patch('/:id', (req, res) => {
     }
     updates.push('step_override = ?'); values.push(v);
   }
+  if ('rep_min' in (req.body || {}) || 'rep_max' in (req.body || {})) {
+    const min = parseRepBound('rep_min' in req.body ? req.body.rep_min : existing.rep_min);
+    const max = parseRepBound('rep_max' in req.body ? req.body.rep_max : existing.rep_max);
+    if (!min.ok || !max.ok) {
+      return res.status(400).json({ error: 'rep range must be whole numbers between 1 and 100' });
+    }
+    if (min.value != null && max.value != null && min.value > max.value) {
+      return res.status(400).json({ error: 'rep range: min cannot exceed max' });
+    }
+    updates.push('rep_min = ?'); values.push(min.value);
+    updates.push('rep_max = ?'); values.push(max.value);
+  }
   if ('secondary_muscles' in (req.body || {})) {
     // Primary to exclude = the new sub_muscle if being set, else the existing one.
     const primary = 'sub_muscle' in req.body
@@ -123,7 +144,7 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles } = req.body || {};
+  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, rep_min, rep_max } = req.body || {};
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
@@ -135,10 +156,18 @@ router.post('/', (req, res) => {
   const equip = validEquipment.includes(equipment) ? equipment : 'barbell';
   const sub = (sub_muscle && String(sub_muscle).trim()) ? String(sub_muscle).trim() : null;
   const secondary = cleanSecondary(secondary_muscles, sub);
+  const min = parseRepBound(rep_min);
+  const max = parseRepBound(rep_max);
+  if (!min.ok || !max.ok) {
+    return res.status(400).json({ error: 'rep range must be whole numbers between 1 and 100' });
+  }
+  if (min.value != null && max.value != null && min.value > max.value) {
+    return res.status(400).json({ error: 'rep range: min cannot exceed max' });
+  }
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(name.trim(), group, sub, secondary, notes || null, equip, req.profileId);
+      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, rep_min, rep_max, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), group, sub, secondary, notes || null, equip, min.value, max.value, req.profileId);
     const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(shapeExercise(row));
   } catch (err) {

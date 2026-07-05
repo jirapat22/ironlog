@@ -93,6 +93,7 @@ const API = {
   subMuscleFrequency: () => api('/api/sub-muscle-frequency'),
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),
+  activeWorkout: () => api('/api/workouts/active'),
   startWorkout: (programDayId) =>
     api('/api/workouts', { method: 'POST', body: { program_day_id: programDayId } }),
   startQuickWorkout: () => api('/api/workouts', { method: 'POST', body: {} }),

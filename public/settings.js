@@ -392,7 +392,7 @@ async function renderExerciseLibraryList(sheet) {
       ${byGroup[g].map((ex) => `
         <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
           <div class="ex-lib-row__info">
-            <div class="ex-lib-row__name">${escapeHtml(ex.name)}</div>
+            <div class="ex-lib-row__name">${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub">${escapeHtml(ex.sub_muscle)}</span>` : ''}</div>
             <div class="ex-lib-row__meta">
               ${ex.workout_count === 0
                 ? '<span style="color:var(--text-dim)">Never used</span>'

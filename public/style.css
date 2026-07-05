@@ -273,6 +273,21 @@ button {
 }
 .badge--equipment:active { background: var(--surface-2); }
 
+/* Dumbbell weight-entry mode badge ("per arm ×2" / "both = total") — accent-
+   tinted, unlike the quiet equipment badge: users couldn't tell whether their
+   entered weight meant one dumbbell or both, so this one must catch the eye.
+   Tapping it flips the mode. */
+.badge--weightmode {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge--weightmode:active { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+
 /* Equipment picker options */
 .equip-option {
   display: flex;
@@ -624,8 +639,8 @@ button {
 }
 
 .edit-row__drag {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 8px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -1598,6 +1613,10 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Badge count grew (equipment + weight-mode + muscle·sub) — wrap onto a
+     second line on narrow phones instead of overflowing off-screen. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .btn--icon-text {
@@ -1765,8 +1784,8 @@ button {
 }
 
 .exercise-card__drag {
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   border-radius: 6px;
   background: none;
   border: none;
@@ -2790,6 +2809,27 @@ button {
 .overload-plateau-tip strong {
   color: #f0a92c;
   text-transform: capitalize;
+}
+
+/* Dim sub-muscle tag after an exercise name in pickers and the library */
+.picker-row__sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* Target rep range — paired min–max inputs in the exercise create/edit forms */
+.rep-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rep-range-inputs .input { flex: 1; }
+
+.rep-range-inputs__dash {
+  color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 /* Compounds-first ordering nudge in the program-day editor. Same quiet voice

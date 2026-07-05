@@ -108,10 +108,18 @@ function humanAgo(iso) {
   return `${m} month${m > 1 ? 's' : ''} ago`;
 }
 
+// Accepts SQLite "YYYY-MM-DD HH:MM:SS" (UTC, no zone marker) or a real ISO
+// string. Only bare timestamps get 'Z' appended — appending to a string that
+// already ends in Z (e.g. Date.toISOString()) produced "…ZZ" → Invalid Date →
+// the summary's "Time: NaN".
+function isoToMs(iso) {
+  return new Date(/Z$|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z').getTime();
+}
+
 function fmtDuration(startIso, endIso) {
   if (!startIso) return '';
-  const start = new Date(startIso.replace(' ', 'T') + 'Z').getTime();
-  const end = endIso ? new Date(endIso.replace(' ', 'T') + 'Z').getTime() : Date.now();
+  const start = isoToMs(startIso);
+  const end = endIso ? isoToMs(endIso) : Date.now();
   const s = Math.max(0, Math.floor((end - start) / 1000));
   const mm = Math.floor(s / 60);
   const ss = s % 60;
@@ -120,6 +128,25 @@ function fmtDuration(startIso, endIso) {
     return `${hh}:${String(mm % 60).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
   }
   return `${mm}:${String(ss).padStart(2, '0')}`;
+}
+
+// Read + validate the optional "target rep range" pair of inputs shared by
+// the exercise create/edit forms. Empty fields mean "no bound".
+function readRepRangeInputs(rootEl, minSel, maxSel) {
+  const parse = (sel) => {
+    const raw = rootEl.querySelector(sel)?.value.trim();
+    if (!raw) return { ok: true, value: null };
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 100) return { ok: false };
+    return { ok: true, value: n };
+  };
+  const min = parse(minSel);
+  const max = parse(maxSel);
+  if (!min.ok || !max.ok) return { ok: false, error: 'Rep range must be whole numbers 1–100' };
+  if (min.value != null && max.value != null && min.value > max.value) {
+    return { ok: false, error: 'Rep range: min can’t exceed max' };
+  }
+  return { ok: true, rep_min: min.value, rep_max: max.value };
 }
 
 function stepForExercise(unit, ex) {
@@ -257,8 +284,8 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     const y = drag.lastClientY;
     const vh = window.innerHeight;
     let speed = 0;
-    if (y < HEADER + EDGE) speed = -Math.ceil((HEADER + EDGE - y) / 6);
-    else if (y > vh - NAV - EDGE) speed = Math.ceil((y - (vh - NAV - EDGE)) / 6);
+    if (y < HEADER + EDGE) speed = -Math.ceil((HEADER + EDGE - y) / 3);
+    else if (y > vh - NAV - EDGE) speed = Math.ceil((y - (vh - NAV - EDGE)) / 3);
     if (speed !== 0) {
       const before = scroller.scrollTop;
       scroller.scrollTop = before + speed;
@@ -276,6 +303,15 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     if (!handle) return;
     const row = handle.closest(rowSel);
     if (!row || !container.contains(row)) return;
+    // A second touch mid-drag (other finger, palm graze) must not start a new
+    // drag — it used to overwrite `drag`, orphaning the first row in its
+    // dragging state forever (pointerup no longer matched its pointerId).
+    // A drag whose row left the DOM (re-render) is stale — discard it.
+    if (drag) {
+      if (drag.row.isConnected) return;
+      drag.row.classList.remove(draggingClass);
+      drag = null;
+    }
     e.preventDefault();
     drag = {
       row,
@@ -512,6 +548,12 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         </div>
         <label class="form-label" style="margin-top:14px">Custom weight step (kg, optional)</label>
         <input class="input" type="number" step="0.5" min="0" id="edit-ex-step" value="${ex.step_override != null ? ex.step_override : ''}" placeholder="Default for ${ex.equipment || 'this equipment'}"/>
+        <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
+        <div class="rep-range-inputs">
+          <input class="input" type="number" min="1" max="100" step="1" id="edit-ex-repmin" value="${ex.rep_min ?? ''}" placeholder="min"/>
+          <span class="rep-range-inputs__dash">–</span>
+          <input class="input" type="number" min="1" max="100" step="1" id="edit-ex-repmax" value="${ex.rep_max ?? ''}" placeholder="max"/>
+        </div>
         <label class="form-label" style="margin-top:14px">Notes (optional)</label>
         <input class="input" id="edit-ex-notes" value="${escapeHtml(ex.notes || '')}" placeholder="Setup cue or variation"/>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
@@ -552,10 +594,12 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       return toast('Custom step must be a positive number');
     }
     const step_override = stepRaw ? Number(stepRaw) : null;
+    const repRange = readRepRangeInputs(containerEl, '#edit-ex-repmin', '#edit-ex-repmax');
+    if (!repRange.ok) return toast(repRange.error);
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     try {
-      const updated = await API.updateExercise(ex.id, { name, muscle_group, sub_muscle, secondary_muscles, equipment, weight_mode, step_override, notes });
+      const updated = await API.updateExercise(ex.id, { name, muscle_group, sub_muscle, secondary_muscles, equipment, weight_mode, step_override, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes });
       haptic(10);
       toast('Saved');
       if (onSaved) onSaved(updated);
@@ -655,7 +699,7 @@ function isStandalone() {
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
-  stepForExercise, skeletonBlocks, showPRFlash,
+  stepForExercise, readRepRangeInputs, skeletonBlocks, showPRFlash,
   e1RM, toKg, fmtSetWeight, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,

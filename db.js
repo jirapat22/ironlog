@@ -318,6 +318,26 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE exercises ADD COLUMN step_override REAL');
   }
 
+  // rep_min/rep_max: optional per-exercise target rep range ("working range"),
+  // set when creating/editing an exercise and shown as an "aim X–Y" hint on
+  // the logging card. Distinct from a program slot's target_reps (one number,
+  // per day) — this is the exercise's own preferred hypertrophy/strength zone.
+  if (!columnExists('exercises', 'rep_min')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN rep_min INTEGER');
+  }
+  if (!columnExists('exercises', 'rep_max')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN rep_max INTEGER');
+  }
+
+  // workouts.exercise_list: JSON snapshot of the in-progress workout's exercise
+  // list (after swaps/adds/removes/reorders). Mid-workout edits used to live
+  // only in a localStorage draft — iOS evicting PWA storage (or opening the
+  // workout on another device) rebuilt the list from the program template, so
+  // swapped exercises "switched back" and swapped-in ones went missing.
+  if (!columnExists('workouts', 'exercise_list')) {
+    db.exec('ALTER TABLE workouts ADD COLUMN exercise_list TEXT');
+  }
+
   // bug_reports.type: 'bug_report' (default) or 'idea' — flows through to Orbit.
   if (!columnExists('bug_reports', 'type')) {
     db.exec("ALTER TABLE bug_reports ADD COLUMN type TEXT NOT NULL DEFAULT 'bug_report'");
