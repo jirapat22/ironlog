@@ -85,6 +85,13 @@ router.patch('/:id', (req, res) => {
   if ('weight_mode' in (req.body || {})) {
     const v = req.body.weight_mode === 'combined' ? 'combined' : 'per_arm';
     updates.push('weight_mode = ?'); values.push(v);
+  } else if ('equipment' in (req.body || {})) {
+    // Equipment changed with no explicit mode (e.g. the in-workout equipment
+    // picker): reset to that equipment's natural default so a dumbbell→cable
+    // change doesn't silently keep doubling. The edit form always sends
+    // weight_mode explicitly, so deliberate unilateral choices survive it.
+    updates.push('weight_mode = ?');
+    values.push(req.body.equipment === 'dumbbell' ? 'per_arm' : 'combined');
   }
   if ('step_override' in (req.body || {})) {
     const raw = req.body.step_override;
@@ -144,7 +151,7 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, rep_min, rep_max } = req.body || {};
+  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, rep_min, rep_max, weight_mode } = req.body || {};
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
@@ -164,10 +171,16 @@ router.post('/', (req, res) => {
   if (min.value != null && max.value != null && min.value > max.value) {
     return res.status(400).json({ error: 'rep range: min cannot exceed max' });
   }
+  // weight_mode: explicit if sent, else by equipment — a dumbbell is naturally
+  // "the weight of one" (per_arm); everything else logs the full load unless
+  // the user marks it unilateral (single-arm cable pushdown, single-leg press).
+  const mode = weight_mode === 'per_arm' || weight_mode === 'combined'
+    ? weight_mode
+    : (equip === 'dumbbell' ? 'per_arm' : 'combined');
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, rep_min, rep_max, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(name.trim(), group, sub, secondary, notes || null, equip, min.value, max.value, req.profileId);
+      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, weight_mode, rep_min, rep_max, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), group, sub, secondary, notes || null, equip, mode, min.value, max.value, req.profileId);
     const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(shapeExercise(row));
   } catch (err) {

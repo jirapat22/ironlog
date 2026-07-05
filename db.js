@@ -40,14 +40,17 @@ function columnExists(table, column) {
 }
 
 // Shared SQL fragment for one set's effective load in kg: converts lbs to kg,
-// then doubles it for dumbbell exercises (one dumbbell's weight represents
-// both arms working) unless the exercise is flagged 'combined' (the logged
-// number is already the full load, e.g. a single heavy DB held two-handed).
-// Multiply by reps for volume; callers exclude warmups themselves.
+// then doubles it when the exercise is marked 'per_arm' — the logged number is
+// what ONE side lifts (a dumbbell per hand, a single-arm cable pushdown, a
+// single-leg press) and both sides do the work. 'combined' means the number is
+// already the full load. Equipment-agnostic on purpose: unilateral work exists
+// on cables and machines too, not just dumbbells (a one-time migration below
+// resets non-dumbbell rows to 'combined' so the old dumbbell-only semantics
+// carry over unchanged). Multiply by reps for volume; callers exclude warmups.
 // Takes the sets/exercises table aliases since they vary across queries.
 function effectiveLoadKgSql(setsAlias = 's', exAlias = 'e') {
   return `(CASE WHEN ${setsAlias}.weight_unit = 'lbs' THEN ${setsAlias}.weight * 0.45359237 ELSE ${setsAlias}.weight END)
-    * (CASE WHEN ${exAlias}.equipment = 'dumbbell' AND ${exAlias}.weight_mode != 'combined' THEN 2 ELSE 1 END)`;
+    * (CASE WHEN ${exAlias}.weight_mode = 'per_arm' THEN 2 ELSE 1 END)`;
 }
 
 function init() {
@@ -509,6 +512,7 @@ const CANONICAL_EXERCISES = [
 
   // Triceps
   ['Tricep Pushdown', 'triceps', 'Cable, straight bar'],
+  ['Single-Arm Tricep Pushdown', 'triceps', 'One arm on the cable — enter the stack weight per arm'],
   ['Rope Pushdown', 'triceps', 'Cable, rope attachment'],
   ['Overhead Tricep Extension', 'triceps', 'Dumbbell or rope'],
   ['Skull Crusher', 'triceps', 'EZ bar, lying'],
@@ -686,6 +690,8 @@ function seed() {
 
   populateMuscleAndMet();
   populateSecondaryMuscles();
+  resetNonDumbbellWeightMode();
+  markUnilateralSeeds();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
   // NOTE: programs are no longer seeded globally here — each profile gets its
@@ -726,7 +732,7 @@ const SUB_MUSCLE_BY_NAME = {
   'Spider Curl': 'short head', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
   'Machine Curl': 'short head', 'Bayesian Curl': 'long head', 'Zottman Curl': 'brachialis',
   // Triceps — long (overhead/stretch) / lateral (pushdowns/pressing)
-  'Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Overhead Tricep Extension': 'long head',
+  'Tricep Pushdown': 'lateral head', 'Single-Arm Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Overhead Tricep Extension': 'long head',
   'Skull Crusher': 'long head', 'Close-Grip Bench Press': 'lateral head', 'Tricep Dip': 'lateral head',
   'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head', 'Cable Overhead Tricep Extension': 'long head',
   'Machine Tricep Extension': 'lateral head', 'Assisted Chin-Up': 'biceps', 'Assisted Pull-Up': 'lats',
@@ -932,6 +938,37 @@ function recalcAllCalories() {
       const cal = caloriesFromSets(setStmt.all(w.id), w.bw_kg);
       if (cal != null) upd.run(cal, w.id);
     }
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time: weight_mode used to be dumbbell-only (the column defaulted every
+// row to 'per_arm' but the volume SQL ignored it for other equipment). Now
+// that effectiveLoadKgSql honors 'per_arm' on ANY equipment (single-arm cable
+// pushdowns, single-leg press...), non-dumbbell rows must be reset to
+// 'combined' or their historical volume would silently double. Flag-guarded so
+// a user marking a cable exercise per-arm later isn't clobbered on reboot.
+function resetNonDumbbellWeightMode() {
+  const FLAG = 'weight_mode_equipment_agnostic_v1';
+  if (getMeta(FLAG)) return;
+  tx(() => {
+    db.prepare("UPDATE exercises SET weight_mode = 'combined' WHERE equipment != 'dumbbell'").run();
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time: seeded exercises that are unilateral by name (the load belongs to
+// one arm/side) get weight_mode='per_arm' even though they're not dumbbells.
+// Runs AFTER resetNonDumbbellWeightMode (which would flatten them to
+// 'combined' on a fresh DB) and is flag-guarded so later user edits stick.
+const UNILATERAL_SEED_NAMES = ['Single-Arm Tricep Pushdown'];
+
+function markUnilateralSeeds() {
+  const FLAG = 'unilateral_seeds_v1';
+  if (getMeta(FLAG)) return;
+  const mark = db.prepare("UPDATE exercises SET weight_mode = 'per_arm' WHERE name = ?");
+  tx(() => {
+    for (const name of UNILATERAL_SEED_NAMES) mark.run(name);
     setMeta(FLAG, '1');
   });
 }

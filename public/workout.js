@@ -566,7 +566,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
-          ${ex.equipment === 'dumbbell' ? `<button class="badge badge--weightmode" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'combined' ? 'both = total' : 'per arm ×2'}</button>` : ''}
+          ${ex.equipment === 'dumbbell' || ex.weight_mode === 'per_arm' ? `<button class="badge badge--weightmode" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
           <span class="badge badge--muscle">${escapeHtml(ex.muscle_group)}${ex.sub_muscle ? ` · ${escapeHtml(ex.sub_muscle)}` : ''}</span>
         </div>
       </div>
@@ -753,8 +753,8 @@ function wireWorkoutView() {
         persistExerciseList();
         renderWorkoutView();
         toast(next === 'combined'
-          ? 'Weight = both dumbbells combined (counted as-is)'
-          : 'Weight = one dumbbell (doubled for volume)');
+          ? 'Weight = the full load (counted as-is)'
+          : 'Weight = one arm/side (doubled for volume)');
       }).catch((err) => toast(err.message));
       return;
     }
@@ -1538,7 +1538,7 @@ async function finishWorkout() {
       if (s.is_warmup) return acc;
       const kg = s.is_bodyweight
         ? toKg(s.weight, s.weight_unit) + (userBwKg || 0)
-        : toKg(s.weight, s.weight_unit) * (s.equipment === 'dumbbell' && s.weight_mode !== 'combined' ? 2 : 1);
+        : toKg(s.weight, s.weight_unit) * (s.weight_mode === 'per_arm' ? 2 : 1);
       return acc + kg * s.reps;
     }, 0);
 

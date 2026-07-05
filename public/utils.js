@@ -539,13 +539,11 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         <select class="input" id="edit-ex-equipment">
           ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${e}</option>`).join('')}
         </select>
-        <div id="edit-ex-weightmode-wrap" style="${ex.equipment === 'dumbbell' ? '' : 'display:none'}">
-          <label class="form-label" style="margin-top:14px">Weight entry</label>
-          <select class="input" id="edit-ex-weightmode">
-            <option value="per_arm" ${ex.weight_mode !== 'combined' ? 'selected' : ''}>Per arm (doubled for volume)</option>
-            <option value="combined" ${ex.weight_mode === 'combined' ? 'selected' : ''}>Combined (already the full load)</option>
-          </select>
-        </div>
+        <label class="form-label" style="margin-top:14px">Weight entry</label>
+        <select class="input" id="edit-ex-weightmode">
+          <option value="combined" ${ex.weight_mode !== 'per_arm' ? 'selected' : ''}>Total load (counted as-is)</option>
+          <option value="per_arm" ${ex.weight_mode === 'per_arm' ? 'selected' : ''}>Per arm / side — unilateral, doubled for volume</option>
+        </select>
         <label class="form-label" style="margin-top:14px">Custom weight step (kg, optional)</label>
         <input class="input" type="number" step="0.5" min="0" id="edit-ex-step" value="${ex.step_override != null ? ex.step_override : ''}" placeholder="Default for ${ex.equipment || 'this equipment'}"/>
         <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
@@ -577,9 +575,12 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   };
   subSel.onchange = () => sub2.render();
 
-  const weightModeWrap = containerEl.querySelector('#edit-ex-weightmode-wrap');
+  // Switching equipment snaps the weight-entry mode to that equipment's
+  // natural default (dumbbell = per arm, everything else = total) — the user
+  // can still override it before saving, e.g. a single-arm cable pushdown.
+  const weightModeSel = containerEl.querySelector('#edit-ex-weightmode');
   containerEl.querySelector('#edit-ex-equipment').onchange = (e) => {
-    weightModeWrap.style.display = e.target.value === 'dumbbell' ? '' : 'none';
+    weightModeSel.value = e.target.value === 'dumbbell' ? 'per_arm' : 'combined';
   };
 
   containerEl.querySelector('#edit-ex-save').onclick = async () => {
