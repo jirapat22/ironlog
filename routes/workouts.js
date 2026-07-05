@@ -123,7 +123,13 @@ router.get('/history', (req, res) => {
                  FROM sets s2
                  JOIN exercises e ON e.id = s2.exercise_id
                  WHERE s2.workout_id = w.id
-              )) as muscle_groups
+              )) as muscle_groups,
+              (SELECT GROUP_CONCAT(gs, ',') FROM (
+                 SELECT DISTINCT e.muscle_group || '|' || COALESCE(e.sub_muscle, '') as gs
+                 FROM sets s2
+                 JOIN exercises e ON e.id = s2.exercise_id
+                 WHERE s2.workout_id = w.id
+              )) as muscle_subs
        FROM workouts w
        LEFT JOIN program_days pd ON pd.id = w.program_day_id
        LEFT JOIN programs p ON p.id = pd.program_id

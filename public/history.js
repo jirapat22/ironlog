@@ -320,7 +320,7 @@ function historyCardHTML(w) {
     const label = ACTIVITY_LABELS[w.activity_type] || 'Activity';
     let tags = [];
     try { tags = JSON.parse(w.muscle_tags || '[]'); } catch { tags = []; }
-    const badges = tags.map((g) => `<span class="badge badge--group badge--g-${g}">${escapeHtml(g)}</span>`).join('');
+    const badges = tags.map((g) => `<span class="badge badge--mg mg-${PICKER_GROUP_ORDER.includes(g) ? g : 'other'}">${escapeHtml(g)}</span>`).join('');
     const dist = w.distance ? ` · ${w.distance}${w.distance_unit || ''}` : '';
     const meta = `${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${w.duration_min || 0}m${w.rpe ? ` · RPE ${w.rpe}` : ''}${dist}`;
     return `
@@ -343,8 +343,25 @@ function historyCardHTML(w) {
   const durMs = finished ? finished - started : 0;
   const durMin = Math.floor(durMs / 60000);
   const dur = durMin >= 60 ? `${Math.floor(durMin / 60)}h ${durMin % 60}m` : `${durMin}m`;
-  const groups = (w.muscle_groups || '').split(',').map((g) => g.trim()).filter(Boolean);
-  const groupBadges = groups.map((g) => `<span class="badge badge--group badge--g-${g}">${escapeHtml(g)}</span>`).join('');
+  // One colored chip per trained muscle group, listing its sub-muscles —
+  // e.g. "LEGS · QUADS · CALVES" in the group's hue, matching the tags
+  // everywhere else. muscle_subs is "group|sub,group|sub,…"; fall back to
+  // plain groups if the field is missing (older cached server mid-deploy).
+  const subsByGroup = new Map();
+  for (const pair of (w.muscle_subs || '').split(',')) {
+    const [g, sub] = pair.split('|').map((x) => (x || '').trim());
+    if (!g) continue;
+    if (!subsByGroup.has(g)) subsByGroup.set(g, new Set());
+    if (sub) subsByGroup.get(g).add(sub);
+  }
+  if (!subsByGroup.size) {
+    for (const g of (w.muscle_groups || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+      subsByGroup.set(g, new Set());
+    }
+  }
+  const groupBadges = [...subsByGroup.entries()].map(([g, subs]) =>
+    `<span class="badge badge--mg mg-${PICKER_GROUP_ORDER.includes(g) ? g : 'other'}">${escapeHtml(g)}${subs.size ? ' · ' + [...subs].map(escapeHtml).join(' · ') : ''}</span>`
+  ).join('');
   return `
     <div class="history-card" data-id="${w.id}">
       <button class="history-card__head">

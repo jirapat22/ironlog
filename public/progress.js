@@ -293,7 +293,7 @@ async function renderMuscleFrequency() {
       return `
         <div class="mfreq-group ${collapsed ? 'mfreq-group--collapsed' : ''}" data-mfreq-group="${escapeHtml(g)}">
           <button class="mfreq-group__head" data-toggle-group="${escapeHtml(g)}">
-            <span class="badge badge--group badge--g-${g}">${g}</span>
+            <span class="badge badge--mg mg-${PICKER_GROUP_ORDER.includes(g) ? g : 'other'}">${g}</span>
             <span class="mfreq-group__chevron">&#9656;</span>
           </button>
           <div class="mfreq-group__subs">${collapsed ? summaryRow : subRows}</div>

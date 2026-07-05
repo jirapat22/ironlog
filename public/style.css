@@ -1970,22 +1970,8 @@ button {
   margin-top: 6px;
 }
 
-.badge--group {
-  font-size: 9px;
-  padding: 2px 7px;
-  background: var(--surface-2);
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-}
-
-.badge--g-chest    { color: #e8ff47; border-color: rgba(232,255,71,0.3); }
-.badge--g-back     { color: #62d8ff; border-color: rgba(98,216,255,0.3); }
-.badge--g-shoulders{ color: #ffb347; border-color: rgba(255,179,71,0.3); }
-.badge--g-biceps   { color: #c6a1ff; border-color: rgba(198,161,255,0.3); }
-.badge--g-triceps  { color: #ff8ad1; border-color: rgba(255,138,209,0.3); }
-.badge--g-arms     { color: #c6a1ff; border-color: rgba(198,161,255,0.3); }
-.badge--g-legs     { color: #9effa8; border-color: rgba(158,255,168,0.3); }
-.badge--g-core     { color: #ffe066; border-color: rgba(255,224,102,0.3); }
+/* (Old neon .badge--group / .badge--g-* palette removed — every muscle tag
+   now uses the unified .badge--mg / .mg-* system at the end of this file.) */
 
 /* RPE buttons */
 .rpe-group {

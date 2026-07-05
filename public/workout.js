@@ -236,7 +236,7 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
 }
 
 // ---------- Workout rendering ----------
-async function renderWorkout() {
+async function renderWorkout(retriedAfterMissing = false) {
   const root = $('#view-workout');
   let activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
 
@@ -418,6 +418,16 @@ async function renderWorkout() {
     const primeOnce = () => { primeAudio(); document.removeEventListener('click', primeOnce); };
     document.addEventListener('click', primeOnce);
   } catch (err) {
+    // The stored active id can point at a workout the server no longer has —
+    // the stale-workout sweep closes/deletes abandoned ones, but this device's
+    // localStorage still remembers it. Clear the stale pointer and start over
+    // (once), which falls through to /active recovery or the empty state.
+    if (!retriedAfterMissing && /not found/i.test(err.message)) {
+      localStorage.removeItem(LS.activeWorkoutId);
+      localStorage.removeItem(LS.activeProgramDayId);
+      localStorage.removeItem(LS.activeWorkoutStart);
+      return renderWorkout(true);
+    }
     root.innerHTML = `<div class="empty">Couldn't load workout: ${escapeHtml(err.message)}</div>`;
   }
 }
