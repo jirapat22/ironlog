@@ -692,6 +692,7 @@ function seed() {
   populateSecondaryMuscles();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
+  auditWeightModeCatalog();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
   // NOTE: programs are no longer seeded globally here — each profile gets its
@@ -969,6 +970,37 @@ function markUnilateralSeeds() {
   const mark = db.prepare("UPDATE exercises SET weight_mode = 'per_arm' WHERE name = ?");
   tx(() => {
     for (const name of UNILATERAL_SEED_NAMES) mark.run(name);
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time full-catalog weight-mode audit (user-confirmed classification).
+// Two corrections on top of the equipment defaults:
+//  • two-hands-on-one-dumbbell moves were being doubled — they're 'combined';
+//  • unilateral cable/machine moves (one side works the stack) weren't — per_arm.
+// Overhead Tricep Extension deliberately ABSENT from the two-handed list: the
+// user does it one arm at a time, so its dumbbell per_arm default is right.
+// Custom exercises are covered by the name pattern below. Flag-guarded so a
+// user flipping a badge afterwards is never clobbered on reboot.
+const TWO_HANDED_SINGLE_IMPLEMENT = ['Goblet Squat', 'Dumbbell Pullover'];
+const UNILATERAL_CATALOG = [
+  'Single-Leg Press', 'Cable Lateral Raise', 'Seated Cable Lateral Raise',
+  'Cable Kickback', 'Glute Kickback', 'Bayesian Curl', 'External Rotation'
+];
+
+function auditWeightModeCatalog() {
+  const FLAG = 'weight_mode_catalog_audit_v1';
+  if (getMeta(FLAG)) return;
+  const setCombined = db.prepare("UPDATE exercises SET weight_mode = 'combined' WHERE name = ?");
+  const setPerArm = db.prepare("UPDATE exercises SET weight_mode = 'per_arm' WHERE name = ?");
+  tx(() => {
+    for (const name of TWO_HANDED_SINGLE_IMPLEMENT) setCombined.run(name);
+    for (const name of UNILATERAL_CATALOG) setPerArm.run(name);
+    // Custom exercises whose names announce they're unilateral.
+    db.prepare(`UPDATE exercises SET weight_mode = 'per_arm' WHERE
+      lower(name) LIKE '%single%arm%' OR lower(name) LIKE '%single%leg%' OR
+      lower(name) LIKE '%one%arm%' OR lower(name) LIKE '%one%leg%' OR
+      lower(name) LIKE '%unilateral%'`).run();
     setMeta(FLAG, '1');
   });
 }
