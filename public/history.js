@@ -210,17 +210,21 @@ async function loadHistoryCardBody(card) {
       return;
     }
 
-    const grouped = {};
+    // Map, NOT a plain object: numeric-string keys in an object iterate in
+    // ASCENDING NUMERIC order, which displayed exercises sorted by database id
+    // instead of the order they were performed. Map preserves insertion order,
+    // and sets arrive ordered by logged_at.
+    const grouped = new Map();
     for (const s of sets) {
-      if (!grouped[s.exercise_id]) grouped[s.exercise_id] = { exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sets: [] };
-      grouped[s.exercise_id].sets.push(s);
+      if (!grouped.has(s.exercise_id)) grouped.set(s.exercise_id, { exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sub: s.sub_muscle, sets: [] });
+      grouped.get(s.exercise_id).sets.push(s);
     }
-    for (const g of Object.values(grouped)) g.sets.sort((a, b) => a.set_number - b.set_number);
+    for (const g of grouped.values()) g.sets.sort((a, b) => a.set_number - b.set_number);
 
-    const exHTML = Object.values(grouped).map((g) => `
+    const exHTML = [...grouped.values()].map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
         <div class="history-ex__head">
-          <div class="history-ex__name">${escapeHtml(g.name)}</div>
+          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` <span class="history-ex__muscle">${escapeHtml(g.muscle)}${g.sub ? ` · ${escapeHtml(g.sub)}` : ''}</span>` : ''}</div>
           <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
         </div>
         <div class="history-ex__sets">
@@ -247,7 +251,7 @@ async function loadHistoryCardBody(card) {
       </button>`).join('');
 
     // Build template data from the grouped sets for "Save as template" button
-    const templateExercises = Object.values(grouped).map((g) => {
+    const templateExercises = [...grouped.values()].map((g) => {
       const workingSets = g.sets.filter((s) => !s.is_warmup);
       if (!workingSets.length) return null;
       const lastSet = workingSets[workingSets.length - 1];
@@ -275,7 +279,7 @@ async function loadHistoryCardBody(card) {
       </div>`;
     card._templateExercises = templateExercises;
     card.dataset.loaded = '1';
-    card.dataset.exerciseNames = Object.values(grouped).map((g) => g.name.toLowerCase()).join('|');
+    card.dataset.exerciseNames = [...grouped.values()].map((g) => g.name.toLowerCase()).join('|');
   } catch (err) {
     body.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
   }

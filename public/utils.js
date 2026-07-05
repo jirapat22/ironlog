@@ -548,6 +548,93 @@ function createSecondaryPicker(containerEl, getPrimary, initial = []) {
 const EXERCISE_GROUPS = PICKER_GROUP_ORDER;
 const EXERCISE_EQUIPMENT = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
 
+// Shared "New exercise" form — used by the program editor, the mid-workout
+// picker, and Settings → Manage Exercises (it existed as two divergent copies
+// before; one of them shipped a stale muscle-group list for months).
+// Renders into `containerEl` (a sheet root). Name input is backed by the
+// vendored library search: picking a suggestion prefills everything and
+// carries instructions + per-arm mode through to the created exercise.
+// onCreated(ex) receives the API-created exercise; caller handles what
+// happens next (add to day, add to workout, or just refresh a list).
+function renderNewExerciseForm(containerEl, { ctaLabel = 'Create', onBack, onCreated } = {}) {
+  containerEl.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-nx-back>←</button>
+        <div class="sheet__title">New exercise</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <label class="form-label">Name</label>
+        <input class="input" id="nx-name" placeholder="Type to search 1,300 exercises…"/>
+        <div class="lib-suggest" id="nx-suggest"></div>
+        <label class="form-label" style="margin-top:14px">Muscle group</label>
+        <select class="input" id="nx-muscle">
+          ${PICKER_GROUP_ORDER.map((g) => `<option value="${g}">${g}</option>`).join('')}
+        </select>
+        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
+        <select class="input" id="nx-sub">${subMuscleOptions(PICKER_GROUP_ORDER[0], '')}</select>
+        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
+        <div class="sub2-list" id="nx-sub2"></div>
+        <label class="form-label" style="margin-top:14px">Equipment</label>
+        <select class="input" id="nx-equipment">
+          ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}">${e}</option>`).join('')}
+        </select>
+        <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
+        <div class="rep-range-inputs">
+          <input class="input" type="number" min="1" max="100" step="1" id="nx-repmin" placeholder="min"/>
+          <span class="rep-range-inputs__dash">–</span>
+          <input class="input" type="number" min="1" max="100" step="1" id="nx-repmax" placeholder="max"/>
+        </div>
+        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
+        <input class="input" id="nx-notes" placeholder="Setup cue or variation"/>
+        <button class="btn btn--primary btn--block" id="nx-save" style="margin-top:20px">${escapeHtml(ctaLabel)}</button>
+      </div>
+    </div>`;
+
+  containerEl.querySelector('[data-nx-back]').onclick = () => onBack && onBack();
+  const subSel = containerEl.querySelector('#nx-sub');
+  const sub2 = createSecondaryPicker(containerEl.querySelector('#nx-sub2'), () => subSel.value, []);
+  containerEl.querySelector('#nx-muscle').onchange = (e) => {
+    subSel.innerHTML = subMuscleOptions(e.target.value, '');
+    sub2.render();
+  };
+  subSel.onchange = () => sub2.render();
+
+  let libPick = null;
+  attachLibrarySearch(containerEl.querySelector('#nx-name'), containerEl.querySelector('#nx-suggest'), (r) => {
+    libPick = r;
+    containerEl.querySelector('#nx-name').value = r.name;
+    containerEl.querySelector('#nx-muscle').value = r.muscle_group;
+    subSel.innerHTML = subMuscleOptions(r.muscle_group, r.sub_muscle || '');
+    sub2.render();
+    containerEl.querySelector('#nx-equipment').value = r.equipment;
+  });
+
+  containerEl.querySelector('#nx-save').onclick = async () => {
+    const name = containerEl.querySelector('#nx-name').value.trim();
+    const muscle_group = containerEl.querySelector('#nx-muscle').value;
+    const sub_muscle = subSel.value || null;
+    const secondary_muscles = sub2.getSelected();
+    const equipment = containerEl.querySelector('#nx-equipment').value;
+    const repRange = readRepRangeInputs(containerEl, '#nx-repmin', '#nx-repmax');
+    if (!repRange.ok) return toast(repRange.error);
+    const notes = containerEl.querySelector('#nx-notes').value.trim() || null;
+    if (!name) return toast('Name required');
+    const fromLib = libPick && libPick.name === name ? libPick : null;
+    try {
+      const ex = await API.addExercise({
+        name, muscle_group, sub_muscle, secondary_muscles, equipment,
+        rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes,
+        instructions: fromLib?.instructions || undefined,
+        weight_mode: fromLib?.unilateral ? 'per_arm' : undefined
+      });
+      haptic(20);
+      await onCreated(ex);
+    } catch (err) { toast(err.message); }
+  };
+}
+
 function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, onCleared } = {}) {
   containerEl.innerHTML = `
     <div class="sheet__inner">
@@ -737,7 +824,7 @@ export {
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
-  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker,
+  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,
   isIOS, isStandalone

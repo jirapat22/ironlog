@@ -3298,6 +3298,14 @@ button {
   margin-bottom: 4px;
 }
 
+/* Muscle group · sub-muscle tag after the exercise name in history */
+.history-ex__muscle {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+  text-transform: capitalize;
+}
+
 .history-ex__remove {
   flex-shrink: 0;
   color: var(--text-dim);

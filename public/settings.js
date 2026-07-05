@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, pickerChipsHTML, PICKER_GROUP_ORDER } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -352,12 +352,22 @@ async function openExerciseLibrary() {
       <div class="sheet__head">
         <button class="btn--icon" data-close-sheet>←</button>
         <div class="sheet__title">Manage Exercises</div>
-        <span style="width:40px"></span>
+        <button class="btn--icon" data-new-library-ex title="New exercise" style="font-size:20px;font-weight:700">+</button>
       </div>
       <div class="sheet__body" id="ex-lib-body">
         <div class="skeleton" style="height:200px"></div>
       </div>
     </div>`;
+  sheet.querySelector('[data-new-library-ex]').onclick = () => {
+    renderNewExerciseForm(sheet, {
+      ctaLabel: 'Create exercise',
+      onBack: () => openExerciseLibrary(),
+      onCreated: (ex) => {
+        toast(`${ex.name} created`);
+        openExerciseLibrary();
+      }
+    });
+  };
   showSheet(sheet);
   renderExerciseLibraryList(sheet);
 }

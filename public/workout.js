@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, renderNewExerciseForm, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -1743,87 +1743,11 @@ async function flushWorkoutNotes() {
 // onBack: () => void — returns to the calling picker
 // onCreated: (ex) => void — what to do once exercise is created (add vs swap)
 function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
-  // Canonical groups only — a hardcoded copy here once drifted ('arms', no
-  // 'forearms') and the API's strict validation turned that into a 400.
-  const GROUPS = PICKER_GROUP_ORDER;
-  const EQUIPMENT = ['barbell','dumbbell','cable','machine','bodyweight'];
-  picker.innerHTML = `
-    <div class="sheet__inner">
-      <div class="sheet__head">
-        <button class="btn--icon" id="wknew-back">←</button>
-        <div class="sheet__title">New exercise</div>
-        <span style="width:40px"></span>
-      </div>
-      <div class="sheet__body">
-        <label class="form-label">Name</label>
-        <input class="input" id="wknew-name" placeholder="Type to search 1,300 exercises…"/>
-        <div class="lib-suggest" id="wknew-suggest"></div>
-        <label class="form-label" style="margin-top:14px">Muscle group</label>
-        <select class="input" id="wknew-muscle">
-          ${GROUPS.map((g) => `<option value="${g}">${g}</option>`).join('')}
-        </select>
-        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
-        <select class="input" id="wknew-sub">${subMuscleOptions(GROUPS[0], '')}</select>
-        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
-        <div class="sub2-list" id="wknew-sub2"></div>
-        <label class="form-label" style="margin-top:14px">Equipment</label>
-        <select class="input" id="wknew-equipment">
-          ${EQUIPMENT.map((e) => `<option value="${e}">${e}</option>`).join('')}
-        </select>
-        <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
-        <div class="rep-range-inputs">
-          <input class="input" type="number" min="1" max="100" step="1" id="wknew-repmin" placeholder="min"/>
-          <span class="rep-range-inputs__dash">–</span>
-          <input class="input" type="number" min="1" max="100" step="1" id="wknew-repmax" placeholder="max"/>
-        </div>
-        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
-        <input class="input" id="wknew-notes" placeholder="Setup cue or variation"/>
-        <button class="btn btn--primary btn--block" id="wknew-save" style="margin-top:20px">Create & add to workout</button>
-      </div>
-    </div>`;
-
-  document.getElementById('wknew-back').onclick = () => onBack();
-  const subSel = document.getElementById('wknew-sub');
-  const sub2 = createSecondaryPicker(document.getElementById('wknew-sub2'), () => subSel.value, []);
-
-  // Library search-to-add (same flow as the program editor's form).
-  let libPick = null;
-  attachLibrarySearch(document.getElementById('wknew-name'), document.getElementById('wknew-suggest'), (r) => {
-    libPick = r;
-    document.getElementById('wknew-name').value = r.name;
-    document.getElementById('wknew-muscle').value = r.muscle_group;
-    subSel.innerHTML = subMuscleOptions(r.muscle_group, r.sub_muscle || '');
-    sub2.render();
-    document.getElementById('wknew-equipment').value = r.equipment;
+  renderNewExerciseForm(picker, {
+    ctaLabel: 'Create & add to workout',
+    onBack,
+    onCreated
   });
-  document.getElementById('wknew-muscle').onchange = (e) => {
-    subSel.innerHTML = subMuscleOptions(e.target.value, '');
-    sub2.render();
-  };
-  subSel.onchange = () => sub2.render();
-
-  document.getElementById('wknew-save').onclick = async () => {
-    const name = document.getElementById('wknew-name').value.trim();
-    const muscle = document.getElementById('wknew-muscle').value;
-    const sub_muscle = subSel.value || null;
-    const secondary_muscles = sub2.getSelected();
-    const equipment = document.getElementById('wknew-equipment').value;
-    const repRange = readRepRangeInputs(picker, '#wknew-repmin', '#wknew-repmax');
-    if (!repRange.ok) return toast(repRange.error);
-    const notes = document.getElementById('wknew-notes').value.trim() || null;
-    if (!name) return toast('Name required');
-    const fromLib = libPick && libPick.name === name ? libPick : null;
-    try {
-      const ex = await API.addExercise({
-        name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment,
-        rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes,
-        instructions: fromLib?.instructions || undefined,
-        weight_mode: fromLib?.unilateral ? 'per_arm' : undefined
-      });
-      haptic(20);
-      onCreated(ex);
-    } catch (err) { toast(err.message); }
-  };
 }
 
 export {

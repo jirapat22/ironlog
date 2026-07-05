@@ -702,6 +702,7 @@ function seed() {
   markUnilateralSeeds();
   auditWeightModeCatalog();
   enrichInstructions();
+  sweepStaleWorkouts();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
   // NOTE: programs are no longer seeded globally here — each profile gets its
@@ -950,6 +951,33 @@ function recalcAllCalories() {
     }
     setMeta(FLAG, '1');
   });
+}
+
+// Every-boot sweep: close out abandoned in-progress strength workouts. A
+// workout left unfinished (phone died, user forgot, app reinstalled) used to
+// linger forever; the /active recovery endpoint would then resurrect it with
+// a multi-week timer. Anything with no activity for 24h gets finished at its
+// last set + 10 minutes (same cap rule as a normal finish) so the training
+// data lands in History with a sane duration — or deleted if nothing was
+// ever logged. Runs on every boot; a no-op when there's nothing stale.
+function sweepStaleWorkouts() {
+  const stale = db.prepare(
+    `SELECT w.id, w.started_at, MAX(s.logged_at) AS last_set, COUNT(s.id) AS n
+     FROM workouts w LEFT JOIN sets s ON s.workout_id = w.id
+     WHERE w.finished_at IS NULL AND (w.kind IS NULL OR w.kind != 'activity')
+     GROUP BY w.id
+     HAVING COALESCE(MAX(s.logged_at), w.started_at) < datetime('now', '-24 hours')`
+  ).all();
+  if (!stale.length) return;
+  const close = db.prepare("UPDATE workouts SET finished_at = datetime(?, '+10 minutes') WHERE id = ?");
+  const drop = db.prepare('DELETE FROM workouts WHERE id = ?');
+  tx(() => {
+    for (const w of stale) {
+      if (w.n > 0) close.run(w.last_set, w.id);
+      else drop.run(w.id);
+    }
+  });
+  console.log(`stale workout sweep: closed ${stale.filter((w) => w.n > 0).length}, deleted ${stale.filter((w) => !w.n).length}`);
 }
 
 // One-time: weight_mode used to be dumbbell-only (the column defaulted every

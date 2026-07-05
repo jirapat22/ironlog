@@ -84,10 +84,16 @@ router.post('/', (req, res) => {
 // localStorage was evicted (iOS storage pressure) or a second device recover
 // the in-progress workout — previously the active id lived only client-side,
 // so an evicted draft made the session invisible and swaps silently reverted.
+// Age-limited: without the 16h window this resurrected months-old abandoned
+// workouts one after another (cancel one, the next zombie gets adopted) —
+// the user saw a 1600-hour timer they "couldn't get rid of". Old strays are
+// closed/deleted by sweepStaleWorkouts() on boot; this guard covers the ones
+// abandoned since the last restart.
 router.get('/active', (req, res) => {
   const row = db.prepare(
     `SELECT * FROM workouts
      WHERE profile_id = ? AND finished_at IS NULL AND (kind IS NULL OR kind != 'activity')
+       AND started_at >= datetime('now', '-16 hours')
      ORDER BY started_at DESC LIMIT 1`
   ).get(req.profileId);
   res.json(row || null);
@@ -340,7 +346,7 @@ router.get('/:id/sets', (req, res) => {
   if (!owned) return res.status(404).json({ error: 'workout not found' });
   const rows = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, s.is_warmup
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.sub_muscle, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?

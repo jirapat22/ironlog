@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, subMuscleOptions, createSecondaryPicker, renderExerciseEditForm, pickerChipsHTML, setupPickerFilter, fmtSetWeight, readRepRangeInputs, attachLibrarySearch } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, setupPickerFilter, fmtSetWeight } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -552,87 +552,10 @@ async function openPicker() {
 }
 
 function openNewExerciseForm(picker) {
-  picker.innerHTML = `
-    <div class="sheet__inner">
-      <div class="sheet__head">
-        <button class="btn--icon" data-back-picker>←</button>
-        <div class="sheet__title">New exercise</div>
-        <span style="width:40px"></span>
-      </div>
-      <div class="sheet__body">
-        <label class="form-label">Name</label>
-        <input class="input" id="new-ex-name" placeholder="Type to search 1,300 exercises…" />
-        <div class="lib-suggest" id="new-ex-suggest"></div>
-        <label class="form-label" style="margin-top:14px">Muscle group</label>
-        <select class="input" id="new-ex-muscle">
-          ${PICKER_GROUP_ORDER.map((g) => `<option value="${g}">${g}</option>`).join('')}
-        </select>
-        <label class="form-label" style="margin-top:14px">Sub-muscle (optional)</label>
-        <select class="input" id="new-ex-sub">${subMuscleOptions('chest', '')}</select>
-        <label class="form-label" style="margin-top:14px">Also works (optional)</label>
-        <div class="sub2-list" id="new-ex-sub2"></div>
-        <label class="form-label" style="margin-top:14px">Equipment</label>
-        <select class="input" id="new-ex-equipment">
-          <option value="barbell">Barbell</option>
-          <option value="dumbbell">Dumbbell</option>
-          <option value="cable">Cable</option>
-          <option value="machine">Machine</option>
-          <option value="bodyweight">Bodyweight</option>
-        </select>
-        <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
-        <div class="rep-range-inputs">
-          <input class="input" type="number" min="1" max="100" step="1" id="new-ex-repmin" placeholder="min"/>
-          <span class="rep-range-inputs__dash">–</span>
-          <input class="input" type="number" min="1" max="100" step="1" id="new-ex-repmax" placeholder="max"/>
-        </div>
-        <label class="form-label" style="margin-top:14px">Notes (optional)</label>
-        <input class="input" id="new-ex-notes" placeholder="Setup cue or variation" />
-        <button class="btn btn--primary btn--block" id="new-ex-save" style="margin-top:20px">Create & add</button>
-      </div>
-    </div>
-  `;
-
-  picker.querySelector('[data-back-picker]').onclick = () => openPicker();
-  const subSel = picker.querySelector('#new-ex-sub');
-  const sub2 = createSecondaryPicker(picker.querySelector('#new-ex-sub2'), () => subSel.value, []);
-
-  // Library search-to-add: picking a suggestion prefills the whole form and
-  // carries the entry's instructions + unilateral flag through to save.
-  let libPick = null;
-  attachLibrarySearch(picker.querySelector('#new-ex-name'), picker.querySelector('#new-ex-suggest'), (r) => {
-    libPick = r;
-    picker.querySelector('#new-ex-name').value = r.name;
-    picker.querySelector('#new-ex-muscle').value = r.muscle_group;
-    subSel.innerHTML = subMuscleOptions(r.muscle_group, r.sub_muscle || '');
-    sub2.render();
-    picker.querySelector('#new-ex-equipment').value = r.equipment;
-  });
-  // Repopulate the sub-muscle dropdown whenever the muscle group changes, then
-  // refresh the "also works" list to exclude the new primary.
-  picker.querySelector('#new-ex-muscle').onchange = (e) => {
-    subSel.innerHTML = subMuscleOptions(e.target.value, '');
-    sub2.render();
-  };
-  subSel.onchange = () => sub2.render();
-  picker.querySelector('#new-ex-save').onclick = async () => {
-    const name = picker.querySelector('#new-ex-name').value.trim();
-    const muscle = picker.querySelector('#new-ex-muscle').value;
-    const sub_muscle = subSel.value || null;
-    const secondary_muscles = sub2.getSelected();
-    const equipment = picker.querySelector('#new-ex-equipment').value;
-    const repRange = readRepRangeInputs(picker, '#new-ex-repmin', '#new-ex-repmax');
-    if (!repRange.ok) return toast(repRange.error);
-    const notes = picker.querySelector('#new-ex-notes').value.trim() || null;
-    if (!name) return toast('Name required');
-    // Library pick still applies only if the user kept its name.
-    const fromLib = libPick && libPick.name === name ? libPick : null;
-    try {
-      const ex = await API.addExercise({
-        name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment,
-        rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes,
-        instructions: fromLib?.instructions || undefined,
-        weight_mode: fromLib?.unilateral ? 'per_arm' : undefined
-      });
+  renderNewExerciseForm(picker, {
+    ctaLabel: 'Create & add',
+    onBack: () => openPicker(),
+    onCreated: async (ex) => {
       ex.workout_count = 0;
       ex.program_count = 1; // about to be added to this day, below
       editDayState.allExercises.push(ex);
@@ -642,8 +565,8 @@ function openNewExerciseForm(picker) {
       editDayState.day.exercises.push(row);
       hideSheet(picker);
       renderEditSheet();
-    } catch (err) { toast(err.message); }
-  };
+    }
+  });
 }
 
 function openEditExerciseForm(picker, ex, allExercises) {
