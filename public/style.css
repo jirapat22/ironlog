@@ -2818,6 +2818,42 @@ button {
   font-weight: 400;
 }
 
+/* Library search suggestions under the new-exercise Name input */
+.lib-suggest { margin-top: 4px; }
+
+.lib-suggest__row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lib-suggest__row:active { border-color: var(--accent); }
+
+.lib-suggest__name { font-size: 13px; color: var(--text); font-weight: 600; }
+
+.lib-suggest__meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: capitalize;
+}
+
+/* "How to" sheet body text */
+.howto-text {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
 /* Target rep range — paired min–max inputs in the exercise create/edit forms */
 .rep-range-inputs {
   display: flex;

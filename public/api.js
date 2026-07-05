@@ -94,6 +94,8 @@ const API = {
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),
   activeWorkout: () => api('/api/workouts/active'),
+  exercise: (id) => api(`/api/exercises/${id}`),
+  searchExerciseLibrary: (q) => api(`/api/exercises/library/search?q=${encodeURIComponent(q)}`),
   startWorkout: (programDayId) =>
     api('/api/workouts', { method: 'POST', body: { program_day_id: programDayId } }),
   startQuickWorkout: () => api('/api/workouts', { method: 'POST', body: {} }),

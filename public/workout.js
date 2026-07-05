@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, readRepRangeInputs, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, subMuscleOptions, createSecondaryPicker, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -563,6 +563,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <div class="card__subtitle">${target} × ${ex.target_reps}${repRangeLabel(ex)}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
         </div>
         <div class="exercise-card__head-actions">
+          <button class="btn--icon-text" data-howto-ex="${ex.exercise_id}" title="How to do this exercise">?</button>
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
@@ -730,6 +731,9 @@ function wireWorkoutView() {
     if (e.target.closest('[data-rest-cancel]')) return cancelRestCountdown();
 
     // Card-level controls — must be checked before the set-row guard below
+    const howtoBtn = e.target.closest('[data-howto-ex]');
+    if (howtoBtn) { haptic(10); openHowToSheet(Number(howtoBtn.dataset.howtoEx)); return; }
+
     const swapBtn = e.target.closest('[data-swap-ex]');
     if (swapBtn) { haptic(15); openSwapPicker(Number(swapBtn.dataset.swapEx)); return; }
 
@@ -1240,6 +1244,33 @@ async function openEquipmentPicker(exerciseId) {
   showSheet(sheet);
 }
 
+// "How to" sheet: instructions live server-side (deliberately not in the list
+// payloads — they're ~1KB each), so fetch the single exercise on demand.
+async function openHowToSheet(exerciseId) {
+  const ex = workoutState?.programDay.exercises.find((x) => x.exercise_id === exerciseId);
+  let full = null;
+  try { full = await API.exercise(exerciseId); } catch { /* offline */ }
+  if (!full?.instructions) {
+    toast('No how-to for this exercise yet');
+    return;
+  }
+  const sheet = ensureSheet('howto-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-howto>←</button>
+        <div class="sheet__title">${escapeHtml(ex?.name || full.name)}</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:10px">${escapeHtml(full.muscle_group)}${full.sub_muscle ? ` · ${escapeHtml(full.sub_muscle)}` : ''} · ${escapeHtml(full.equipment || '')}</div>
+        <div class="howto-text">${escapeHtml(full.instructions)}</div>
+      </div>
+    </div>`;
+  sheet.querySelector('[data-close-howto]').onclick = () => hideSheet(sheet);
+  showSheet(sheet);
+}
+
 async function openSwapPicker(currentExerciseId) {
   const picker = ensureSheet('swap-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
@@ -1725,7 +1756,8 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
       </div>
       <div class="sheet__body">
         <label class="form-label">Name</label>
-        <input class="input" id="wknew-name" placeholder="e.g. Cable Pullover"/>
+        <input class="input" id="wknew-name" placeholder="Type to search 1,300 exercises…"/>
+        <div class="lib-suggest" id="wknew-suggest"></div>
         <label class="form-label" style="margin-top:14px">Muscle group</label>
         <select class="input" id="wknew-muscle">
           ${GROUPS.map((g) => `<option value="${g}">${g}</option>`).join('')}
@@ -1753,6 +1785,17 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
   document.getElementById('wknew-back').onclick = () => onBack();
   const subSel = document.getElementById('wknew-sub');
   const sub2 = createSecondaryPicker(document.getElementById('wknew-sub2'), () => subSel.value, []);
+
+  // Library search-to-add (same flow as the program editor's form).
+  let libPick = null;
+  attachLibrarySearch(document.getElementById('wknew-name'), document.getElementById('wknew-suggest'), (r) => {
+    libPick = r;
+    document.getElementById('wknew-name').value = r.name;
+    document.getElementById('wknew-muscle').value = r.muscle_group;
+    subSel.innerHTML = subMuscleOptions(r.muscle_group, r.sub_muscle || '');
+    sub2.render();
+    document.getElementById('wknew-equipment').value = r.equipment;
+  });
   document.getElementById('wknew-muscle').onchange = (e) => {
     subSel.innerHTML = subMuscleOptions(e.target.value, '');
     sub2.render();
@@ -1769,8 +1812,14 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
     if (!repRange.ok) return toast(repRange.error);
     const notes = document.getElementById('wknew-notes').value.trim() || null;
     if (!name) return toast('Name required');
+    const fromLib = libPick && libPick.name === name ? libPick : null;
     try {
-      const ex = await API.addExercise({ name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes });
+      const ex = await API.addExercise({
+        name, muscle_group: muscle, sub_muscle, secondary_muscles, equipment,
+        rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes,
+        instructions: fromLib?.instructions || undefined,
+        weight_mode: fromLib?.unilateral ? 'per_arm' : undefined
+      });
       haptic(20);
       onCreated(ex);
     } catch (err) { toast(err.message); }

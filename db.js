@@ -332,6 +332,14 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE exercises ADD COLUMN rep_max INTEGER');
   }
 
+  // instructions: step-by-step how-to text, enriched from the vendored
+  // exercise library (see enrichInstructions below) or set at create time by
+  // the "search to add" flow. Long-form — deliberately NOT in SELECT_COLS
+  // (pickers don't need ~1KB per row); fetched on demand.
+  if (!columnExists('exercises', 'instructions')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN instructions TEXT');
+  }
+
   // workouts.exercise_list: JSON snapshot of the in-progress workout's exercise
   // list (after swaps/adds/removes/reorders). Mid-workout edits used to live
   // only in a localStorage draft — iOS evicting PWA storage (or opening the
@@ -693,6 +701,7 @@ function seed() {
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
   auditWeightModeCatalog();
+  enrichInstructions();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
   // NOTE: programs are no longer seeded globally here — each profile gets its
@@ -1003,6 +1012,28 @@ function auditWeightModeCatalog() {
       lower(name) LIKE '%unilateral%'`).run();
     setMeta(FLAG, '1');
   });
+}
+
+// One-time: attach step-by-step instructions from the vendored exercise
+// library to every exercise that matches by name (seeded AND custom). Only
+// fills rows whose instructions are NULL — never overwrites — and is
+// flag-guarded so it doesn't rescan on every boot. Unmatched names simply
+// stay without instructions.
+function enrichInstructions() {
+  const FLAG = 'exercise_instructions_v1';
+  if (getMeta(FLAG)) return;
+  const { instructionsFor } = require('./lib/exerciseLibrary');
+  const rows = db.prepare('SELECT id, name, equipment FROM exercises WHERE instructions IS NULL').all();
+  const set = db.prepare('UPDATE exercises SET instructions = ? WHERE id = ?');
+  let filled = 0;
+  tx(() => {
+    for (const r of rows) {
+      const text = instructionsFor(r.name, r.equipment);
+      if (text) { set.run(text.slice(0, 6000), r.id); filled++; }
+    }
+    setMeta(FLAG, '1');
+  });
+  if (filled) console.log(`exercise instructions: enriched ${filled}/${rows.length} from library`);
 }
 
 // One-time: set every program exercise's rep target to 8 to match the user's

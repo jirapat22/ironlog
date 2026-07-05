@@ -41,6 +41,23 @@ router.get('/', (req, res) => {
   res.json(rows.map(shapeExercise));
 });
 
+// Search the vendored exercise library (the "search to add" flow in the
+// new-exercise forms). Returns pre-mapped entries: name, muscle_group,
+// sub_muscle, equipment, unilateral, instructions.
+router.get('/library/search', (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json([]);
+  res.json(require('../lib/exerciseLibrary').search(q, 12));
+});
+
+// Single exercise incl. long-form fields (instructions) that the list
+// endpoints deliberately omit. Registered after the static routes above.
+router.get('/:id(\\d+)', (req, res) => {
+  const row = db.prepare(`SELECT ${SELECT_COLS}, instructions FROM exercises WHERE id = ?`).get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'exercise not found' });
+  res.json(shapeExercise(row));
+});
+
 // Usage stats — how many finished workouts each exercise appears in + last used
 router.get('/stats', (req, res) => {
   const rows = db.prepare(`
@@ -151,7 +168,7 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, rep_min, rep_max, weight_mode } = req.body || {};
+  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, rep_min, rep_max, weight_mode, instructions } = req.body || {};
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
@@ -177,10 +194,13 @@ router.post('/', (req, res) => {
   const mode = weight_mode === 'per_arm' || weight_mode === 'combined'
     ? weight_mode
     : (equip === 'dumbbell' ? 'per_arm' : 'combined');
+  const howTo = (typeof instructions === 'string' && instructions.trim())
+    ? instructions.trim().slice(0, 6000)
+    : null;
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, weight_mode, rep_min, rep_max, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(name.trim(), group, sub, secondary, notes || null, equip, mode, min.value, max.value, req.profileId);
+      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, weight_mode, rep_min, rep_max, instructions, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), group, sub, secondary, notes || null, equip, mode, min.value, max.value, howTo, req.profileId);
     const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(shapeExercise(row));
   } catch (err) {

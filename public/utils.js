@@ -130,6 +130,38 @@ function fmtDuration(startIso, endIso) {
   return `${mm}:${String(ss).padStart(2, '0')}`;
 }
 
+// Attach library-search suggestions to a new-exercise Name input: as the user
+// types, matching entries from the vendored exercise library appear below;
+// picking one prefills the form via onPick and returns the full entry
+// (instructions, unilateral flag) so the save handler can pass them along.
+// Shared by the program-editor and mid-workout new-exercise forms.
+function attachLibrarySearch(inputEl, containerEl, onPick) {
+  let timer = null;
+  let lastQuery = '';
+  inputEl.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = inputEl.value.trim();
+    if (q.length < 2) { containerEl.innerHTML = ''; return; }
+    timer = setTimeout(async () => {
+      lastQuery = q;
+      let results = [];
+      try { results = await API.searchExerciseLibrary(q); } catch { /* offline — no suggestions */ }
+      if (inputEl.value.trim() !== q || q !== lastQuery) return; // stale response
+      containerEl.innerHTML = results.slice(0, 6).map((r, i) => `
+        <button type="button" class="lib-suggest__row" data-lib-pick="${i}">
+          <span class="lib-suggest__name">${escapeHtml(r.name)}</span>
+          <span class="lib-suggest__meta">${escapeHtml(r.muscle_group)}${r.sub_muscle ? ` · ${escapeHtml(r.sub_muscle)}` : ''} · ${escapeHtml(r.equipment)}${r.unilateral ? ' · per side' : ''}</span>
+        </button>`).join('');
+      containerEl.onclick = (e) => {
+        const btn = e.target.closest('[data-lib-pick]');
+        if (!btn) return;
+        containerEl.innerHTML = '';
+        onPick(results[Number(btn.dataset.libPick)]);
+      };
+    }, 250);
+  });
+}
+
 // Read + validate the optional "target rep range" pair of inputs shared by
 // the exercise create/edit forms. Empty fields mean "no bound".
 function readRepRangeInputs(rootEl, minSel, maxSel) {
@@ -700,7 +732,7 @@ function isStandalone() {
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
-  stepForExercise, readRepRangeInputs, skeletonBlocks, showPRFlash,
+  stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fmtSetWeight, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
