@@ -138,6 +138,16 @@ function muscleTagHTML(group, sub) {
   return `<span class="badge badge--mg mg-${g}">${escapeHtml(group || '')}${sub ? ` · ${escapeHtml(sub)}` : ''}</span>`;
 }
 
+// Sub-muscle-only chip, same tinted style/color as muscleTagHTML but without
+// repeating the group name — for sectioned views where a group header is
+// already shown once and each sub-muscle just needs its own small label
+// underneath it (e.g. Progressive Overload's LEGS -> QUADS -> exercises).
+// `sub` may be null (whole-muscle movement); label falls back to "General".
+function subMuscleTagHTML(group, sub) {
+  const g = PICKER_GROUP_ORDER.includes(group) ? group : 'other';
+  return `<span class="badge badge--mg mg-${g}">${escapeHtml(sub || 'General')}</span>`;
+}
+
 // Attach library-search suggestions to a new-exercise Name input: as the user
 // types, matching entries from the vendored exercise library appear below;
 // picking one prefills the form via onPick and returns the full entry
@@ -912,7 +922,7 @@ export {
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
-  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML,
+  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,
   isIOS, isStandalone

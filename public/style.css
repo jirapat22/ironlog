@@ -2743,15 +2743,35 @@ button {
   border-top: none;
 }
 
-.overload-group__name {
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 8px;
-  color: var(--accent);
+/* Group header is the standard colored muscle chip; sub-muscle sections below
+   it get their own smaller chip so each lift sits under General/Quads/etc
+   instead of one flat alphabetical list per muscle group. */
+.overload-group .badge--mg {
+  display: block;
+  width: fit-content;
+  margin-bottom: 10px;
+}
+
+.overload-subgroup {
+  margin-bottom: 16px;
+}
+
+.overload-subgroup:last-of-type {
+  margin-bottom: 0;
+}
+
+.overload-subgroup .badge--mg {
+  display: block;
+  width: fit-content;
+  font-size: 9px;
+  padding: 2px 8px;
+  margin: 0 0 8px 4px;
+  opacity: 0.85;
 }
 
 .overload-exercise {
   margin-bottom: 18px;
+  padding-left: 4px;
 }
 
 .overload-exercise:last-of-type {

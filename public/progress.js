@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER } from './utils.js';
+import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML } from './utils.js';
 import { API } from './api.js';
 import { assert } from './bugreport.js';
 
@@ -669,19 +669,45 @@ async function renderOverloadCharts() {
     const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift. Tap a lift to see its full history. Swapped between equivalent exercises (e.g. machine availability)? They're combined into one trend here.</div>`;
 
     root.innerHTML = subtitle + groupOrder.map((group) => {
-      const movements = [...byGroup.get(group)].sort((a, b) => a.title.localeCompare(b.title));
+      // Section by sub-muscle within the group — "General <group>" (no
+      // specific sub-muscle) first, then the group's canonical sub-muscle
+      // order, so e.g. Legs reads General -> Quads -> Hamstrings -> Glutes...
+      // rather than one flat alphabetical list of exercises.
+      const bySub = new Map();
+      for (const s of byGroup.get(group)) {
+        const subKey = s.sub_muscle || '';
+        if (!bySub.has(subKey)) bySub.set(subKey, []);
+        bySub.get(subKey).push(s);
+      }
+      const canonicalSubs = SUB_MUSCLES[group] || [];
+      const subOrder = [...bySub.keys()].sort((a, b) => {
+        if (a === '') return -1;
+        if (b === '') return 1;
+        const ia = canonicalSubs.indexOf(a), ib = canonicalSubs.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b);
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+
       return `<div class="overload-group">
-        <div class="overload-group__name">${escapeHtml(group)}</div>
-        ${movements.map((s) => `
-          <div class="overload-exercise">
-            <div class="overload-exercise__name" data-movement-detail="${s.key}" role="button" tabindex="0">
-              ${escapeHtml(s.title)}
-              ${s.contributors.length > 1 ? `<span class="overload-exercise__sub">${s.contributors.map((c) => escapeHtml(c.exercise_name)).join(' + ')}</span>` : ''}
-              ${s.plateau ? '<span class="overload-plateau-badge">Plateau</span>' : ''}
-            </div>
-            <div class="overload-chart-wrap"><canvas id="overload-chart-${s.key}"></canvas></div>
-            ${s.plateau ? `<div class="overload-plateau-tip">No new high in 3 sessions — train <strong>${escapeHtml(s.sub_muscle || s.muscle_group)}</strong> more often to break the stall.</div>` : ''}
-          </div>`).join('')}
+        ${muscleTagHTML(group)}
+        ${subOrder.map((subKey) => {
+          const movements = [...bySub.get(subKey)].sort((a, b) => a.title.localeCompare(b.title));
+          return `<div class="overload-subgroup">
+            ${subMuscleTagHTML(group, subKey || null)}
+            ${movements.map((s) => `
+              <div class="overload-exercise">
+                <div class="overload-exercise__name" data-movement-detail="${s.key}" role="button" tabindex="0">
+                  ${escapeHtml(s.title)}
+                  ${s.contributors.length > 1 ? `<span class="overload-exercise__sub">${s.contributors.map((c) => escapeHtml(c.exercise_name)).join(' + ')}</span>` : ''}
+                  ${s.plateau ? '<span class="overload-plateau-badge">Plateau</span>' : ''}
+                </div>
+                <div class="overload-chart-wrap"><canvas id="overload-chart-${s.key}"></canvas></div>
+                ${s.plateau ? `<div class="overload-plateau-tip">No new high in 3 sessions — train <strong>${escapeHtml(s.sub_muscle || s.muscle_group)}</strong> more often to break the stall.</div>` : ''}
+              </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>`;
     }).join('');
 
