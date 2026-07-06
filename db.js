@@ -710,6 +710,7 @@ function seed() {
   auditWeightModeCatalog();
   backfillLoadMultiplier();
   enrichInstructions();
+  mergeLegCurlIntoSeated();
   sweepStaleWorkouts();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
@@ -959,6 +960,59 @@ function recalcAllCalories() {
     }
     setMeta(FLAG, '1');
   });
+}
+
+// One-time, user-requested: "Leg Curl" and "Seated Leg Curl" were logged as
+// separate exercises but the user wants them treated as one going forward.
+// Seated Leg Curl survives; Leg Curl's sets, program-day slots, and any
+// customization it had (rep range, instructions, step, notes) merge into it,
+// then Leg Curl is deleted. No-op if either name is missing (already merged,
+// or a fresh DB that never had "Leg Curl" at all).
+function mergeLegCurlIntoSeated() {
+  const FLAG = 'merge_leg_curl_into_seated_v1';
+  if (getMeta(FLAG)) return;
+  const loser = db.prepare('SELECT * FROM exercises WHERE name = ?').get('Leg Curl');
+  const survivor = db.prepare('SELECT * FROM exercises WHERE name = ?').get('Seated Leg Curl');
+  if (!loser || !survivor) { setMeta(FLAG, '1'); return; }
+
+  // recomputePrsForExercise wraps its own tx() (not reentrant), so it must run
+  // AFTER this transaction commits, not inside it.
+  let profilesToRecompute = [];
+  tx(() => {
+    // Carry over customization the survivor doesn't already have — a blank
+    // rep range/instructions/step/notes on the keeper shouldn't silently
+    // discard something the user set on the exercise being removed.
+    const fields = ['rep_min', 'rep_max', 'instructions', 'step_override', 'notes'];
+    const fill = fields.filter((f) => survivor[f] == null && loser[f] != null);
+    if (fill.length) {
+      db.prepare(`UPDATE exercises SET ${fill.map((f) => `${f} = ?`).join(', ')} WHERE id = ?`)
+        .run(...fill.map((f) => loser[f]), survivor.id);
+    }
+
+    db.prepare('UPDATE sets SET exercise_id = ? WHERE exercise_id = ?').run(survivor.id, loser.id);
+
+    // A program day can't hold both (unique program_day_id+exercise_id) — drop
+    // the Leg Curl slot where the day already has Seated Leg Curl, otherwise
+    // just repoint it.
+    const loserSlots = db.prepare('SELECT id, program_day_id FROM program_day_exercises WHERE exercise_id = ?').all(loser.id);
+    for (const slot of loserSlots) {
+      const clash = db.prepare('SELECT 1 FROM program_day_exercises WHERE program_day_id = ? AND exercise_id = ?').get(slot.program_day_id, survivor.id);
+      if (clash) db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(slot.id);
+      else db.prepare('UPDATE program_day_exercises SET exercise_id = ? WHERE id = ?').run(survivor.id, slot.id);
+    }
+
+    // Clear PRs for both — rebuilt fresh below rather than reconciling two
+    // existing rows per rep count (personal_records is UNIQUE per
+    // profile+exercise+reps, so a naive reassign could collide anyway).
+    db.prepare('DELETE FROM personal_records WHERE exercise_id IN (?, ?)').run(loser.id, survivor.id);
+    profilesToRecompute = db.prepare('SELECT DISTINCT profile_id FROM sets WHERE exercise_id = ?').all(survivor.id).map((r) => r.profile_id);
+
+    db.prepare('DELETE FROM exercises WHERE id = ?').run(loser.id);
+    setMeta(FLAG, '1');
+  });
+
+  const { recomputePrsForExercise } = require('./pr'); // lazy: pr.js requires db.js at its top
+  for (const profileId of profilesToRecompute) recomputePrsForExercise(profileId, survivor.id);
 }
 
 // One-time: backfill load_multiplier for sets logged before the snapshot
