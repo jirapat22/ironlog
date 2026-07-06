@@ -3262,8 +3262,9 @@ button {
 .history-card__head {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
   padding: 14px 16px;
   text-align: left;
 }
@@ -3283,6 +3284,13 @@ button {
   font-size: 12px;
   color: var(--text-dim);
   text-align: right;
+  /* A workout spanning several muscle groups now shows one colored chip per
+     group (wrapping onto multiple lines on narrow phones), which grows the
+     left column tall. Without these, the flex row squeezed this column's
+     width down to fit, wrapping "3 sets" into "3" / "sets" and "1,800 kg"
+     into "1,800" / "kg" — reported as the stats layout looking broken. */
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .history-card__body {
