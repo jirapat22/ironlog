@@ -1579,7 +1579,7 @@ async function finishWorkout() {
       if (s.is_warmup) return acc;
       const kg = s.is_bodyweight
         ? toKg(s.weight, s.weight_unit) + (userBwKg || 0)
-        : toKg(s.weight, s.weight_unit) * (s.weight_mode === 'per_arm' ? 2 : 1);
+        : toKg(s.weight, s.weight_unit) * (s.load_multiplier ?? (s.weight_mode === 'per_arm' ? 2 : 1));
       return acc + kg * s.reps;
     }, 0);
 

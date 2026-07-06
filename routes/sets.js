@@ -106,15 +106,19 @@ router.post('/', (req, res) => {
 
   // Validate that the exercise exists (prevents dangling foreign keys and
   // phantom PR records from attacker-supplied exercise IDs).
-  const exercise = db.prepare('SELECT id FROM exercises WHERE id = ?').get(Number(exercise_id));
+  const exercise = db.prepare('SELECT id, weight_mode FROM exercises WHERE id = ?').get(Number(exercise_id));
   if (!exercise) return res.status(404).json({ error: 'exercise not found' });
+
+  // Snapshot the per-arm factor at log time — flipping the exercise's
+  // weight_mode later must not rewrite this set's meaning.
+  const loadMultiplier = exercise.weight_mode === 'per_arm' ? 2 : 1;
 
   const info = db
     .prepare(
-      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup, load_multiplier)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, nRpe, nRir, notes, is_warmup ? 1 : 0);
+    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
   const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps);

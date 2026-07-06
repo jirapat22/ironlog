@@ -40,17 +40,16 @@ function columnExists(table, column) {
 }
 
 // Shared SQL fragment for one set's effective load in kg: converts lbs to kg,
-// then doubles it when the exercise is marked 'per_arm' — the logged number is
-// what ONE side lifts (a dumbbell per hand, a single-arm cable pushdown, a
-// single-leg press) and both sides do the work. 'combined' means the number is
-// already the full load. Equipment-agnostic on purpose: unilateral work exists
-// on cables and machines too, not just dumbbells (a one-time migration below
-// resets non-dumbbell rows to 'combined' so the old dumbbell-only semantics
-// carry over unchanged). Multiply by reps for volume; callers exclude warmups.
+// then applies the per-arm doubling — the logged number is what ONE side
+// lifts (a dumbbell per hand, a single-arm cable pushdown) and both sides do
+// the work. The factor comes from the set's own load_multiplier SNAPSHOT
+// (taken at log time), so flipping an exercise's weight_mode never rewrites
+// history; the exercise-level CASE is only the fallback for rows that predate
+// the snapshot column. Multiply by reps for volume; callers exclude warmups.
 // Takes the sets/exercises table aliases since they vary across queries.
 function effectiveLoadKgSql(setsAlias = 's', exAlias = 'e') {
   return `(CASE WHEN ${setsAlias}.weight_unit = 'lbs' THEN ${setsAlias}.weight * 0.45359237 ELSE ${setsAlias}.weight END)
-    * (CASE WHEN ${exAlias}.weight_mode = 'per_arm' THEN 2 ELSE 1 END)`;
+    * COALESCE(${setsAlias}.load_multiplier, CASE WHEN ${exAlias}.weight_mode = 'per_arm' THEN 2 ELSE 1 END)`;
 }
 
 function init() {
@@ -338,6 +337,14 @@ function migrateMultiUser() {
   // (pickers don't need ~1KB per row); fetched on demand.
   if (!columnExists('exercises', 'instructions')) {
     db.exec('ALTER TABLE exercises ADD COLUMN instructions TEXT');
+  }
+
+  // sets.load_multiplier: the per-arm doubling factor SNAPSHOTTED at log time
+  // (2 when the exercise was per_arm, else 1). The exercise-level weight_mode
+  // alone rewrote history — marking an exercise per-arm retroactively doubled
+  // every old set's volume. With the snapshot, flips only affect future sets.
+  if (!columnExists('sets', 'load_multiplier')) {
+    db.exec('ALTER TABLE sets ADD COLUMN load_multiplier INTEGER');
   }
 
   // workouts.exercise_list: JSON snapshot of the in-progress workout's exercise
@@ -701,6 +708,7 @@ function seed() {
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
   auditWeightModeCatalog();
+  backfillLoadMultiplier();
   enrichInstructions();
   sweepStaleWorkouts();
   cleanupRemovedPrograms();
@@ -949,6 +957,28 @@ function recalcAllCalories() {
       const cal = caloriesFromSets(setStmt.all(w.id), w.bw_kg);
       if (cal != null) upd.run(cal, w.id);
     }
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time: backfill load_multiplier for sets logged before the snapshot
+// existed, using the ORIGINAL volume rule (only dumbbell per-arm exercises
+// ever doubled back then) — NOT the current weight_mode, which would re-double
+// history for exercises later marked per-arm (the exact complaint: a custom
+// single-arm pushdown's old sets suddenly counted 2x). Old sets keep the
+// meaning they had when logged; only sets logged from now on snapshot the
+// live mode.
+function backfillLoadMultiplier() {
+  const FLAG = 'load_multiplier_backfill_v1';
+  if (getMeta(FLAG)) return;
+  tx(() => {
+    db.prepare(`
+      UPDATE sets SET load_multiplier = (
+        SELECT CASE WHEN e.equipment = 'dumbbell' AND e.weight_mode != 'combined' THEN 2 ELSE 1 END
+        FROM exercises e WHERE e.id = sets.exercise_id
+      )
+      WHERE load_multiplier IS NULL
+    `).run();
     setMeta(FLAG, '1');
   });
 }

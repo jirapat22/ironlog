@@ -338,19 +338,50 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     rafId = requestAnimationFrame(autoScrollStep);
   };
 
+  // Single exit point for every way a drag can end — pointerup, pointercancel,
+  // lostpointercapture (fires even when iOS kills the gesture without any
+  // up/cancel event, e.g. a system swipe or the row leaving the DOM), or a
+  // stale takeover from onDown. Idempotent; commit=false just restores state.
+  const endDrag = (commit) => {
+    if (!drag) return;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    const { row, origOrder } = drag;
+    drag = null;
+    row.classList.remove(draggingClass);
+    row.style.transform = '';
+    row.style.zIndex = '';
+    if (!commit) {
+      // applyReorder moves rows live during the drag — an uncommitted drag
+      // must roll the DOM back or the visible order diverges from the saved one.
+      for (const id of origOrder) {
+        const el = [...container.children].find((r) => r.dataset[idKey] === id);
+        if (el) container.appendChild(el);
+      }
+      return;
+    }
+    const newOrder = [...container.children].map((r) => r.dataset[idKey]);
+    if (newOrder.some((id, i) => id !== origOrder[i])) {
+      // Suppress the synthetic click that fires after pointerup so it can't
+      // accidentally hit a button (e.g. "Done with this exercise") at the drop position.
+      container.addEventListener('click', (ev) => ev.stopPropagation(), { once: true, capture: true });
+      onDrop(newOrder);
+    }
+  };
+
   const onDown = (e) => {
     const handle = e.target.closest('[data-drag-handle]');
     if (!handle) return;
     const row = handle.closest(rowSel);
     if (!row || !container.contains(row)) return;
-    // A second touch mid-drag (other finger, palm graze) must not start a new
-    // drag — it used to overwrite `drag`, orphaning the first row in its
-    // dragging state forever (pointerup no longer matched its pointerId).
-    // A drag whose row left the DOM (re-render) is stale — discard it.
     if (drag) {
-      if (drag.row.isConnected) return;
-      drag.row.classList.remove(draggingClass);
-      drag = null;
+      // A second touch during a LIVE drag (other finger, palm graze) must not
+      // steal it. But a drag whose pointer silently died (row re-rendered
+      // away, or no pointer event for a while — iOS sometimes drops a gesture
+      // with no up/cancel) is stale: blocking on it forever was itself the
+      // "perma-drag, need to restart the app" bug. Reset it and start fresh.
+      const stale = !drag.row.isConnected || Date.now() - drag.lastEventAt > 1500;
+      if (!stale) return;
+      endDrag(false);
     }
     e.preventDefault();
     drag = {
@@ -358,10 +389,15 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
       pointerId: e.pointerId,
       startY: e.clientY,
       lastClientY: e.clientY,
+      lastEventAt: Date.now(),
       origOrder: [...container.children].map((r) => r.dataset[idKey])
     };
     row.classList.add(draggingClass);
     try { row.setPointerCapture(e.pointerId); } catch {}
+    // Fires on ANY loss of capture — including paths where no pointerup or
+    // pointercancel ever arrives. By then a normal drop has already set
+    // drag=null, making this a no-op; otherwise it rescues the stuck state.
+    row.addEventListener('lostpointercapture', () => endDrag(false), { once: true });
     haptic(15);
     if (!rafId) rafId = requestAnimationFrame(autoScrollStep);
   };
@@ -370,33 +406,26 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     if (!drag || e.pointerId !== drag.pointerId) return;
     e.preventDefault();
     drag.lastClientY = e.clientY;
+    drag.lastEventAt = Date.now();
     drag.row.style.transform = `translateY(${e.clientY - drag.startY}px)`;
     drag.row.style.zIndex = '10';
     applyReorder(e.clientY);
   };
 
-  const onUp = async (e) => {
+  const onUp = (e) => {
     if (!drag || e.pointerId !== drag.pointerId) return;
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-    const row = drag.row;
-    row.classList.remove(draggingClass);
-    row.style.transform = '';
-    row.style.zIndex = '';
-    const newOrder = [...container.children].map((r) => r.dataset[idKey]);
-    const moved = newOrder.some((id, i) => id !== drag.origOrder[i]);
-    drag = null;
-    if (moved) {
-      // Suppress the synthetic click that fires after pointerup so it can't
-      // accidentally hit a button (e.g. "Done with this exercise") at the drop position.
-      container.addEventListener('click', (ev) => ev.stopPropagation(), { once: true, capture: true });
-      await onDrop(newOrder);
-    }
+    endDrag(true);
+  };
+
+  const onCancel = (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    endDrag(false);
   };
 
   container.addEventListener('pointerdown', onDown);
   container.addEventListener('pointermove', onMove);
   container.addEventListener('pointerup', onUp);
-  container.addEventListener('pointercancel', onUp);
+  container.addEventListener('pointercancel', onCancel);
 }
 
 // ---------- In-app prompt (replaces window.prompt) ----------
