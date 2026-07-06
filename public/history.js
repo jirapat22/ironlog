@@ -181,10 +181,17 @@ async function renderHistory() {
   }
 }
 
-async function loadHistoryCardBody(card) {
+// showSkeleton=false is for refreshing an ALREADY-rendered card (e.g. right
+// after saving an edited set): collapsing it to an 80px skeleton first, then
+// back to full height once the re-fetch resolves, shrank-then-regrew the
+// card in place — everything below it jumped up and then snapped back down,
+// reported as the page "pushing downward" right when an edit finished. Keep
+// the existing (already correctly-sized) content on screen until the fresh
+// content is ready, so there's one direct height change instead of two.
+async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
   const id = Number(card.dataset.id);
   const body = card.querySelector('.history-card__body');
-  body.innerHTML = `<div class="skeleton" style="height:80px"></div>`;
+  if (showSkeleton) body.innerHTML = `<div class="skeleton" style="height:80px"></div>`;
   try {
     const [sets, workout] = await Promise.all([API.workoutSets(id), API.workout(id)]);
 
@@ -304,7 +311,7 @@ async function refreshHistoryCard(workoutId) {
     }
     const stats = card.querySelector('.history-card__stats');
     if (stats) stats.innerHTML = `${w.total_sets} sets<br/>${Math.round(w.total_volume).toLocaleString()} kg`;
-    if (wasExpanded) { card.dataset.loaded = ''; await loadHistoryCardBody(card); }
+    if (wasExpanded) { card.dataset.loaded = ''; await loadHistoryCardBody(card, { showSkeleton: false }); }
   } catch (err) { toast(err.message); }
 }
 
