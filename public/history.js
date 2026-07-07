@@ -26,8 +26,10 @@ async function renderHistory() {
       const f = list.dataset.filter;
       [...list.querySelectorAll('.history-card')].forEach((card) => {
         if (!f) { card.classList.remove('hidden'); return; }
+        // Names are on every card up front now, so a non-match can be hidden
+        // outright (including activity cards, which have none).
         const hay = card.dataset.exerciseNames || '';
-        card.classList.toggle('hidden', hay && !hay.includes(f));
+        card.classList.toggle('hidden', !hay.includes(f));
       });
     };
 
@@ -322,6 +324,10 @@ const ACTIVITY_LABELS = {
 
 function historyCardHTML(w) {
   const started = new Date(w.started_at.replace(' ', 'T') + 'Z');
+  // Lowercased, pipe-joined exercise names for the "filter by exercise" box —
+  // set on the card up front so COLLAPSED cards filter too (they used to only
+  // get this after being expanded, which is why the filter did nothing).
+  const exAttr = `data-exercise-names="${escapeHtml((w.exercise_names || '').toLowerCase())}"`;
 
   if (w.kind === 'activity') {
     const label = ACTIVITY_LABELS[w.activity_type] || 'Activity';
@@ -331,7 +337,7 @@ function historyCardHTML(w) {
     const dist = w.distance ? ` · ${w.distance}${w.distance_unit || ''}` : '';
     const meta = `${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${w.duration_min || 0}m${w.rpe ? ` · RPE ${w.rpe}` : ''}${dist}`;
     return `
-      <div class="history-card history-card--activity" data-id="${w.id}">
+      <div class="history-card history-card--activity" data-id="${w.id}" ${exAttr}>
         <button class="history-card__head">
           <div>
             <div class="history-card__title">${escapeHtml(label)} <span class="history-card__kind">activity</span></div>
@@ -370,7 +376,7 @@ function historyCardHTML(w) {
     `<span class="badge badge--mg mg-${PICKER_GROUP_ORDER.includes(g) ? g : 'other'}">${escapeHtml(g)}${subs.size ? ' · ' + [...subs].map(escapeHtml).join(' · ') : ''}</span>`
   ).join('');
   return `
-    <div class="history-card" data-id="${w.id}">
+    <div class="history-card" data-id="${w.id}" ${exAttr}>
       <button class="history-card__head">
         <div>
           <div class="history-card__title">${escapeHtml(w.day_label || 'Workout')}</div>

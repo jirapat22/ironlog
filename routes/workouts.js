@@ -129,7 +129,17 @@ router.get('/history', (req, res) => {
                  FROM sets s2
                  JOIN exercises e ON e.id = s2.exercise_id
                  WHERE s2.workout_id = w.id
-              )) as muscle_subs
+              )) as muscle_subs,
+              -- Exercise names for the client-side "filter by exercise" box.
+              -- Needs to be here so a COLLAPSED card can be filtered without
+              -- first loading its body (which is where the per-exercise names
+              -- otherwise only become known).
+              (SELECT GROUP_CONCAT(nm, '|') FROM (
+                 SELECT DISTINCT e.name as nm
+                 FROM sets s2
+                 JOIN exercises e ON e.id = s2.exercise_id
+                 WHERE s2.workout_id = w.id
+              )) as exercise_names
        FROM workouts w
        LEFT JOIN program_days pd ON pd.id = w.program_day_id
        LEFT JOIN programs p ON p.id = pd.program_id
