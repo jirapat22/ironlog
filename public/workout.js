@@ -1577,8 +1577,13 @@ async function finishWorkout() {
     const sets = await API.workoutSets(id);
     const totalVolume = sets.reduce((acc, s) => {
       if (s.is_warmup) return acc;
+      // Bodyweight/assisted go through loadKg (the same helper e1RM uses) so an
+      // assisted lift subtracts the assistance instead of adding it — the old
+      // inline calc treated assisted as is_bodyweight and ADDED the assistance,
+      // inflating the finish-summary volume and disagreeing with History. Only
+      // weighted sets take the per-arm multiplier (bodyweight isn't per-arm).
       const kg = s.is_bodyweight
-        ? toKg(s.weight, s.weight_unit) + (userBwKg || 0)
+        ? loadKg(s, s)
         : toKg(s.weight, s.weight_unit) * (s.load_multiplier ?? (s.weight_mode === 'per_arm' ? 2 : 1));
       return acc + kg * s.reps;
     }, 0);
