@@ -277,29 +277,41 @@ function fmtSetWeight(weight, unit, isBw, isAssisted) {
 // gesture, e.g. the set-edit form) can "leak" past the sheet's own scroll and
 // drag the page underneath — reported as the background jerking downward
 // while editing a set. Locking body scroll for the duration removes anything
-// for that leak to scroll. Counted (not boolean) because sheets stack
-// (confirmSheet/promptSheet open on top of another open sheet).
-let openSheetCount = 0;
+// for that leak to scroll.
+//
+// Tracked as a Set of open sheet ELEMENTS, not a raw counter: several flows
+// re-render an already-open sheet in place (the swap/add/program pickers and
+// the Settings exercise library call their own open* function again on a
+// "back" tap, re-running showSheet on the same element). A raw counter
+// double-incremented on those re-shows and never returned to zero, leaving
+// the body position:fixed forever — the whole app became unscrollable after
+// visiting a picker's "+ new exercise" and backing out. Keying on the element
+// makes showSheet idempotent: re-showing a sheet already tracked is a no-op
+// for the lock. Distinct sheets (confirm/prompt open on top of another) are
+// separate Set members, so stacking still holds the lock until all close.
+const openSheets = new Set();
 let lockedScrollY = 0;
 
 function showSheet(el) {
   el.classList.remove('hidden');
   requestAnimationFrame(() => el.classList.add('open'));
-  if (openSheetCount === 0) {
+  if (openSheets.has(el)) return; // already open (re-render / back-nav) — don't re-lock
+  if (openSheets.size === 0) {
     lockedScrollY = window.scrollY;
     document.body.style.position = 'fixed';
     document.body.style.top = `-${lockedScrollY}px`;
     document.body.style.left = '0';
     document.body.style.right = '0';
   }
-  openSheetCount++;
+  openSheets.add(el);
 }
 
 function hideSheet(el) {
   el.classList.remove('open');
   setTimeout(() => el.classList.add('hidden'), 180);
-  openSheetCount = Math.max(0, openSheetCount - 1);
-  if (openSheetCount === 0) {
+  if (!openSheets.has(el)) return; // already closed / never tracked
+  openSheets.delete(el);
+  if (openSheets.size === 0) {
     document.body.style.position = '';
     document.body.style.top = '';
     document.body.style.left = '';
