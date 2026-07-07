@@ -40,17 +40,25 @@ router.post('/', (req, res) => {
     // (matched by name, case-insensitive). The exercise catalog is shared
     // across profiles, so this just tops up missing entries.
     const insExercise = db.prepare(
-      `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment, weight_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
     for (const e of exercises) {
+      const equipment = e.equipment || 'barbell';
       const r = insExercise.run(
         e.name,
         e.muscle_group || 'chest',
         e.notes ?? null,
         e.is_bodyweight ? 1 : 0,
         e.is_assisted ? 1 : 0,
-        e.equipment || 'barbell'
+        equipment,
+        // Default weight_mode by equipment, matching the create API — the
+        // exercises column defaults to 'per_arm', which would double the
+        // volume of an imported non-dumbbell exercise (the reset migration
+        // that fixes seeded rows is flag-gated and won't re-run for imports).
+        e.weight_mode === 'per_arm' || e.weight_mode === 'combined'
+          ? e.weight_mode
+          : (equipment === 'dumbbell' ? 'per_arm' : 'combined')
       );
       if (r.changes) importedExercises++;
     }

@@ -52,6 +52,29 @@ function effectiveLoadKgSql(setsAlias = 's', exAlias = 'e') {
     * COALESCE(${setsAlias}.load_multiplier, CASE WHEN ${exAlias}.weight_mode = 'per_arm' THEN 2 ELSE 1 END)`;
 }
 
+// One set's effective VOLUME load in kg — the single source of truth every
+// server volume query shares (history card totals, weekly volume, sub-muscle
+// frequency), so those three can never disagree again. Extends
+// effectiveLoadKgSql with the bodyweight cases the plain fragment can't do
+// (it has no access to the workout's bodyweight snapshot):
+//   • assisted bodyweight → the machine offsets bodyweight, so effective load
+//     is bodyweight − assistance (clamped at 0);
+//   • plain bodyweight     → bodyweight + any added weight;
+//   • everything else      → the per-arm-aware weighted load.
+// Needs the WORKOUT alias for bw_kg; the bodyweight arms fall through to the
+// weighted branch when bw_kg is NULL (in-progress workout, no snapshot yet).
+// Multiply by reps for volume; callers still exclude warmups themselves.
+function effectiveVolumeLoadKgSql(setsAlias = 's', exAlias = 'e', workoutAlias = 'w') {
+  const kg = `(CASE WHEN ${setsAlias}.weight_unit = 'lbs' THEN ${setsAlias}.weight * 0.45359237 ELSE ${setsAlias}.weight END)`;
+  return `CASE
+    WHEN ${exAlias}.is_bodyweight = 1 AND ${exAlias}.is_assisted = 1 AND ${workoutAlias}.bw_kg IS NOT NULL
+      THEN MAX(0, ${workoutAlias}.bw_kg - ${kg})
+    WHEN ${exAlias}.is_bodyweight = 1 AND ${workoutAlias}.bw_kg IS NOT NULL
+      THEN ${workoutAlias}.bw_kg + ${kg}
+    ELSE ${effectiveLoadKgSql(setsAlias, exAlias)}
+  END`;
+}
+
 function init() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS profiles (
@@ -969,11 +992,18 @@ function recalcAllCalories() {
 // then Leg Curl is deleted. No-op if either name is missing (already merged,
 // or a fresh DB that never had "Leg Curl" at all).
 function mergeLegCurlIntoSeated() {
-  const FLAG = 'merge_leg_curl_into_seated_v1';
+  // v2: match on a trimmed, case-insensitive EXACT name so a stray space or
+  // casing ("Leg Curl ", "leg curl") still merges — but "Lying Leg Curl" is a
+  // distinct exercise and must NOT be swept in, so this stays an exact match,
+  // not a LIKE. Flag bumped from v1 so it retries once for any DB where the
+  // stricter v1 already no-op'd on a near-miss name (already-merged DBs just
+  // find no "Leg Curl" and no-op cleanly).
+  const FLAG = 'merge_leg_curl_into_seated_v2';
   if (getMeta(FLAG)) return;
-  const loser = db.prepare('SELECT * FROM exercises WHERE name = ?').get('Leg Curl');
-  const survivor = db.prepare('SELECT * FROM exercises WHERE name = ?').get('Seated Leg Curl');
-  if (!loser || !survivor) { setMeta(FLAG, '1'); return; }
+  const byNorm = (n) => db.prepare("SELECT * FROM exercises WHERE TRIM(LOWER(name)) = ?").get(n);
+  const loser = byNorm('leg curl');
+  const survivor = byNorm('seated leg curl');
+  if (!loser || !survivor || loser.id === survivor.id) { setMeta(FLAG, '1'); return; }
 
   // recomputePrsForExercise wraps its own tx() (not reentrant), so it must run
   // AFTER this transaction commits, not inside it.
@@ -1399,5 +1429,5 @@ function seedDefaultPrograms(profileId) {
 
 module.exports = {
   db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP,
-  MUSCLE_GROUPS, effectiveLoadKgSql
+  MUSCLE_GROUPS, effectiveLoadKgSql, effectiveVolumeLoadKgSql
 };

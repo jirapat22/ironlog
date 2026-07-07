@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, effectiveLoadKgSql } = require('../db');
+const { db, effectiveVolumeLoadKgSql } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
@@ -107,17 +107,9 @@ router.get('/history', (req, res) => {
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
-              COALESCE(SUM(CASE WHEN s.is_warmup = 0 THEN
-                CASE
-                  WHEN ex.is_bodyweight = 1 AND ex.is_assisted = 1 AND w.bw_kg IS NOT NULL
-                    THEN CASE WHEN w.bw_kg - (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END) < 0
-                              THEN 0
-                              ELSE (w.bw_kg - (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END)) * s.reps END
-                  WHEN ex.is_bodyweight = 1 AND w.bw_kg IS NOT NULL
-                    THEN (w.bw_kg + (CASE WHEN s.weight_unit='lbs' THEN s.weight*0.45359237 ELSE s.weight END)) * s.reps
-                  ELSE ${effectiveLoadKgSql('s', 'ex')} * s.reps
-                END
-              ELSE 0 END), 0) as total_volume,
+              COALESCE(SUM(CASE WHEN s.is_warmup = 0
+                THEN ${effectiveVolumeLoadKgSql('s', 'ex', 'w')} * s.reps
+                ELSE 0 END), 0) as total_volume,
               (SELECT GROUP_CONCAT(g, ',') FROM (
                  SELECT DISTINCT e.muscle_group as g
                  FROM sets s2

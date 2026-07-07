@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, REGION_TO_GROUP, effectiveLoadKgSql } = require('../db');
+const { db, REGION_TO_GROUP, effectiveVolumeLoadKgSql } = require('../db');
 
 const router = express.Router();
 
@@ -43,10 +43,11 @@ router.get('/volume/weekly', (req, res) => {
       `SELECT
          strftime('%Y-%W', s.logged_at) as week,
          e.muscle_group,
-         SUM(CASE WHEN s.is_warmup = 0 THEN ${effectiveLoadKgSql('s', 'e')} * s.reps ELSE 0 END) as volume,
+         SUM(CASE WHEN s.is_warmup = 0 THEN ${effectiveVolumeLoadKgSql('s', 'e', 'w')} * s.reps ELSE 0 END) as volume,
          SUM(CASE WHEN s.is_warmup = 0 THEN 1 ELSE 0 END) as sets
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
+       JOIN workouts w ON w.id = s.workout_id
        WHERE s.profile_id = ?
        ${dateClause}
        GROUP BY week, e.muscle_group
@@ -115,7 +116,7 @@ router.get('/sub-muscle-frequency', (req, res) => {
             MAX(w.started_at) AS last_trained_at,
             COUNT(DISTINCT w.id) AS total_workouts,
             COALESCE(SUM(CASE WHEN s.is_warmup = 0
-              THEN ${effectiveLoadKgSql('s', 'e')} * s.reps
+              THEN ${effectiveVolumeLoadKgSql('s', 'e', 'w')} * s.reps
               ELSE 0 END), 0) AS volume_kg
      FROM sets s
      JOIN workouts  w ON w.id = s.workout_id AND w.finished_at IS NOT NULL
