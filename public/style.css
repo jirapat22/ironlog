@@ -297,6 +297,14 @@ button {
   letter-spacing: 0.04em;
 }
 .badge--weightmode:active { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+/* "total" state (combined) — the badge shows on every non-bodyweight exercise
+   now, so the common/default case is dimmed to a quiet neutral chip; only the
+   per-arm state keeps the accent so it stands out where it matters. */
+.badge--weightmode-off {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-dim);
+}
 
 /* Equipment picker options */
 .equip-option {
@@ -575,7 +583,11 @@ button {
 .sheet__inner {
   width: 100%;
   max-width: 720px;
+  /* Cap the height so a tall sheet's top never slides under the notch /
+     Dynamic Island — leave the top safe-area inset (plus a little) clear.
+     (92vh fallback for browsers without dvh / env().) */
   max-height: 92vh;
+  max-height: calc(100dvh - env(safe-area-inset-top) - 14px);
   background: var(--bg);
   border-top: 1px solid var(--border);
   border-radius: 18px 18px 0 0;
@@ -677,6 +689,9 @@ button {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
   background: var(--surface-2);
   transition: none !important;
+  /* Keep the browser from turning the in-progress drag into a page scroll if
+     pointer capture briefly drops during a DOM reorder. */
+  touch-action: none;
 }
 
 .edit-row__name {
@@ -1809,7 +1824,7 @@ button {
   flex-shrink: 0;
 }
 .exercise-card__drag:active { cursor: grabbing; background: var(--accent); color: #0c0c0c; }
-.exercise-card--dragging { opacity: 0.7; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.exercise-card--dragging { opacity: 0.7; box-shadow: 0 8px 24px rgba(0,0,0,0.4); touch-action: none; }
 
 .exercise-card--complete .exercise-card__head::after {
   content: '✓';

@@ -344,6 +344,15 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
   const HEADER = 64;
   const NAV = 72;
 
+  // Moving the dragged row in the DOM (insertBefore, below) RELEASES its
+  // pointer capture on iOS — after which touch events fall through to the page
+  // (scroll) and the gesture gets pointercancel'd, so the reorder "dragged but
+  // never swapped". Re-assert capture after every DOM move to keep the pointer
+  // bound to the row for the whole drag.
+  const recapture = () => {
+    if (drag) { try { drag.row.setPointerCapture(drag.pointerId); } catch { /* pointer already up */ } }
+  };
+
   // Move the dragged row to its correct slot for a given pointer Y. Shared by
   // pointer moves and the auto-scroll loop (so order keeps updating while the
   // finger is held still in an edge zone and the content scrolls underneath).
@@ -358,12 +367,14 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
         drag.row.style.transform = '';
         drag.startY = clientY;
         container.insertBefore(drag.row, sib);
+        recapture();
         return;
       }
       if (clientY > mid && rowBeforeSib) {
         drag.row.style.transform = '';
         drag.startY = clientY;
         container.insertBefore(drag.row, sib.nextSibling);
+        recapture();
         return;
       }
     }
@@ -444,10 +455,12 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     };
     row.classList.add(draggingClass);
     try { row.setPointerCapture(e.pointerId); } catch {}
-    // Fires on ANY loss of capture — including paths where no pointerup or
-    // pointercancel ever arrives. By then a normal drop has already set
-    // drag=null, making this a no-op; otherwise it rescues the stuck state.
-    row.addEventListener('lostpointercapture', () => endDrag(false), { once: true });
+    // NOTE: deliberately NO lostpointercapture->endDrag handler here. It used
+    // to "rescue" a stuck drag, but capture is lost on every in-drag DOM move
+    // (see recapture()), so that handler fired mid-drag and rolled the reorder
+    // back — the "dragged but doesn't swap" bug. A genuinely stuck drag (iOS
+    // killing the gesture with no up/cancel) is recovered by the stale-drag
+    // check in onDown instead.
     haptic(15);
     if (!rafId) rafId = requestAnimationFrame(autoScrollStep);
   };

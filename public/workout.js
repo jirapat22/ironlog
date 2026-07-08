@@ -577,7 +577,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
-          ${ex.equipment === 'dumbbell' || ex.weight_mode === 'per_arm' ? `<button class="badge badge--weightmode" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
+          ${!ex.is_bodyweight ? `<button class="badge badge--weightmode ${ex.weight_mode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
           ${muscleTagHTML(ex.muscle_group, ex.sub_muscle)}
         </div>
       </div>
