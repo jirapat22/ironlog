@@ -185,6 +185,14 @@ function localDateStr(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// A stored "YYYY-MM-DD HH:MM:SS" is UTC; bucket it by the user's LOCAL calendar
+// day (not the raw UTC date) so a morning session in +12/+13 doesn't land on
+// the previous day — matching how History and the calendar already group. This
+// is what makes "today" land on today in the strength charts.
+function loggedLocalDay(loggedAt) {
+  return localDateStr(new Date(loggedAt.replace(' ', 'T') + 'Z'));
+}
+
 // Group order + the sub-muscles we expect under each, so untrained regions show
 // up (not just ones that already have logged sets). Cloned from the canonical
 // SUB_MUSCLES (utils.js) because we augment it at runtime with any sub-muscle
@@ -582,7 +590,7 @@ async function renderOverloadCharts() {
       for (const s of ex.sets) {
         const val = calcE1RM(s, ex, bwKg);
         if (!val) continue; // skip sets that can't yield a real e1RM (e.g. unlogged-BW)
-        const day = s.logged_at.slice(0, 10);
+        const day = loggedLocalDay(s.logged_at);
         if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
       }
       const days = [...byDay.keys()].sort();
@@ -785,7 +793,7 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
     for (const s of sets) {
       const val = calcE1RM(s, exercise, bwKg);
       if (!val) continue;
-      const day = s.logged_at.slice(0, 10);
+      const day = loggedLocalDay(s.logged_at);
       if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
     }
     const days = [...byDay.keys()].sort();
@@ -1111,7 +1119,7 @@ function renderBwChart(rows) {
   if (!canvas) return;
   if (chartInstances.bw) chartInstances.bw.destroy();
   const chronological = [...rows].reverse();
-  const labels = chronological.map((r) => r.logged_at.slice(0, 10));
+  const labels = chronological.map((r) => loggedLocalDay(r.logged_at));
   const values = chronological.map((r) => Number((r.weight_unit === 'lbs' ? r.weight * 0.45359237 : r.weight).toFixed(1)));
   const d = chartDefaults();
   chartInstances.bw = new Chart(canvas, {
