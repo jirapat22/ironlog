@@ -176,6 +176,40 @@ function chartDefaults() {
   };
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// "2026-07-08" -> "8 Jul" — compact so several fit on a phone-width axis.
+function shortDateLabel(iso) {
+  const parts = String(iso).split('-');
+  if (parts.length !== 3) return iso;
+  return `${Number(parts[2])} ${MONTHS_SHORT[Number(parts[1]) - 1] || ''}`.trim();
+}
+
+// Chart.js category x-axis that ALWAYS labels the first and last points plus a
+// few evenly-spaced ones between, using the compact "8 Jul" format. Chart.js's
+// default autoSkip drops the last tick when it sits close to the previous one —
+// which hid the most recent session's date (a lift done today, a few days
+// after the prior session, showed no date and looked like the line ended
+// earlier). `d` = chartDefaults().
+function dateAxis(d) {
+  return {
+    ...d,
+    ticks: {
+      ...d.ticks,
+      autoSkip: false,
+      maxRotation: 0,
+      callback(value, index) {
+        const n = this.chart.data.labels.length;
+        const show = () => shortDateLabel(this.getLabelForValue(value));
+        // At most ~5 labels including first + last; keep the last (most recent)
+        // date always, and don't place an interior label right next to it.
+        if (index === 0 || index === n - 1) return show();
+        const step = Math.max(1, Math.ceil((n - 1) / 4));
+        return index % step === 0 && index < n - 1 - Math.ceil(step / 2) ? show() : '';
+      }
+    }
+  };
+}
+
 
 const MIN_WEEKLY_SESSIONS = 3;
 
@@ -747,7 +781,7 @@ function renderOverloadChart(s) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg` } } },
-      scales: { x: { ...d, ticks: { ...d.ticks, maxTicksLimit: 6 } }, y: { ...d, beginAtZero: false } }
+      scales: { x: dateAxis(d), y: { ...d, beginAtZero: false } }
     }
   });
 }
@@ -843,7 +877,7 @@ function renderExerciseDetailChart(days, values) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg` } } },
-      scales: { x: { ...d, ticks: { ...d.ticks, maxTicksLimit: 6 } }, y: { ...d, beginAtZero: false } }
+      scales: { x: dateAxis(d), y: { ...d, beginAtZero: false } }
     }
   });
 }
