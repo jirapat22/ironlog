@@ -985,29 +985,22 @@ function recalcAllCalories() {
   });
 }
 
-// One-time, user-requested: "Leg Curl" and "Seated Leg Curl" were logged as
-// separate exercises but the user wants them treated as one going forward.
-// Seated Leg Curl survives; Leg Curl's sets, program-day slots, and any
-// customization it had (rep range, instructions, step, notes) merge into it,
-// then Leg Curl is deleted. No-op if either name is missing (already merged,
-// or a fresh DB that never had "Leg Curl" at all).
-function mergeLegCurlIntoSeated() {
-  // v2: match on a trimmed, case-insensitive EXACT name so a stray space or
-  // casing ("Leg Curl ", "leg curl") still merges — but "Lying Leg Curl" is a
-  // distinct exercise and must NOT be swept in, so this stays an exact match,
-  // not a LIKE. Flag bumped from v1 so it retries once for any DB where the
-  // stricter v1 already no-op'd on a near-miss name (already-merged DBs just
-  // find no "Leg Curl" and no-op cleanly).
-  const FLAG = 'merge_leg_curl_into_seated_v2';
-  if (getMeta(FLAG)) return;
-  const byNorm = (n) => db.prepare("SELECT * FROM exercises WHERE TRIM(LOWER(name)) = ?").get(n);
-  const loser = byNorm('leg curl');
-  const survivor = byNorm('seated leg curl');
-  if (!loser || !survivor || loser.id === survivor.id) { setMeta(FLAG, '1'); return; }
+// Fold the `loserId` exercise into `survivorId`: all logged sets, program-day
+// slots, and any customization the survivor lacks move over, PRs are rebuilt
+// from the merged sets, and the loser row is deleted. Shared by the one-time
+// leg-curl migration and the in-app "Merge into…" action so both behave
+// identically. Returns { merged, movedSets } (merged:false when the ids are
+// missing/identical). Caller is responsible for authorization.
+function mergeExercises(loserId, survivorId) {
+  if (loserId === survivorId) return { merged: false };
+  const loser = db.prepare('SELECT * FROM exercises WHERE id = ?').get(loserId);
+  const survivor = db.prepare('SELECT * FROM exercises WHERE id = ?').get(survivorId);
+  if (!loser || !survivor) return { merged: false };
 
   // recomputePrsForExercise wraps its own tx() (not reentrant), so it must run
   // AFTER this transaction commits, not inside it.
   let profilesToRecompute = [];
+  let movedSets = 0;
   tx(() => {
     // Carry over customization the survivor doesn't already have — a blank
     // rep range/instructions/step/notes on the keeper shouldn't silently
@@ -1019,11 +1012,10 @@ function mergeLegCurlIntoSeated() {
         .run(...fill.map((f) => loser[f]), survivor.id);
     }
 
-    db.prepare('UPDATE sets SET exercise_id = ? WHERE exercise_id = ?').run(survivor.id, loser.id);
+    movedSets = db.prepare('UPDATE sets SET exercise_id = ? WHERE exercise_id = ?').run(survivor.id, loser.id).changes;
 
     // A program day can't hold both (unique program_day_id+exercise_id) — drop
-    // the Leg Curl slot where the day already has Seated Leg Curl, otherwise
-    // just repoint it.
+    // the loser slot where the day already has the survivor, otherwise repoint.
     const loserSlots = db.prepare('SELECT id, program_day_id FROM program_day_exercises WHERE exercise_id = ?').all(loser.id);
     for (const slot of loserSlots) {
       const clash = db.prepare('SELECT 1 FROM program_day_exercises WHERE program_day_id = ? AND exercise_id = ?').get(slot.program_day_id, survivor.id);
@@ -1038,11 +1030,31 @@ function mergeLegCurlIntoSeated() {
     profilesToRecompute = db.prepare('SELECT DISTINCT profile_id FROM sets WHERE exercise_id = ?').all(survivor.id).map((r) => r.profile_id);
 
     db.prepare('DELETE FROM exercises WHERE id = ?').run(loser.id);
-    setMeta(FLAG, '1');
   });
 
   const { recomputePrsForExercise } = require('./pr'); // lazy: pr.js requires db.js at its top
   for (const profileId of profilesToRecompute) recomputePrsForExercise(profileId, survivor.id);
+  return { merged: true, movedSets };
+}
+
+// One-time, user-requested: "Leg Curl" and "Seated Leg Curl" were logged as
+// separate exercises but the user wants them treated as one. Seated Leg Curl
+// survives. Now that there's an in-app merge, this is just the automatic path
+// for the specific pair; no-op if either name is missing (already merged, or
+// a fresh DB that never had a plain "Leg Curl").
+function mergeLegCurlIntoSeated() {
+  // v2: match on a trimmed, case-insensitive EXACT name so a stray space or
+  // casing ("Leg Curl ", "leg curl") still merges — but "Lying Leg Curl" is a
+  // distinct exercise and must NOT be swept in, so this stays an exact match,
+  // not a LIKE. Flag bumped from v1 so it retries once for any DB where the
+  // stricter v1 already no-op'd on a near-miss name.
+  const FLAG = 'merge_leg_curl_into_seated_v2';
+  if (getMeta(FLAG)) return;
+  const byNorm = (n) => db.prepare("SELECT id FROM exercises WHERE TRIM(LOWER(name)) = ?").get(n);
+  const loser = byNorm('leg curl');
+  const survivor = byNorm('seated leg curl');
+  if (loser && survivor) mergeExercises(loser.id, survivor.id);
+  setMeta(FLAG, '1');
 }
 
 // One-time: backfill load_multiplier for sets logged before the snapshot
@@ -1429,5 +1441,5 @@ function seedDefaultPrograms(profileId) {
 
 module.exports = {
   db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP,
-  MUSCLE_GROUPS, effectiveLoadKgSql, effectiveVolumeLoadKgSql
+  MUSCLE_GROUPS, effectiveLoadKgSql, effectiveVolumeLoadKgSql, mergeExercises
 };

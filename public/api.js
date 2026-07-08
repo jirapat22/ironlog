@@ -70,6 +70,7 @@ const API = {
   deleteDay: (programId, dayId) => api(`/api/programs/${programId}/days/${dayId}`, { method: 'DELETE' }),
   updateExercise: (id, data) => api(`/api/exercises/${id}`, { method: 'PATCH', body: data }),
   deleteExercise: (id) => api(`/api/exercises/${id}`, { method: 'DELETE' }),
+  mergeExercise: (id, targetId) => api(`/api/exercises/${id}/merge`, { method: 'POST', body: { target_id: targetId } }),
   clearExerciseData: (id) => api(`/api/exercises/${id}/sets`, { method: 'DELETE' }),
   exercises: () => api('/api/exercises'),
   exerciseStats: () => api('/api/exercises/stats'),

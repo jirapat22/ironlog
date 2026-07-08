@@ -722,6 +722,68 @@ function renderNewExerciseForm(containerEl, { ctaLabel = 'Create', onBack, onCre
   };
 }
 
+// Pick a target exercise to merge `sourceEx` into. Lists every other exercise
+// (searchable, grouped by muscle) with its logged-set count so you can tell
+// which duplicate has the history. Confirms, calls the merge endpoint, then
+// runs onMerged() (the source exercise no longer exists after this).
+async function openMergePicker(sourceEx, onMerged) {
+  const sheet = ensureSheet('merge-picker-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>←</button>
+        <div class="sheet__title">Merge into…</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle" style="margin-bottom:10px">All of <strong>${escapeHtml(sourceEx.name)}</strong>'s sets, PRs and program slots move into the exercise you pick. ${escapeHtml(sourceEx.name)} is then removed.</div>
+        <input class="input" id="merge-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <div id="merge-list"><div class="skeleton" style="height:120px"></div></div>
+      </div>
+    </div>`;
+  showSheet(sheet);
+  sheet.querySelector('[data-close-sheet]').onclick = () => hideSheet(sheet);
+
+  let stats = [];
+  try { stats = await API.exerciseStats(); }
+  catch (err) { sheet.querySelector('#merge-list').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+
+  const others = stats.filter((e) => e.id !== sourceEx.id);
+  const groups = {};
+  for (const e of others) { (groups[e.muscle_group] || (groups[e.muscle_group] = [])).push(e); }
+  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+  sheet.querySelector('#merge-list').innerHTML = keys.map((g) => `
+    <div class="picker-group" data-group="${g}">
+      <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+      ${groups[g].map((e) => `
+        <button class="picker-row" data-merge-target="${e.id}" data-name="${escapeHtml(e.name).toLowerCase()}">
+          <span>${escapeHtml(e.name)}${e.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(e.sub_muscle)}</span>` : ''}</span>
+          <span class="picker-row__state">${e.workout_count ? e.workout_count + ' wk' : '·'}</span>
+        </button>`).join('')}
+    </div>`).join('');
+  setupPickerFilter(sheet);
+
+  sheet.querySelector('#merge-list').onclick = async (e) => {
+    const btn = e.target.closest('[data-merge-target]');
+    if (!btn) return;
+    const targetId = Number(btn.dataset.mergeTarget);
+    const target = others.find((x) => x.id === targetId);
+    const ok = await confirmSheet({
+      title: 'Merge exercises',
+      message: `Move everything from "${sourceEx.name}" into "${target.name}"? "${sourceEx.name}" will be deleted. This can't be undone.`,
+      confirmText: 'Merge', danger: true
+    });
+    if (!ok) return;
+    try {
+      const res = await API.mergeExercise(sourceEx.id, targetId);
+      haptic(20);
+      toast(`Merged into ${res.into}`);
+      hideSheet(sheet);
+      if (onMerged) onMerged();
+    } catch (err) { toast(err.message); }
+  };
+}
+
 function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, onCleared } = {}) {
   containerEl.innerHTML = `
     <div class="sheet__inner">
@@ -764,6 +826,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
           <button class="btn btn--ghost btn--block" id="edit-ex-howto-unlock">&#x270E; Edit how-to text (admin)</button>
         </div>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
+        <button class="btn btn--ghost btn--block" id="edit-ex-merge" style="margin-top:10px">&#x21C6; Merge into another exercise…</button>
         ${ex.workout_count > 0
           ? `<button class="btn btn--ghost btn--block" id="edit-ex-clear" style="margin-top:10px;color:var(--danger)">Clear logged data (${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''})</button>`
           : ex.program_count
@@ -846,6 +909,14 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       toast(`Deleted ${ex.name}`);
       if (onDeleted) onDeleted();
     } catch (err) { toast(err.message); } // server returns 409 if in use
+  };
+
+  // Merge this exercise into another — folds all its history/PRs/program slots
+  // into the target and removes it. For accidental duplicates (e.g. a custom
+  // "Leg Curl" and the seeded "Seated Leg Curl"). Since the current exercise
+  // disappears, a successful merge is treated like a delete (onDeleted).
+  containerEl.querySelector('#edit-ex-merge').onclick = () => {
+    openMergePicker(ex, () => { if (onDeleted) onDeleted(); else if (onBack) onBack(); });
   };
 
   // Shown for exercises that have logged sets: wipe this profile's sets + PRs

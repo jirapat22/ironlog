@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx } = require('../db');
+const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx, mergeExercises } = require('../db');
 
 const router = express.Router();
 
@@ -159,6 +159,32 @@ router.patch('/:id', (req, res) => {
     throw err;
   }
   res.json(shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)));
+});
+
+// Merge this exercise (:id, the one being removed) INTO target_id (the keeper).
+// Reassigns all of :id's logged sets, program slots and any customization the
+// keeper lacks, rebuilds PRs, and deletes :id. Used to fold accidental
+// duplicates (e.g. "Leg Curl" into "Seated Leg Curl") without losing history.
+router.post('/:id/merge', (req, res) => {
+  const loserId = Number(req.params.id);
+  const targetId = Number(req.body && req.body.target_id);
+  if (!Number.isInteger(targetId)) return res.status(400).json({ error: 'target_id is required' });
+  if (loserId === targetId) return res.status(400).json({ error: 'cannot merge an exercise into itself' });
+
+  const loser = db.prepare('SELECT id, name, created_by_profile_id FROM exercises WHERE id = ?').get(loserId);
+  const target = db.prepare('SELECT id, name, created_by_profile_id FROM exercises WHERE id = ?').get(targetId);
+  if (!loser || !target) return res.status(404).json({ error: 'exercise not found' });
+  // Same ownership guard as delete/edit: a profile can only touch its own
+  // customs or shared (seed) exercises, not another profile's custom.
+  for (const ex of [loser, target]) {
+    if (ex.created_by_profile_id != null && ex.created_by_profile_id !== req.profileId) {
+      return res.status(403).json({ error: 'not your exercise' });
+    }
+  }
+
+  const result = mergeExercises(loserId, targetId);
+  if (!result.merged) return res.status(409).json({ error: 'could not merge' });
+  res.json({ merged: true, into: target.name, moved_sets: result.movedSets });
 });
 
 router.delete('/:id', (req, res) => {
