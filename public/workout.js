@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -629,7 +629,7 @@ function buildProgressionHint(rec, trend = []) {
     return `
       <div class="prog-hint prog-hint--up">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong></div>
-        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.recReps}+ &#x2713;</div>
+        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
   } else {
@@ -647,7 +647,13 @@ function buildProgressionHint(rec, trend = []) {
 
 function recommendForNext(ex, lastSets) {
   if (!lastSets.length) return null;
-  const targetReps = ex.target_reps;
+  // Double progression is keyed on the exercise's rep RANGE, not the slot's
+  // single target: top the range on every set → add weight and drop back to
+  // the bottom. Unset ranges default to 6–8, except when the day slot aims
+  // higher (a deliberate 2×12 slot shouldn't trigger "add weight" at 8).
+  const repMax = ex.rep_max ?? Math.max(REP_GOAL_DEFAULT_MAX, Number(ex.target_reps) || 0);
+  const repMin = Math.min(ex.rep_min ?? REP_GOAL_DEFAULT_MIN, repMax);
+  const targetReps = repMax;
 
   let bestKg = 0, bestSet = null;
   for (const s of lastSets) {
@@ -684,7 +690,10 @@ function recommendForNext(ex, lastSets) {
   const minReps = Math.min(...workingSets.map((s) => s.reps));
 
   return {
-    recWeight, recUnit: unit, recReps: targetReps,
+    // After a weight bump, aim resets to the BOTTOM of the range (double
+    // progression); otherwise keep chasing the top. hitReps is what the last
+    // session's sets were measured against, for the hint's "all hit N+" line.
+    recWeight, recUnit: unit, recReps: allHit ? repMin : targetReps, hitReps: targetReps,
     isProgression, isBodyweight: isBw, isAssisted,
     lastWeight: fmtSetWeight(bestSet.weight, unit, isBw, isAssisted),
     recDisplay: isAssisted
@@ -1634,6 +1643,18 @@ async function finishWorkout() {
     const tmplProgramId = workoutState.programDay.program_id ?? null;
     const tmplDayId = workoutState.workout.program_day_id ?? workoutState.programDay.id ?? null;
 
+    // Which lifts topped their rep range this session (every working set hit
+    // the range max)? Same engine as the next-session card hint, fed with
+    // TODAY's sets — so the finish screen and the future hint always agree.
+    const readyToGoUp = workoutState.programDay.exercises
+      .map((ex) => {
+        const logged = workoutState.loggedSets.filter((s) => s.exercise_id === ex.exercise_id && !s.is_warmup);
+        if (!logged.length) return null;
+        const rec = recommendForNext(ex, logged);
+        return rec && rec.isProgression ? { name: ex.name, rec } : null;
+      })
+      .filter(Boolean);
+
     renderSummary({
       workoutId: id,
       sets: sets.length,
@@ -1644,7 +1665,8 @@ async function finishWorkout() {
       calories: finishedWorkout.calories_burned ?? null,
       templateExercises,
       programId: tmplProgramId,
-      dayId: tmplDayId
+      dayId: tmplDayId,
+      readyToGoUp
     });
 
     clearDraft(id);
@@ -1658,7 +1680,7 @@ async function finishWorkout() {
   }
 }
 
-function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises, programId, dayId }) {
+function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises, programId, dayId, readyToGoUp = [] }) {
   const root = $('#view-workout');
   const calTile = calories
     ? `<div class="summary__tile"><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value">${calories}&nbsp;kcal</div></div>`
@@ -1676,6 +1698,10 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
       ${newPRs.length ? `<div class="card" style="text-align:left">
           <div class="card__title">New PRs &#x1F3C6;</div>
           ${newPRs.map((pr) => `<div class="card__subtitle" style="margin-top:6px"><strong style="color:var(--accent)">${escapeHtml(pr.name)}</strong> — ${pr.weight}${pr.weight_unit} × ${pr.reps}</div>`).join('')}
+        </div>` : ''}
+      ${readyToGoUp.length ? `<div class="card" style="text-align:left">
+          <div class="card__title">Ready to go up &#x2B06;</div>
+          ${readyToGoUp.map(({ name, rec }) => `<div class="card__subtitle" style="margin-top:6px"><strong style="color:var(--accent)">${escapeHtml(name)}</strong> — hit ${rec.hitReps}+ every set. Next time: <strong>${rec.recDisplay} × ${rec.recReps}</strong></div>`).join('')}
         </div>` : ''}
       <div class="feel-prompt">
         <div class="feel-prompt__label">How did it feel?</div>

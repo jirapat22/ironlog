@@ -581,6 +581,12 @@ const SUB_MUSCLES = {
 // Group order + the exercise-form group list both derive from SUB_MUSCLES keys.
 const PICKER_GROUP_ORDER = Object.keys(SUB_MUSCLES);
 
+// Default rep-range goal when an exercise has none set — the double
+// progression window (top every set at 8 → add weight, drop back to 6).
+// Used by the workout progression hint and the Manage Exercises goal chip.
+const REP_GOAL_DEFAULT_MIN = 6;
+const REP_GOAL_DEFAULT_MAX = 8;
+
 const FEEL_OPTIONS = [
   { v: 1, emoji: '😴', label: 'Dead' },
   { v: 2, emoji: '😐', label: 'Tired' },
@@ -1097,7 +1103,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
 function pickerChipsHTML(keys) {
   return `<div class="picker-chips" data-picker-chips>
     <button class="picker-chip picker-chip--active" data-chip="">All</button>
-    ${keys.map((g) => `<button class="picker-chip" data-chip="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+    ${keys.map((g) => `<button class="picker-chip mg-${escapeHtml(g)}" data-chip="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
   </div>`;
 }
 
@@ -1153,7 +1159,7 @@ export {
   e1RM, toKg, fmtSetWeight, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
-  PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji,
+  PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,

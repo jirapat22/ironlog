@@ -788,6 +788,19 @@ button {
   border-color: var(--accent);
 }
 
+/* Muscle-group chips carry their group colour (via .mg-* setting --mg) so the
+   filter bar reads at a glance — tinted at rest, solid when active. */
+.picker-chip[class*="mg-"] {
+  color: var(--mg);
+  background: color-mix(in srgb, var(--mg) 12%, transparent);
+  border-color: color-mix(in srgb, var(--mg) 35%, transparent);
+}
+.picker-chip--active[class*="mg-"] {
+  background: var(--mg);
+  color: #0c0c0c;
+  border-color: var(--mg);
+}
+
 .picker-group {
   margin-bottom: 18px;
 }
@@ -2277,6 +2290,51 @@ button {
   gap: 10px;
 }
 .ex-lib-row--unused { opacity: 0.65; }
+.ex-lib-row__info { flex: 1; min-width: 0; }
+
+/* Rep-range goal chip on Manage Exercises rows — tap to edit in place */
+.rep-goal {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rep-goal--default {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+.rep-goal-edit {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.rep-goal-edit input {
+  width: 44px;
+  padding: 5px 4px;
+  text-align: center;
+  font-size: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+.rep-goal-edit__dash { color: var(--text-dim); }
+.rep-goal-edit__save {
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  border: none;
+  color: #0c0c0c;
+  font-weight: 700;
+}
 .ex-lib-row__name { font-size: 14px; }
 .ex-lib-row__meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 

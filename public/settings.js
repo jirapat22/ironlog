@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -395,6 +395,17 @@ async function renderExerciseLibraryList(sheet) {
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   };
 
+  // Tappable rep-range goal chip on every row — the fast path for tuning
+  // double-progression windows without opening each exercise's edit form.
+  // Unset exercises show the 6–8 default (dimmed) and that IS the goal the
+  // workout screen's progression hint uses, so the chip never lies.
+  const repGoalChipHTML = (ex) => {
+    const hasGoal = ex.rep_min != null || ex.rep_max != null;
+    const min = ex.rep_min ?? REP_GOAL_DEFAULT_MIN;
+    const max = ex.rep_max ?? REP_GOAL_DEFAULT_MAX;
+    return `<button class="rep-goal${hasGoal ? '' : ' rep-goal--default'}" data-rep-goal="${ex.id}" title="Rep-range goal — tap to adjust">${min}–${max}</button>`;
+  };
+
   const order = [...new Set([...GROUPS, ...Object.keys(byGroup)])].filter((g) => byGroup[g]);
   const html = order.map((g) => `
     <div class="ex-lib-group" data-group="${g}">
@@ -409,6 +420,7 @@ async function renderExerciseLibraryList(sheet) {
                 : `<span style="color:var(--accent)">${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''}</span> · last ${fmtDate(ex.last_used_at)}`}
             </div>
           </div>
+          ${repGoalChipHTML(ex)}
           <button class="btn--icon" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
           ${ex.workout_count === 0 && !ex.program_count
             ? `<button class="btn--icon btn--icon-danger" data-del-ex="${ex.id}" title="Delete">×</button>`
@@ -437,6 +449,51 @@ async function renderExerciseLibraryList(sheet) {
 
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+
+    // Tap the rep-goal chip → swap it for min/max inputs in place. Empty
+    // inputs clear the override (back to the 6–8 default). Saving PATCHes
+    // just rep_min/rep_max and swaps the chip back — no list re-render.
+    const goalBtn = e.target.closest('[data-rep-goal]');
+    if (goalBtn) {
+      const exId = Number(goalBtn.dataset.repGoal);
+      const ex = stats.find((x) => x.id === exId);
+      if (!ex) return;
+      const wrap = document.createElement('span');
+      wrap.className = 'rep-goal-edit';
+      wrap.innerHTML = `
+        <input type="number" min="1" max="100" inputmode="numeric" value="${ex.rep_min ?? ''}" placeholder="${REP_GOAL_DEFAULT_MIN}" data-goal-min/>
+        <span class="rep-goal-edit__dash">–</span>
+        <input type="number" min="1" max="100" inputmode="numeric" value="${ex.rep_max ?? ''}" placeholder="${REP_GOAL_DEFAULT_MAX}" data-goal-max/>
+        <button class="rep-goal-edit__save" data-goal-save>&#x2713;</button>`;
+      goalBtn.replaceWith(wrap);
+      const save = async (ev) => {
+        ev.stopPropagation();
+        const minRaw = wrap.querySelector('[data-goal-min]').value.trim();
+        const maxRaw = wrap.querySelector('[data-goal-max]').value.trim();
+        const minV = minRaw === '' ? null : Number(minRaw);
+        const maxV = maxRaw === '' ? null : Number(maxRaw);
+        for (const v of [minV, maxV]) {
+          if (v != null && (!Number.isInteger(v) || v < 1 || v > 100)) return toast('Reps must be whole numbers 1–100');
+        }
+        if (minV != null && maxV != null && minV > maxV) return toast('Min can’t exceed max');
+        try {
+          const updated = await API.updateExercise(exId, { rep_min: minV, rep_max: maxV });
+          Object.assign(ex, { rep_min: updated.rep_min ?? null, rep_max: updated.rep_max ?? null });
+          const tmp = document.createElement('div');
+          tmp.innerHTML = repGoalChipHTML(ex);
+          wrap.replaceWith(tmp.firstElementChild);
+          haptic(10);
+        } catch (err) { toast(err.message); }
+      };
+      wrap.querySelector('[data-goal-save]').onclick = save;
+      wrap.querySelectorAll('input').forEach((inp) => {
+        inp.onkeydown = (ev) => { if (ev.key === 'Enter') save(ev); };
+      });
+      wrap.querySelector('[data-goal-min]').focus();
+      return;
+    }
+    // Clicks inside the open inline editor (inputs) shouldn't fall through.
+    if (e.target.closest('.rep-goal-edit')) return;
 
     const editBtn = e.target.closest('[data-edit-ex]');
     if (editBtn) {
