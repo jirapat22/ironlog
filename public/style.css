@@ -788,6 +788,46 @@ button {
   border-color: var(--accent);
 }
 
+/* Weekly muscle-coverage strip on the Programs tab (2×/week goal) */
+.cov-strip {
+  margin-bottom: 14px;
+}
+.cov-strip__title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.cov-strip__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cov-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--mg);
+  background: color-mix(in srgb, var(--mg) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mg) 35%, transparent);
+}
+.cov-chip--zero {
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.cov-chip--done {
+  color: #0c0c0c;
+  background: var(--mg);
+  border-color: var(--mg);
+}
+
 /* Muscle-group chips carry their group colour (via .mg-* setting --mg) so the
    filter bar reads at a glance — tinted at rest, solid when active. */
 .picker-chip[class*="mg-"] {

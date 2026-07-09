@@ -52,6 +52,34 @@ async function createProgramFlow() {
 }
 
 // ---------- PROGRAMS tab ----------
+// Weekly muscle-coverage strip: sessions so far this week (Mon start, local
+// time) per primary muscle group vs the 2×/week goal. One chip per group in
+// its muscle colour — 0/2 dim, 1/2 tinted, 2/2 ✓ solid. Groups only appear
+// once trained at least once EVER (a never-trained group isn't a weekly goal).
+const COVERAGE_GOAL = 2;
+async function renderMuscleCoverage() {
+  const el = document.getElementById('mg-coverage');
+  if (!el) return;
+  let week, ever;
+  try { [week, ever] = await Promise.all([API.muscleCoverage(), API.muscleFrequency()]); }
+  catch { return; }
+  const by = Object.fromEntries(week.map((r) => [r.muscle_group, r.sessions]));
+  const trained = new Set(ever.map((r) => r.muscle_group));
+  const groups = PICKER_GROUP_ORDER.filter((g) => trained.has(g) || by[g]);
+  if (!groups.length) return;
+  el.innerHTML = `
+    <div class="cov-strip">
+      <div class="cov-strip__title">This week · ${COVERAGE_GOAL}× each</div>
+      <div class="cov-strip__chips">
+        ${groups.map((g) => {
+          const n = by[g] || 0;
+          const cls = n >= COVERAGE_GOAL ? ' cov-chip--done' : n === 0 ? ' cov-chip--zero' : '';
+          return `<span class="cov-chip mg-${g}${cls}">${g} ${n}/${COVERAGE_GOAL}${n >= COVERAGE_GOAL ? ' ✓' : ''}</span>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
 async function renderPrograms() {
   const root = $('#view-programs');
   root.innerHTML = skeletonBlocks(2);
@@ -67,8 +95,10 @@ async function renderPrograms() {
     }
 
     const full = await Promise.all(programs.map((p) => API.program(p.id)));
-    root.innerHTML = full.map((p) => programCardHTML(p)).join('') +
+    root.innerHTML = `<div id="mg-coverage"></div>` +
+      full.map((p) => programCardHTML(p)).join('') +
       `<button class="btn btn--ghost btn--block" data-new-program style="margin-top:12px">+ Create program</button>`;
+    renderMuscleCoverage(); // fire-and-forget — the strip is decor, never blocks the list
     await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
 
     root.onclick = async (e) => {
@@ -355,6 +385,7 @@ function renderEditSheet() {
       <div class="edit-row__actions">
         <button class="btn--icon" data-move="up" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
         <button class="btn--icon" data-move="down" title="Move down" ${i === day.exercises.length - 1 ? 'disabled' : ''}>↓</button>
+        <button class="btn--icon" data-swap-slot title="Swap for another exercise">&#x21C4;</button>
         <button class="btn--icon btn--icon-danger" data-remove title="Remove">×</button>
       </div>
     </div>`).join('');
@@ -428,6 +459,10 @@ function renderEditSheet() {
       return;
     }
 
+    // Swap this slot's exercise for another — opens the picker in swap mode.
+    // Sets/reps/rest and position stay; only the exercise changes.
+    if (e.target.closest('[data-swap-slot]')) return openPicker({ swapPde: pdeId });
+
     const remove = e.target.closest('[data-remove]');
     if (remove) {
       const ok = await confirmSheet({ title: 'Remove exercise', message: 'Remove this exercise from the day?', confirmText: 'Remove', danger: true });
@@ -481,9 +516,13 @@ async function persistEditRowOrder() {
 }
 
 // ---------- Exercise picker (programs context only) ----------
-async function openPicker() {
+// Two modes: add (default) appends the pick to the day; swap (`swapPde` = a
+// program_day_exercises id) replaces that slot's exercise in place — sets,
+// reps, rest and position all survive, only the movement changes.
+async function openPicker({ swapPde = null } = {}) {
   const picker = ensureSheet('picker-sheet');
   const { allExercises } = editDayState;
+  const swapping = swapPde ? editDayState.day.exercises.find((x) => x.id === swapPde) : null;
   const groups = {};
   for (const ex of allExercises) {
     if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
@@ -497,10 +536,11 @@ async function openPicker() {
     <div class="sheet__inner">
       <div class="sheet__head">
         <button class="btn--icon" data-close-picker>←</button>
-        <div class="sheet__title">Pick exercise</div>
+        <div class="sheet__title">${swapping ? 'Swap exercise' : 'Pick exercise'}</div>
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body">
+        ${swapping ? `<div class="card__subtitle" style="margin-bottom:10px">Replacing <strong>${escapeHtml(swapping.name)}</strong> — its sets/reps/rest stay.</div>` : ''}
         <input class="input" id="picker-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
         <button class="btn btn--ghost btn--block" data-new-exercise style="margin-bottom:12px">+ Create custom exercise</button>
         ${pickerChipsHTML(keys)}
@@ -524,14 +564,14 @@ async function openPicker() {
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-picker]')) return hideSheet(picker);
-    if (e.target.closest('[data-new-exercise]')) return openNewExerciseForm(picker);
+    if (e.target.closest('[data-new-exercise]')) return openNewExerciseForm(picker, swapPde);
 
     const editExBtn = e.target.closest('[data-edit-ex]');
     if (editExBtn) {
       const exId = Number(editExBtn.dataset.editEx);
       const ex = allExercises.find((x) => x.id === exId);
       if (!ex) return;
-      openEditExerciseForm(picker, ex, allExercises);
+      openEditExerciseForm(picker, ex, allExercises, swapPde);
       return;
     }
 
@@ -540,38 +580,46 @@ async function openPicker() {
     if (pickBtn.classList.contains('picker-row--added')) { toast('Already in this day'); return; }
     const exerciseId = Number(pickBtn.dataset.pick);
     haptic(20);
-    try {
-      const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
-        exercise_id: exerciseId, target_sets: 2, target_reps: 8
-      });
-      editDayState.day.exercises.push(row);
-      hideSheet(picker);
-      renderEditSheet();
-    } catch (err) { toast(err.message); }
+    try { await applyPick(picker, exerciseId, swapPde); }
+    catch (err) { toast(err.message); }
   };
 }
 
-function openNewExerciseForm(picker) {
+// Add mode: append the exercise as a new 2×8 slot. Swap mode: PATCH the
+// existing slot's exercise_id (server rejects a duplicate within the day) and
+// replace it in local state with the fresh joined row the server returns.
+async function applyPick(picker, exerciseId, swapPde) {
+  if (swapPde) {
+    const row = await API.updateDayExercise(editDayState.programId, editDayState.dayId, swapPde, { exercise_id: exerciseId });
+    const idx = editDayState.day.exercises.findIndex((x) => x.id === swapPde);
+    if (idx !== -1) editDayState.day.exercises[idx] = row;
+  } else {
+    const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
+      exercise_id: exerciseId, target_sets: 2, target_reps: 8
+    });
+    editDayState.day.exercises.push(row);
+  }
+  hideSheet(picker);
+  renderEditSheet();
+}
+
+function openNewExerciseForm(picker, swapPde = null) {
   renderNewExerciseForm(picker, {
-    ctaLabel: 'Create & add',
-    onBack: () => openPicker(),
+    ctaLabel: swapPde ? 'Create & swap in' : 'Create & add',
+    onBack: () => openPicker({ swapPde }),
     onCreated: async (ex) => {
       ex.workout_count = 0;
-      ex.program_count = 1; // about to be added to this day, below
+      ex.program_count = 1; // about to be placed in this day, below
       editDayState.allExercises.push(ex);
-      const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
-        exercise_id: ex.id, target_sets: 2, target_reps: 8
-      });
-      editDayState.day.exercises.push(row);
-      hideSheet(picker);
-      renderEditSheet();
+      try { await applyPick(picker, ex.id, swapPde); }
+      catch (err) { toast(err.message); }
     }
   });
 }
 
-function openEditExerciseForm(picker, ex, allExercises) {
+function openEditExerciseForm(picker, ex, allExercises, swapPde = null) {
   renderExerciseEditForm(picker, ex, {
-    onBack: () => openPicker(),
+    onBack: () => openPicker({ swapPde }),
     onSaved: (updated) => {
       Object.assign(ex, updated);
       editDayState.allExercises = editDayState.allExercises.map((x) => x.id === ex.id ? updated : x);
@@ -583,11 +631,11 @@ function openEditExerciseForm(picker, ex, allExercises) {
           pde.notes = updated.notes;
         }
       }
-      openPicker();
+      openPicker({ swapPde });
     },
     onDeleted: () => {
       editDayState.allExercises = editDayState.allExercises.filter((x) => x.id !== ex.id);
-      openPicker();
+      openPicker({ swapPde });
     }
   });
 }

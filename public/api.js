@@ -93,6 +93,7 @@ const API = {
   removeWorkoutExercise: (workoutId, exerciseId) => api(`/api/workouts/${workoutId}/exercises/${exerciseId}`, { method: 'DELETE' }),
   recentWorkouts: (programDayId, n = 3) => api(`/api/workouts/recent/${programDayId}?n=${n}`),
   muscleFrequency: () => api('/api/muscle-frequency'),
+  muscleCoverage: () => api(`/api/muscle-coverage?tzOffset=${-new Date().getTimezoneOffset()}`),
   subMuscleFrequency: () => api('/api/sub-muscle-frequency'),
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),

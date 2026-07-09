@@ -127,6 +127,27 @@ router.get('/muscle-frequency', (req, res) => {
   res.json(rows);
 });
 
+// This week's coverage per PRIMARY muscle group: how many separate sessions
+// (workouts) hit each group so far, Monday-start in the user's local time
+// (?tzOffset like /calendar). Any working set counts; active workouts count
+// immediately so today's session ticks the strip while you train. Drives the
+// 2×/week goal strip on the Programs tab.
+router.get('/muscle-coverage', (req, res) => {
+  const tz = Number(req.query.tzOffset);
+  const offsetMin = Math.max(-840, Math.min(840, Math.trunc(Number.isFinite(tz) ? tz : 0)));
+  const mod = `${offsetMin >= 0 ? '+' : ''}${offsetMin} minutes`;
+  const rows = db.prepare(
+    `SELECT e.muscle_group, COUNT(DISTINCT s.workout_id) AS sessions
+     FROM sets s
+     JOIN exercises e ON e.id = s.exercise_id
+     WHERE s.profile_id = ?
+       AND s.is_warmup = 0
+       AND datetime(s.logged_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')
+     GROUP BY e.muscle_group`
+  ).all(req.profileId, mod, mod);
+  res.json(rows);
+});
+
 // Finer breakdown by sub-muscle (upper/mid/lower pec, front/side/rear delt,
 // lats vs upper back, etc.). Only counts working sets toward volume. Drives the
 // sub-muscle frequency view and the "train next" recommendation.
