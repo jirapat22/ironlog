@@ -106,14 +106,28 @@ function clearDraftInput(workoutId, exId, setNum) {
   }
 }
 
-// Live "≈ X kg/lb" tag on a set row, recomputed as weight/unit change.
+// The small readout under a set row's weight. For a per-arm exercise it shows
+// the TOTAL (both sides) alongside what you typed, so per-arm and total are
+// visible SIMULTANEOUSLY — you enter one dumbbell's weight and immediately see
+// the 2-arm total the volume is based on. For everything else it's the usual
+// kg/lb unit equivalent.
+function weightHintText(w, u, ex) {
+  const wn = parseFloat(w);
+  if (ex && ex.weight_mode === 'per_arm' && !ex.is_bodyweight && Number.isFinite(wn) && wn > 0) {
+    return `= ${+(wn * 2).toFixed(1)} ${u} total`;
+  }
+  return workoutState?.showEquiv ? weightEquiv(w, u) : '';
+}
+
+// Live tag on a set row, recomputed as weight/unit change.
 function updateRowEquiv(row) {
   const eqEl = row?.querySelector('[data-eq]');
   if (!eqEl) return;
-  if (!workoutState?.showEquiv) { eqEl.textContent = ''; return; }
   const w = row.querySelector('[data-field="weight"] .num-input__field')?.value;
   const u = row.querySelector('[data-unit]')?.textContent.trim();
-  eqEl.textContent = weightEquiv(w, u);
+  const exId = Number(row.dataset.ex);
+  const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId);
+  eqEl.textContent = weightHintText(w, u, ex);
 }
 
 function markRowTouched(row) {
@@ -722,7 +736,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
         <button class="rpe-btn rpe-btn--clear" data-rir-clear ${effRir !== '' && effRir != null ? '' : 'style="visibility:hidden"'}>×</button>
         <button class="set-row__note-toggle" data-toggle-note title="Add a note">&#x270E;</button>
         <button data-rest class="rest-timer">rest</button>
-        <span class="set-row__eq" data-eq>${workoutState?.showEquiv ? weightEquiv(w, u) : ''}</span>
+        <span class="set-row__eq" data-eq>${weightHintText(w, u, ex)}</span>
       </div>
       <div class="set-row__extras">
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
