@@ -1038,6 +1038,37 @@ function mergeExercises(loserId, survivorId) {
   return { merged: true, movedSets };
 }
 
+// Move a subset of one exercise's logged sets (those in `workoutIds`, scoped to
+// `profileId`) onto `targetId`. Used to un-mix an exercise that was logged
+// across different equipment/loading under one name — e.g. a "Wrist Curl" done
+// barbell (total) one day and dumbbell (per-arm) another: move the barbell
+// session onto a separate "Barbell Wrist Curl" so each tracks cleanly. The
+// moved sets' load_multiplier is reset to the TARGET's weight_mode (per_arm=2
+// else 1), since their old snapshot came from the source's single mode and is
+// likely wrong for the target. PRs for both exercises are rebuilt.
+function moveExerciseSessions(sourceId, targetId, workoutIds, profileId) {
+  if (sourceId === targetId || !Array.isArray(workoutIds) || !workoutIds.length) return { moved: 0 };
+  const target = db.prepare('SELECT id, weight_mode FROM exercises WHERE id = ?').get(targetId);
+  const source = db.prepare('SELECT id FROM exercises WHERE id = ?').get(sourceId);
+  if (!target || !source) return { moved: 0 };
+  const mult = target.weight_mode === 'per_arm' ? 2 : 1;
+  const ph = workoutIds.map(() => '?').join(',');
+
+  let moved = 0;
+  tx(() => {
+    moved = db.prepare(
+      `UPDATE sets SET exercise_id = ?, load_multiplier = ?
+       WHERE exercise_id = ? AND profile_id = ? AND workout_id IN (${ph})`
+    ).run(targetId, mult, sourceId, profileId, ...workoutIds).changes;
+    db.prepare('DELETE FROM personal_records WHERE profile_id = ? AND exercise_id IN (?, ?)').run(profileId, sourceId, targetId);
+  });
+
+  const { recomputePrsForExercise } = require('./pr');
+  recomputePrsForExercise(profileId, sourceId);
+  recomputePrsForExercise(profileId, targetId);
+  return { moved };
+}
+
 // One-time, user-requested: "Leg Curl" and "Seated Leg Curl" were logged as
 // separate exercises but the user wants them treated as one. Seated Leg Curl
 // survives. Now that there's an in-app merge, this is just the automatic path
@@ -1455,5 +1486,5 @@ function seedDefaultPrograms(profileId) {
 
 module.exports = {
   db, init, tx, getMeta, setMeta, tableExists, columnExists, seedDefaultPrograms, REGION_TO_GROUP,
-  MUSCLE_GROUPS, effectiveLoadKgSql, effectiveVolumeLoadKgSql, mergeExercises
+  MUSCLE_GROUPS, effectiveLoadKgSql, effectiveVolumeLoadKgSql, mergeExercises, moveExerciseSessions
 };

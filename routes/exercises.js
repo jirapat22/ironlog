@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx, mergeExercises } = require('../db');
+const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx, mergeExercises, moveExerciseSessions } = require('../db');
 
 const router = express.Router();
 
@@ -185,6 +185,55 @@ router.post('/:id/merge', (req, res) => {
   const result = mergeExercises(loserId, targetId);
   if (!result.merged) return res.status(409).json({ error: 'could not merge' });
   res.json({ merged: true, into: target.name, moved_sets: result.movedSets });
+});
+
+// List this exercise's logged sessions (one row per workout the current
+// profile logged it in), newest first — used by the "move sessions to another
+// exercise" split UI to pick which sessions to move.
+router.get('/:id(\\d+)/sessions', (req, res) => {
+  const id = Number(req.params.id);
+  const rows = db.prepare(`
+    SELECT
+      w.id            AS workout_id,
+      w.started_at    AS started_at,
+      COUNT(s.id)     AS set_count,
+      GROUP_CONCAT(s.weight || 'x' || s.reps, ', ') AS summary,
+      MAX(s.weight_unit) AS weight_unit
+    FROM sets s
+    JOIN workouts w ON w.id = s.workout_id
+    WHERE s.exercise_id = ? AND s.profile_id = ?
+    GROUP BY w.id
+    ORDER BY w.started_at DESC
+  `).all(id, req.profileId);
+  res.json(rows);
+});
+
+// Move a subset of this exercise's sessions (by workout id) onto another
+// exercise. Un-mixes an exercise logged across different equipment/loading
+// under one name (e.g. barbell vs per-arm dumbbell wrist curls). Owner-guarded
+// like merge; moved sets' per-arm multiplier is reset to the target's mode.
+router.post('/:id(\\d+)/move-sessions', (req, res) => {
+  const sourceId = Number(req.params.id);
+  const targetId = Number(req.body && req.body.target_id);
+  const workoutIds = Array.isArray(req.body && req.body.workout_ids)
+    ? req.body.workout_ids.map(Number).filter(Number.isInteger)
+    : [];
+  if (!Number.isInteger(targetId)) return res.status(400).json({ error: 'target_id is required' });
+  if (sourceId === targetId) return res.status(400).json({ error: 'cannot move onto the same exercise' });
+  if (!workoutIds.length) return res.status(400).json({ error: 'no sessions selected' });
+
+  const source = db.prepare('SELECT id, name, created_by_profile_id FROM exercises WHERE id = ?').get(sourceId);
+  const target = db.prepare('SELECT id, name, created_by_profile_id FROM exercises WHERE id = ?').get(targetId);
+  if (!source || !target) return res.status(404).json({ error: 'exercise not found' });
+  for (const ex of [source, target]) {
+    if (ex.created_by_profile_id != null && ex.created_by_profile_id !== req.profileId) {
+      return res.status(403).json({ error: 'not your exercise' });
+    }
+  }
+
+  const result = moveExerciseSessions(sourceId, targetId, workoutIds, req.profileId);
+  if (!result.moved) return res.status(409).json({ error: 'nothing to move' });
+  res.json({ moved_sets: result.moved, into: target.name });
 });
 
 router.delete('/:id', (req, res) => {

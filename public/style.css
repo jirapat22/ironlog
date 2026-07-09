@@ -821,6 +821,43 @@ button {
   background: var(--surface-2);
 }
 
+/* Session rows in the "move sessions to another exercise" split picker */
+.split-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.split-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+.split-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.split-row__date {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.split-row__sets {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.split-row__unit {
+  opacity: 0.7;
+}
+
 .picker-row__state {
   color: var(--text-dim);
   font-size: 13px;

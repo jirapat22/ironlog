@@ -797,6 +797,132 @@ async function openMergePicker(sourceEx, onMerged) {
   };
 }
 
+// Move a subset of `sourceEx`'s logged SESSIONS onto another exercise —
+// un-mixes an exercise that was logged across different equipment/loading under
+// one name (e.g. a "Wrist Curl" done barbell/total one day and dumbbell/per-arm
+// another). Two steps in one sheet: pick sessions, then pick/create the target.
+// Moved sets get the target's per-arm multiplier so volume comes out right on
+// both. onDone() runs after a successful move (the source still exists).
+async function openSplitPicker(sourceEx, onDone) {
+  const sheet = ensureSheet('split-picker-sheet');
+  const inner = () => sheet.querySelector('.sheet__inner') || sheet;
+  const selected = new Set(); // workout_ids to move
+
+  function renderShell(title, bodyHtml, backFn) {
+    sheet.innerHTML = `
+      <div class="sheet__inner">
+        <div class="sheet__head">
+          <button class="btn--icon" data-close-sheet>←</button>
+          <div class="sheet__title">${escapeHtml(title)}</div>
+          <span style="width:40px"></span>
+        </div>
+        <div class="sheet__body">${bodyHtml}</div>
+      </div>`;
+    sheet.querySelector('[data-close-sheet]').onclick = backFn;
+  }
+
+  // ---- Step 1: choose sessions ----
+  async function renderSessionStep() {
+    renderShell('Move sessions', '<div class="skeleton" style="height:160px"></div>', () => hideSheet(sheet));
+    let sessions = [];
+    try { sessions = await API.exerciseSessions(sourceEx.id); }
+    catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+    if (!sessions.length) {
+      inner().querySelector('.sheet__body').innerHTML = `<div class="empty">No logged sessions to move.</div>`;
+      return;
+    }
+    const rows = sessions.map((s) => {
+      const summary = (s.summary || '').length > 40 ? s.summary.slice(0, 40) + '…' : (s.summary || '');
+      const unit = s.weight_unit || 'kg';
+      return `
+        <label class="split-row">
+          <input type="checkbox" data-wk="${s.workout_id}" ${selected.has(s.workout_id) ? 'checked' : ''}/>
+          <span class="split-row__main">
+            <span class="split-row__date">${escapeHtml(formatDateShort(s.started_at))}</span>
+            <span class="split-row__sets">${escapeHtml(summary)} <span class="split-row__unit">${escapeHtml(unit)}</span></span>
+          </span>
+        </label>`;
+    }).join('');
+    inner().querySelector('.sheet__body').innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:10px">Pick the <strong>${escapeHtml(sourceEx.name)}</strong> sessions to move onto a different exercise. The rest stay here.</div>
+      <div id="split-list">${rows}</div>
+      <button class="btn btn--primary btn--block" id="split-next" style="margin-top:16px" disabled>Choose target →</button>`;
+    const nextBtn = inner().querySelector('#split-next');
+    const sync = () => {
+      nextBtn.disabled = selected.size === 0;
+      nextBtn.textContent = selected.size ? `Choose target (${selected.size}) →` : 'Choose target →';
+    };
+    inner().querySelector('#split-list').onchange = (e) => {
+      const cb = e.target.closest('[data-wk]');
+      if (!cb) return;
+      const id = Number(cb.dataset.wk);
+      if (cb.checked) selected.add(id); else selected.delete(id);
+      sync();
+    };
+    nextBtn.onclick = () => { if (selected.size) renderTargetStep(); };
+    sync();
+  }
+
+  // ---- Step 2: choose (or create) the target exercise ----
+  async function renderTargetStep() {
+    renderShell('Move to…', '<div class="skeleton" style="height:160px"></div>', renderSessionStep);
+    let stats = [];
+    try { stats = await API.exerciseStats(); }
+    catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+    const others = stats.filter((e) => e.id !== sourceEx.id);
+    const groups = {};
+    for (const e of others) { (groups[e.muscle_group] || (groups[e.muscle_group] = [])).push(e); }
+    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    inner().querySelector('.sheet__body').innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:10px">Move ${selected.size} session${selected.size !== 1 ? 's' : ''} onto:</div>
+      <button class="btn btn--ghost btn--block" id="split-new" style="margin-bottom:12px">+ New exercise</button>
+      <input class="input" id="split-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+      <div id="split-target-list">${keys.map((g) => `
+        <div class="picker-group" data-group="${g}">
+          <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+          ${groups[g].map((e) => `
+            <button class="picker-row" data-target="${e.id}" data-name="${escapeHtml(e.name).toLowerCase()}">
+              <span>${escapeHtml(e.name)}${e.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(e.sub_muscle)}</span>` : ''}</span>
+              <span class="picker-row__state">${e.workout_count ? e.workout_count + ' wk' : '·'}</span>
+            </button>`).join('')}
+        </div>`).join('')}</div>`;
+    setupPickerFilter(sheet);
+    inner().querySelector('#split-new').onclick = () => {
+      renderNewExerciseForm(sheet, {
+        ctaLabel: 'Create & move here',
+        onBack: renderTargetStep,
+        onCreated: (ex) => doMove(ex.id, ex.name)
+      });
+    };
+    inner().querySelector('#split-target-list').onclick = (e) => {
+      const btn = e.target.closest('[data-target]');
+      if (!btn) return;
+      const t = others.find((x) => x.id === Number(btn.dataset.target));
+      if (t) doMove(t.id, t.name);
+    };
+  }
+
+  async function doMove(targetId, targetName) {
+    const n = selected.size;
+    const ok = await confirmSheet({
+      title: 'Move sessions',
+      message: `Move ${n} session${n !== 1 ? 's' : ''} from "${sourceEx.name}" to "${targetName}"? Their sets and PRs move too.`,
+      confirmText: 'Move'
+    });
+    if (!ok) return;
+    try {
+      const res = await API.moveExerciseSessions(sourceEx.id, targetId, [...selected]);
+      haptic(20);
+      toast(`Moved ${res.moved_sets} set${res.moved_sets !== 1 ? 's' : ''} to ${res.into}`);
+      hideSheet(sheet);
+      if (onDone) onDone();
+    } catch (err) { toast(err.message); }
+  }
+
+  showSheet(sheet);
+  renderSessionStep();
+}
+
 function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, onCleared } = {}) {
   containerEl.innerHTML = `
     <div class="sheet__inner">
@@ -840,6 +966,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         </div>
         <button class="btn btn--primary btn--block" id="edit-ex-save" style="margin-top:20px">Save changes</button>
         <button class="btn btn--ghost btn--block" id="edit-ex-merge" style="margin-top:10px">&#x21C6; Merge into another exercise…</button>
+        ${ex.workout_count > 0 ? `<button class="btn btn--ghost btn--block" id="edit-ex-split" style="margin-top:10px">&#x2702; Move sessions to another exercise…</button>` : ''}
         ${ex.workout_count > 0
           ? `<button class="btn btn--ghost btn--block" id="edit-ex-clear" style="margin-top:10px;color:var(--danger)">Clear logged data (${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''})</button>`
           : ex.program_count
@@ -930,6 +1057,15 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   // disappears, a successful merge is treated like a delete (onDeleted).
   containerEl.querySelector('#edit-ex-merge').onclick = () => {
     openMergePicker(ex, () => { if (onDeleted) onDeleted(); else if (onBack) onBack(); });
+  };
+
+  // Split off some of this exercise's sessions onto a different exercise (the
+  // source survives). For an exercise accidentally logged across different
+  // equipment/loading — move the odd-equipment sessions out so each tracks
+  // cleanly. Refresh the list on return since counts change.
+  const splitBtn = containerEl.querySelector('#edit-ex-split');
+  if (splitBtn) splitBtn.onclick = () => {
+    openSplitPicker(ex, () => { if (onSaved) onSaved(ex); else if (onBack) onBack(); });
   };
 
   // Shown for exercises that have logged sets: wipe this profile's sets + PRs
