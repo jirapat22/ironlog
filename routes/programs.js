@@ -196,7 +196,7 @@ router.get('/:id', (req, res) => {
 // Add an exercise to a program day
 router.post('/:programId/days/:dayId/exercises', (req, res) => {
   const dayId = Number(req.params.dayId);
-  const { exercise_id, target_sets = 3, target_reps = 8, rest_seconds = null } = req.body || {};
+  const { exercise_id, target_sets = 2, target_reps = 8, rest_seconds = null } = req.body || {};
   if (!exercise_id) return res.status(400).json({ error: 'exercise_id is required' });
 
   if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'program day not found' });
@@ -254,7 +254,7 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
       for (const e of exercises) {
         if (!e.exercise_id || seen.has(e.exercise_id)) continue;
         seen.add(e.exercise_id);
-        ins.run(dayId, e.exercise_id, e.target_sets ?? 3, e.target_reps ?? 10, i, e.rest_seconds ?? null);
+        ins.run(dayId, e.exercise_id, e.target_sets ?? 2, e.target_reps ?? 8, i, e.rest_seconds ?? null);
         i++;
       }
     });

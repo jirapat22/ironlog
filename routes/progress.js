@@ -57,6 +57,28 @@ router.get('/volume/weekly', (req, res) => {
   res.json(rows);
 });
 
+// Fair mid-week comparison for the volume trend badge: this week SO FAR vs last
+// week THROUGH THE SAME POINT (its Monday → the same weekday/time a week ago),
+// instead of a full last week that always makes a partial current week look
+// down. Week starts Monday, in UTC — consistent with the /volume/weekly chart
+// (strftime %W is also UTC-Monday).
+router.get('/volume/week-compare', (req, res) => {
+  const load = effectiveVolumeLoadKgSql('s', 'e', 'w');
+  const weekStart = "datetime('now','weekday 0','-6 days','start of day')";
+  const lastWeekStart = `datetime(${weekStart},'-7 days')`;
+  const samePoint = "datetime('now','-7 days')";
+  const row = db.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN s.logged_at >= ${weekStart} THEN ${load} * s.reps END), 0) AS this_so_far,
+       COALESCE(SUM(CASE WHEN s.logged_at >= ${lastWeekStart} AND s.logged_at < ${samePoint} THEN ${load} * s.reps END), 0) AS last_to_date
+     FROM sets s
+     JOIN exercises e ON e.id = s.exercise_id
+     JOIN workouts  w ON w.id = s.workout_id
+     WHERE s.profile_id = ? AND s.is_warmup = 0 AND s.logged_at >= ${lastWeekStart}`
+  ).get(req.profileId);
+  res.json({ this_so_far: Math.round(row.this_so_far), last_to_date: Math.round(row.last_to_date) });
+});
+
 router.get('/calendar', (req, res) => {
   // started_at is stored in UTC. Group by the user's LOCAL date so morning
   // sessions in UTC+ timezones don't get pushed onto the previous day.

@@ -737,6 +737,7 @@ function seed() {
   sweepStaleWorkouts();
   cleanupRemovedPrograms();
   setDefaultRepTargets();
+  setDefaultSetsTo2();
   // NOTE: programs are no longer seeded globally here — each profile gets its
   // own copy of the defaults via seedDefaultPrograms() at creation time.
 }
@@ -1198,6 +1199,19 @@ function setDefaultRepTargets() {
   if (getMeta(FLAG)) return;
   tx(() => {
     db.prepare('UPDATE program_day_exercises SET target_reps = 8').run();
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time (user-requested): baseline every program-day slot to 2 sets — the
+// user runs 2 working sets on most lifts and wanted them all reset at once,
+// then bumps the few that need 3+ by hand. Reps are deliberately left alone
+// (they vary per lift: 5/8/10/12). New slots also default to 2 sets now.
+function setDefaultSetsTo2() {
+  const FLAG = 'sets_to_2_v1';
+  if (getMeta(FLAG)) return;
+  tx(() => {
+    db.prepare('UPDATE program_day_exercises SET target_sets = 2').run();
     setMeta(FLAG, '1');
   });
 }

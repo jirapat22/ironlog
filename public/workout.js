@@ -1475,8 +1475,8 @@ async function openWorkoutAddExercisePicker() {
         is_bodyweight: !!ex.is_bodyweight,
         is_assisted: !!ex.is_assisted,
         equipment: ex.equipment || 'barbell',
-        target_sets: 3,
-        target_reps: 10,
+        target_sets: 2,
+        target_reps: 8,
         order_index: workoutState.programDay.exercises.length
       });
       persistExerciseList();
@@ -1503,8 +1503,8 @@ async function openWorkoutAddExercisePicker() {
       is_bodyweight: !!newEx.is_bodyweight,
       is_assisted: !!newEx.is_assisted,
       equipment: newEx.equipment || 'barbell',
-      target_sets: 3,
-      target_reps: 10,
+      target_sets: 2,
+      target_reps: 8,
       order_index: workoutState.programDay.exercises.length
     });
     persistExerciseList();

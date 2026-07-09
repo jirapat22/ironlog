@@ -109,6 +109,7 @@ const API = {
   progress: (exerciseId) => api(`/api/progress/${exerciseId}`),
   strengthHistory: () => api('/api/strength-history'),
   weeklyVolume: (weeks = 8) => api(`/api/volume/weekly${weeks > 0 ? `?weeks=${weeks}` : ''}`),
+  weekVolumeCompare: () => api('/api/volume/week-compare'),
   calendar: () => api(`/api/calendar?tzOffset=${-new Date().getTimezoneOffset()}`),
   prs: () => api('/api/prs'),
   history: () => api('/api/workouts/history'),

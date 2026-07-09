@@ -385,7 +385,10 @@ async function renderVolumeSection() {
   if (!root) return;
   root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
   try {
-    const rows = await API.weeklyVolume(8);
+    const [rows, compare] = await Promise.all([
+      API.weeklyVolume(8),
+      API.weekVolumeCompare().catch(() => null)
+    ]);
     if (!rows.length) {
       root.innerHTML = `<div class="bw-current__empty">Log some working sets to see weekly volume by muscle group.</div>`;
       return;
@@ -405,14 +408,19 @@ async function renderVolumeSection() {
       rows.filter((r) => r.week === w).reduce((sum, r) => sum + r.volume, 0)
     ));
     const thisWeek = totals[totals.length - 1];
-    const lastWeek = totals.length > 1 ? totals[totals.length - 2] : null;
+    // Trend vs LAST WEEK THROUGH THE SAME POINT (not the full last week), so a
+    // partial current week isn't unfairly "down". Falls back to the old full-
+    // week-vs-full-week compare if the endpoint is unavailable (offline / old
+    // cached server). Labelled "vs same point last wk" so the number is clear.
     let trendStr = '';
-    if (lastWeek != null && lastWeek > 0) {
-      const diff = thisWeek - lastWeek;
-      const pct = Math.round((diff / lastWeek) * 100);
+    const baseline = compare ? compare.last_to_date : (totals.length > 1 ? totals[totals.length - 2] : null);
+    const current = compare ? compare.this_so_far : thisWeek;
+    if (baseline != null && baseline > 0) {
+      const pct = Math.round(((current - baseline) / baseline) * 100);
       if (Math.abs(pct) >= 1) {
-        const sign = diff > 0 ? '+' : '';
-        trendStr = `<span class="bw-current__trend ${diff > 0 ? 'vol-up' : 'vol-down'}">${sign}${pct}%</span>`;
+        const sign = pct > 0 ? '+' : '';
+        const title = compare ? ' title="vs the same point last week"' : '';
+        trendStr = `<span class="bw-current__trend ${pct > 0 ? 'vol-up' : 'vol-down'}"${title}>${sign}${pct}%${compare ? ' vs last wk' : ''}</span>`;
       }
     }
 

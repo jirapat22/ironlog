@@ -542,7 +542,7 @@ async function openPicker() {
     haptic(20);
     try {
       const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
-        exercise_id: exerciseId, target_sets: 3, target_reps: 10
+        exercise_id: exerciseId, target_sets: 2, target_reps: 8
       });
       editDayState.day.exercises.push(row);
       hideSheet(picker);
@@ -560,7 +560,7 @@ function openNewExerciseForm(picker) {
       ex.program_count = 1; // about to be added to this day, below
       editDayState.allExercises.push(ex);
       const row = await API.addDayExercise(editDayState.programId, editDayState.dayId, {
-        exercise_id: ex.id, target_sets: 3, target_reps: 10
+        exercise_id: ex.id, target_sets: 2, target_reps: 8
       });
       editDayState.day.exercises.push(row);
       hideSheet(picker);
