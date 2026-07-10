@@ -466,7 +466,14 @@ async function renderExerciseLibraryList(sheet) {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
 
     const sortBtn = e.target.closest('[data-sort]');
-    if (sortBtn) { exLibSort = sortBtn.dataset.sort; buildBody(); return; }
+    if (sortBtn) {
+      // buildBody() fully rebuilds the list — if a rep-goal edit is open, that
+      // would silently wipe whatever the user just typed with no warning.
+      if (sheet.querySelector('.rep-goal-edit')) { toast('Finish editing the rep goal first'); return; }
+      exLibSort = sortBtn.dataset.sort;
+      buildBody();
+      return;
+    }
 
     // Tap the rep-goal chip → swap it for min/max inputs in place. Empty
     // inputs clear the override (back to the 6–8 default). Saving PATCHes

@@ -274,8 +274,16 @@ document.addEventListener('ironlog:unauthorized', () => {
   if ($('#pin-lock').classList.contains('hidden')) showLock();
 });
 
-// Settings asks us to re-lock (log out / delete profile).
-document.addEventListener('ironlog:lock', () => showLock());
+// Settings asks us to re-lock (log out / delete profile). Clear per-profile
+// UI-only preferences that live in localStorage — otherwise the next profile
+// on this device silently inherits e.g. profile A's "Cardio only" History
+// filter with no indication a filter is even active. (Active-workout pointers
+// are deliberately left alone: they self-heal via a 404 check in workout.js
+// if they turn out to belong to a workout the next profile can't see.)
+document.addEventListener('ironlog:lock', () => {
+  localStorage.removeItem(LS.historyKindFilter);
+  showLock();
+});
 
 // Settings changed the profile name/colour — refresh the header pill.
 document.addEventListener('ironlog:profile-updated', (e) => {

@@ -145,8 +145,13 @@ app.use('/api/bug-report', optionalProfile, bugReportRouter);
 app.use('/api', requireProfile);
 
 app.get('/api/orbit-summary', (req, res) => {
+  // Activity sessions (walks especially) aren't gym attendance — same
+  // exclusion as /api/calendar and the nudge reminders, so this widget can't
+  // report "active today" off a walk while the nudge system still nags.
   const workout = db.prepare(
-    `SELECT id, finished_at FROM workouts WHERE profile_id = ? AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1`
+    `SELECT id, finished_at FROM workouts
+     WHERE profile_id = ? AND finished_at IS NOT NULL AND (kind IS NULL OR kind != 'activity')
+     ORDER BY finished_at DESC LIMIT 1`
   ).get(req.profileId);
 
   if (!workout) {

@@ -295,6 +295,7 @@ function init() {
   migrateMultiUser();
   seed();
   recalcAllCalories();
+  recalcActivityCalories();
 }
 
 // ---------------------------------------------------------------------------
@@ -683,14 +684,18 @@ function seed() {
   const insertExercise = db.prepare(
     'INSERT OR IGNORE INTO exercises (name, muscle_group, notes) VALUES (?, ?, ?)'
   );
+  // created_by_profile_id IS NULL on every migration below that matches by
+  // exact name: a user's custom exercise reusing a deleted seed's name (the
+  // name is globally unique, so this is the only way to collide) must never
+  // get silently reclassified by these — only the shared/seeded row.
   const markBodyweight = db.prepare(
-    'UPDATE exercises SET is_bodyweight = 1 WHERE name = ? AND is_bodyweight != 1'
+    'UPDATE exercises SET is_bodyweight = 1 WHERE name = ? AND is_bodyweight != 1 AND created_by_profile_id IS NULL'
   );
   const markAssisted = db.prepare(
-    'UPDATE exercises SET is_bodyweight = 1, is_assisted = 1 WHERE name = ? AND is_assisted != 1'
+    'UPDATE exercises SET is_bodyweight = 1, is_assisted = 1 WHERE name = ? AND is_assisted != 1 AND created_by_profile_id IS NULL'
   );
   const updateGroup = db.prepare(
-    'UPDATE exercises SET muscle_group = ? WHERE name = ? AND muscle_group != ?'
+    'UPDATE exercises SET muscle_group = ? WHERE name = ? AND muscle_group != ? AND created_by_profile_id IS NULL'
   );
   tx(() => {
     for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
@@ -703,26 +708,28 @@ function seed() {
   });
 
   // Set equipment on exercises still at the default 'barbell' value.
-  // Order matters: more specific patterns first; bodyweight/assisted last to override.
+  // Order matters: more specific patterns first; bodyweight/assisted last to
+  // override. created_by_profile_id IS NULL guards every clause — a custom
+  // exercise reusing a deleted seed's name must not get silently reclassified.
   const equipmentMigrations = [
-    `UPDATE exercises SET equipment = 'cable' WHERE equipment = 'barbell'
+    `UPDATE exercises SET equipment = 'cable' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL
      AND (name LIKE '%Cable%' OR name LIKE '%Pulldown%' OR name LIKE '%Pushdown%'
           OR name LIKE '%Pullthrough%' OR name LIKE '%Pallof%'
           OR name IN ('Face Pull','Seated Cable Row','Band Pull-Apart','Rope Pushdown',
                       'Seated Cable Lateral Raise','Bayesian Curl','Cable Hammer Curl'))`,
-    `UPDATE exercises SET equipment = 'dumbbell' WHERE equipment = 'barbell'
+    `UPDATE exercises SET equipment = 'dumbbell' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL
      AND (name LIKE '%Dumbbell%'
           OR name IN ('Lateral Raise','Rear Delt Fly','Arnold Press','Hammer Curl',
                       'Concentration Curl','Overhead Tricep Extension','Tricep Kickback',
                       'Goblet Squat','Farmer Carry','Zottman Curl','Shrug'))`,
-    `UPDATE exercises SET equipment = 'machine' WHERE equipment = 'barbell'
+    `UPDATE exercises SET equipment = 'machine' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL
      AND (name LIKE '%Machine%' OR name LIKE '%Pec Deck%' OR name LIKE '%Leg Press%'
           OR name LIKE '%Leg Extension%' OR name LIKE '%Leg Curl%' OR name LIKE '%Hack Squat%'
           OR name LIKE '%Hip Abduction%' OR name LIKE '%Hip Adduction%'
           OR name LIKE '%Smith%' OR name IN ('Sissy Squat','Reverse Hyperextension'))`,
     `UPDATE exercises SET equipment = 'bodyweight'
-     WHERE is_bodyweight = 1 AND (is_assisted IS NULL OR is_assisted = 0)`,
-    `UPDATE exercises SET equipment = 'machine' WHERE is_assisted = 1`
+     WHERE is_bodyweight = 1 AND (is_assisted IS NULL OR is_assisted = 0) AND created_by_profile_id IS NULL`,
+    `UPDATE exercises SET equipment = 'machine' WHERE is_assisted = 1 AND created_by_profile_id IS NULL`
   ];
   for (const sql of equipmentMigrations) db.exec(sql);
 
@@ -832,14 +839,17 @@ const MET_ISO = new Set([
 ]);
 
 function populateMuscleAndMet() {
-  const setSub = db.prepare('UPDATE exercises SET sub_muscle = ? WHERE name = ? AND sub_muscle IS NULL');
-  const setMet = db.prepare('UPDATE exercises SET met = ? WHERE name = ? AND met = 5');
+  // created_by_profile_id IS NULL guards both: a custom exercise reusing a
+  // deleted seed's name (globally-unique names make this the only way to
+  // collide) must not get silently reclassified.
+  const setSub = db.prepare('UPDATE exercises SET sub_muscle = ? WHERE name = ? AND sub_muscle IS NULL AND created_by_profile_id IS NULL');
+  const setMet = db.prepare('UPDATE exercises SET met = ? WHERE name = ? AND met = 5 AND created_by_profile_id IS NULL');
   tx(() => {
     for (const [name, sub] of Object.entries(SUB_MUSCLE_BY_NAME)) setSub.run(sub, name);
     for (const name of MET_HEAVY) setMet.run(6.0, name);
     for (const name of MET_ISO) setMet.run(3.7, name);
     // Core work is low-load; set by group for anything still at the default.
-    db.prepare("UPDATE exercises SET met = 3.3 WHERE muscle_group = 'core' AND met = 5").run();
+    db.prepare("UPDATE exercises SET met = 3.3 WHERE muscle_group = 'core' AND met = 5 AND created_by_profile_id IS NULL").run();
 
     // One-time: split seeded biceps curls by head (existing DBs already had
     // these as the generic 'biceps'). Gated on Preacher still carrying the old
@@ -976,8 +986,13 @@ function recalcAllCalories() {
   const FLAG = 'recalc_calories_v2';
   if (getMeta(FLAG)) return;
   const { caloriesFromSets } = require('./calories');
+  // kind guard is defensive, not currently load-bearing (this flag has
+  // already fired in production so the function is dormant) — but activity
+  // workouts have no sets, and caloriesFromSets([], bwKg) returns 0, so if
+  // this ever re-runs (flag reset for troubleshooting, a future copy-paste of
+  // the pattern) it must not zero out every activity's calorie estimate.
   const workouts = db
-    .prepare('SELECT id, bw_kg FROM workouts WHERE finished_at IS NOT NULL AND bw_kg IS NOT NULL')
+    .prepare("SELECT id, bw_kg FROM workouts WHERE finished_at IS NOT NULL AND bw_kg IS NOT NULL AND (kind IS NULL OR kind != 'activity')")
     .all();
   const setStmt = db.prepare(
     'SELECT s.reps, s.is_warmup, e.met FROM sets s JOIN exercises e ON e.id = s.exercise_id WHERE s.workout_id = ?'
@@ -986,6 +1001,32 @@ function recalcAllCalories() {
   tx(() => {
     for (const w of workouts) {
       const cal = caloriesFromSets(setStmt.all(w.id), w.bw_kg);
+      if (cal != null) upd.run(cal, w.id);
+    }
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time: recompute calories_burned for existing activity-kind workouts
+// that have a real distance logged, using the pace-based model (activityCalories
+// with distance/distance_unit) instead of the fixed-MET/RPE guess they were
+// originally saved under. Entries with no distance are left alone — recomputing
+// them under the unchanged fixed-MET path would just reproduce the same number.
+function recalcActivityCalories() {
+  const FLAG = 'recalc_activity_calories_pace_v1';
+  if (getMeta(FLAG)) return;
+  const { activityCalories } = require('./calories');
+  const rows = db
+    .prepare(
+      `SELECT id, activity_type, duration_min, rpe, bw_kg, distance, distance_unit
+       FROM workouts
+       WHERE kind = 'activity' AND finished_at IS NOT NULL AND bw_kg IS NOT NULL AND distance IS NOT NULL`
+    )
+    .all();
+  const upd = db.prepare('UPDATE workouts SET calories_burned = ? WHERE id = ?');
+  tx(() => {
+    for (const w of rows) {
+      const cal = activityCalories(w.activity_type, w.duration_min, w.rpe, w.bw_kg, w.distance, w.distance_unit);
       if (cal != null) upd.run(cal, w.id);
     }
     setMeta(FLAG, '1');

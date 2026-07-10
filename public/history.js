@@ -37,19 +37,34 @@ async function renderHistory() {
     const list = $('#history-list');
 
     if (!history.length) { list.innerHTML = `<div class="empty">No workouts yet</div>`; return; }
-    list.innerHTML = history.map((w) => historyCardHTML(w)).join('');
+    list.innerHTML = history.map((w) => historyCardHTML(w)).join('') +
+      `<div class="empty hidden" id="history-empty-filtered"></div>`;
 
     // Combines the name-search text and the kind toggle — a card must match
-    // both to stay visible.
+    // both to stay visible. When a filter hides EVERY card, show a message
+    // instead of silent blank space that looks like a broken/loading screen.
     const applyFilters = () => {
       const f = list.dataset.filter || '';
+      let anyVisible = false;
       [...list.querySelectorAll('.history-card')].forEach((card) => {
         const isActivity = card.classList.contains('history-card--activity');
         const kindMatch = kindFilter === 'all' || (kindFilter === 'activity') === isActivity;
         const hay = card.dataset.exerciseNames || '';
         const textMatch = !f || hay.includes(f);
-        card.classList.toggle('hidden', !(kindMatch && textMatch));
+        const visible = kindMatch && textMatch;
+        card.classList.toggle('hidden', !visible);
+        if (visible) anyVisible = true;
       });
+      const emptyEl = list.querySelector('#history-empty-filtered');
+      if (emptyEl) {
+        emptyEl.classList.toggle('hidden', anyVisible);
+        if (!anyVisible) {
+          const kindLabel = HISTORY_KIND_FILTERS.find((k) => k.key === kindFilter)?.label;
+          emptyEl.textContent = f
+            ? `No ${kindFilter !== 'all' ? kindLabel.toLowerCase() + ' ' : ''}workouts match "${f}"`
+            : `No ${kindLabel.toLowerCase()} sessions yet`;
+        }
+      }
     };
 
     $('#history-filter').oninput = (e) => {

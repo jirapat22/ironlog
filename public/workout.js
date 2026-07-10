@@ -1036,9 +1036,15 @@ async function confirmSet(row) {
   const rir = rirRaw === '' || rirRaw == null ? null : Number(rirRaw);
   const isWarmup = row.dataset.warmup === '1';
 
-  const exIsBw = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId)?.is_bodyweight;
-  if ((weight < 0 || (weight === 0 && !exIsBw) || Number.isNaN(weight)) || !reps) {
-    toast(exIsBw ? 'Enter reps (weight can be 0 for bodyweight)' : 'Enter weight and reps first');
+  // weight=0 is a legitimate, meaningful value for both bodyweight (no added
+  // weight) and assisted exercises (no assistance — the hardest variant, and
+  // exactly what the progression hint recommends once you've outgrown the
+  // machine's lowest setting). Previously only bodyweight was exempted, so
+  // the UI silently refused to log the assisted case the app itself suggests.
+  const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId);
+  const allowZeroWeight = !!(ex?.is_bodyweight || ex?.is_assisted);
+  if ((weight < 0 || (weight === 0 && !allowZeroWeight) || Number.isNaN(weight)) || !reps) {
+    toast(allowZeroWeight ? 'Enter reps (weight can be 0)' : 'Enter weight and reps first');
     return;
   }
 
@@ -1308,6 +1314,31 @@ async function openHowToSheet(exerciseId) {
 // tier as other lightweight UI-only prefs.
 let workoutPickerSort = 'frequent';
 
+// Fields copied from the exercise catalog whenever an exercise is placed (or
+// replaced) in workoutState.programDay.exercises — every consumer reads
+// these off THIS object, not a live re-fetch (muscleTagHTML's group/sub-muscle
+// chip, the per-arm ×2 doubling via weight_mode, the rep-range progression
+// hint). Missing one here goes stale silently: wrong muscle tag, wrong
+// volume math, or a stuck rep target, all invisible until the user notices.
+// Shared by both the swap and add pickers' create-new AND pick-existing paths
+// so the four call sites can't drift out of sync with each other again.
+function exerciseCatalogFields(ex) {
+  return {
+    name: ex.name,
+    muscle_group: ex.muscle_group,
+    sub_muscle: ex.sub_muscle ?? null,
+    is_bodyweight: !!ex.is_bodyweight,
+    is_assisted: !!ex.is_assisted,
+    equipment: ex.equipment || 'barbell',
+    // Default to 'combined' (not per-arm) on missing data — under-counting
+    // volume is a safer failure than silently doubling it.
+    weight_mode: ex.weight_mode || 'combined',
+    rep_min: ex.rep_min ?? null,
+    rep_max: ex.rep_max ?? null,
+    notes: ex.notes || null
+  };
+}
+
 async function openSwapPicker(currentExerciseId) {
   const picker = ensureSheet('workout-swap-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
@@ -1370,11 +1401,7 @@ async function openSwapPicker(currentExerciseId) {
       workoutState.programDay.exercises[currentIdx] = {
         ...currentEx,
         exercise_id: ex.id,
-        name: ex.name,
-        muscle_group: ex.muscle_group,
-        is_bodyweight: !!ex.is_bodyweight,
-        is_assisted: !!ex.is_assisted,
-        notes: ex.notes || null
+        ...exerciseCatalogFields(ex)
       };
       hideSheet(picker);
       toast(`Swapped to ${ex.name}`);
@@ -1411,16 +1438,7 @@ async function openSwapPicker(currentExerciseId) {
     workoutState.programDay.exercises[currentIdx] = {
       ...currentEx,
       exercise_id: newExId,
-      name: newEx.name,
-      muscle_group: newEx.muscle_group,
-      sub_muscle: newEx.sub_muscle ?? null,
-      is_bodyweight: !!newEx.is_bodyweight,
-      is_assisted: !!newEx.is_assisted,
-      equipment: newEx.equipment || 'barbell',
-      weight_mode: newEx.weight_mode || 'per_arm',
-      rep_min: newEx.rep_min ?? null,
-      rep_max: newEx.rep_max ?? null,
-      notes: newEx.notes || null
+      ...exerciseCatalogFields(newEx)
     };
     if (workoutState.draft.exerciseOrder?.length) {
       workoutState.draft.exerciseOrder = workoutState.draft.exerciseOrder.map(
@@ -1510,12 +1528,7 @@ async function openWorkoutAddExercisePicker() {
       workoutState.programDay.exercises.push({
         id: null,
         exercise_id: ex.id,
-        name: ex.name,
-        muscle_group: ex.muscle_group,
-        notes: ex.notes || null,
-        is_bodyweight: !!ex.is_bodyweight,
-        is_assisted: !!ex.is_assisted,
-        equipment: ex.equipment || 'barbell',
+        ...exerciseCatalogFields(ex),
         target_sets: 2,
         target_reps: 8,
         order_index: workoutState.programDay.exercises.length
@@ -1540,12 +1553,7 @@ async function openWorkoutAddExercisePicker() {
     workoutState.programDay.exercises.push({
       id: null,
       exercise_id: exId,
-      name: newEx.name,
-      muscle_group: newEx.muscle_group,
-      notes: newEx.notes || null,
-      is_bodyweight: !!newEx.is_bodyweight,
-      is_assisted: !!newEx.is_assisted,
-      equipment: newEx.equipment || 'barbell',
+      ...exerciseCatalogFields(newEx),
       target_sets: 2,
       target_reps: 8,
       order_index: workoutState.programDay.exercises.length
