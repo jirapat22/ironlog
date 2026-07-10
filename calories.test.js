@@ -31,3 +31,40 @@ test('missing RPE is treated as moderate (≈8)', () => {
 test('capped so a freak entry cannot blow up the day', () => {
   assert.ok(activityCalories('run', 100000, 10, 120) <= 1500);
 });
+
+// Pace-based estimate (ACSM): distance + duration -> real speed -> MET, no RPE.
+test('run with distance uses pace, not the fixed MET/RPE fallback', () => {
+  // 10km in 60min = 10 km/h -> speed 166.7 m/min -> VO2 = 0.2*166.7+3.5 = 36.83
+  // -> MET 10.52 -> 10.52 * 80kg * 1h = 841.6 -> 842
+  const fast = activityCalories('run', 60, 8, 80, 10, 'km');
+  assert.strictEqual(fast, 842);
+  // A slower 5km in the same 60min should burn noticeably less — the fixed
+  // MET/RPE model couldn't tell these two apart at all (both "run", RPE 8).
+  const slow = activityCalories('run', 60, 8, 80, 5, 'km');
+  assert.ok(slow < fast, `slower pace (${slow}) should burn less than faster pace (${fast})`);
+});
+
+test('run distance in miles converts before computing pace', () => {
+  const km = activityCalories('run', 60, 8, 80, 10, 'km');
+  const mi = activityCalories('run', 60, 8, 80, 10 / 1.60934, 'mi');
+  assert.strictEqual(mi, km);
+});
+
+test('walk uses the (lower) walking coefficient, not the running one', () => {
+  const walk5km = activityCalories('walk', 60, 8, 80, 5, 'km');
+  const run5km = activityCalories('run', 60, 8, 80, 5, 'km');
+  assert.ok(walk5km < run5km, 'walking the same distance should cost less than running it');
+});
+
+test('an implausible pace (bad data entry) falls back to the fixed-MET model', () => {
+  // 500km in 10 minutes is not a real run — falls back, matching no-distance behavior.
+  const bogus = activityCalories('run', 10, 8, 80, 500, 'km');
+  const noDistance = activityCalories('run', 10, 8, 80, null, null);
+  assert.strictEqual(bogus, noDistance);
+});
+
+test('a non-pace activity type ignores distance and uses the fixed model', () => {
+  const withDistance = activityCalories('cycle', 60, 8, 80, 20, 'km');
+  const withoutDistance = activityCalories('cycle', 60, 8, 80, null, null);
+  assert.strictEqual(withDistance, withoutDistance);
+});

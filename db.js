@@ -801,12 +801,18 @@ const SUB_MUSCLE_BY_NAME = {
   'Wrist Curl': 'wrist flexors', 'Reverse Curl': 'wrist extensors'
 };
 
-// Big multi-joint lifts — highest energy cost.
+// Big multi-joint lifts — highest energy cost. Classified by MOVEMENT
+// PATTERN, not equipment — a machine that loads the same big compound
+// pattern (leg press, machine chest/shoulder press, machine row, an assisted
+// pull-up/dip/chin-up at any assistance level) costs about the same as its
+// free-weight equivalent, so it belongs here too, not at the MET=5 default.
 const MET_HEAVY = new Set([
   'Deadlift', 'Sumo Deadlift', 'Rack Pull', 'Back Squat', 'Front Squat', 'Box Squat', 'Pause Squat',
   'Smith Machine Squat', 'Bench Press', 'Incline Bench Press', 'Decline Bench Press',
   'Overhead Press', 'Barbell Row', 'Pendlay Row', 'T-Bar Row', 'Romanian Deadlift', 'Stiff-Leg Deadlift',
-  'Good Morning', 'Hip Thrust', 'Pull-Up', 'Chin-Up', 'Kettlebell Swing', 'Farmer Carry'
+  'Good Morning', 'Hip Thrust', 'Pull-Up', 'Chin-Up', 'Kettlebell Swing', 'Farmer Carry',
+  'Leg Press', 'Single-Leg Press', 'Hack Squat', 'Machine Chest Press', 'Machine Row', 'Machine Shoulder Press',
+  'Assisted Pull-Up', 'Assisted Chin-Up', 'Assisted Dip'
 ]);
 
 // Single-joint isolation — lowest energy cost. (Core is handled by group.)
@@ -822,7 +828,7 @@ const MET_ISO = new Set([
   'Cable Overhead Tricep Extension', 'Machine Tricep Extension',
   'Leg Extension', 'Lying Leg Curl', 'Seated Leg Curl', 'Standing Calf Raise', 'Seated Calf Raise',
   'Donkey Calf Raise', 'Hip Abduction Machine', 'Hip Adduction Machine', 'Glute Kickback', 'Cable Kickback',
-  'Glute Bridge', 'Reverse Nordic Curl', 'Nordic Hamstring Curl', 'Sissy Squat'
+  'Glute Bridge', 'Reverse Nordic Curl', 'Nordic Hamstring Curl', 'Sissy Squat', 'Reverse Hyperextension'
 ]);
 
 function populateMuscleAndMet() {

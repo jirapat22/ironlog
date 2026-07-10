@@ -44,7 +44,7 @@ router.post('/activity', (req, res) => {
   const { activityType, minutes, rpe, distance, distanceUnit, tags, notes } = parsed;
 
   const bwKg = latestBwKg(req.profileId);
-  const kcal = activityCalories(activityType, minutes, rpe, bwKg);
+  const kcal = activityCalories(activityType, minutes, rpe, bwKg, distance, distanceUnit);
 
   // Logged after the fact, so it happened "now" for consistency purposes.
   // started_at == finished_at (don't back-date by duration — that can push the
@@ -211,7 +211,7 @@ router.patch('/:id/activity', (req, res) => {
   // in response to the "no estimate" nudge and then fixing a typo here
   // actually produces an estimate instead of staying null forever.
   const bwKg = existing.bw_kg ?? latestBwKg(req.profileId);
-  const kcal = activityCalories(activityType, minutes, rpe, bwKg);
+  const kcal = activityCalories(activityType, minutes, rpe, bwKg, distance, distanceUnit);
 
   db.prepare(
     `UPDATE workouts

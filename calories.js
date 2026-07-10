@@ -63,20 +63,54 @@ const ACTIVITY_MET = {
 };
 const ACTIVITY_MET_DEFAULT = 6; // unknown / "other"
 
+// Pace-based MET for run/walk, via the ACSM metabolic equations (flat
+// ground): VO2 (ml/kg/min) scales directly with speed, so a real distance +
+// duration beats a fixed MET nudged by subjective RPE — the flat MET can't
+// tell an easy jog from a hard tempo run apart, but speed does. Running and
+// walking use different coefficients (running costs more per unit speed),
+// so the activity type — not the speed alone — decides which formula
+// applies (a fast "walk" and a slow "run" shouldn't be reclassified by pace).
+// Returns null for anything else, so those keep the fixed-MET path below.
+function metFromPace(type, distanceKm, minutes) {
+  if (type !== 'run' && type !== 'walk') return null;
+  if (!(distanceKm > 0) || !(minutes > 0)) return null;
+  const speedMPerMin = (distanceKm * 1000) / minutes;
+  const kmh = speedMPerMin * 0.06;
+  if (kmh < 1 || kmh > 30) return null; // implausible entry (bad units, typo) — fall back
+  const vo2 = type === 'walk' ? 0.1 * speedMPerMin + 3.5 : 0.2 * speedMPerMin + 3.5;
+  return vo2 / 3.5;
+}
+
 /**
  * @param {string} type      activity key (run, hyrox, cardio, …)
  * @param {number} minutes   session duration
- * @param {number|null} rpe  how hard, 6–10 (null = moderate)
+ * @param {number|null} rpe  how hard, 6–10 (null = moderate) — ignored when a
+ *                           pace-based MET is used below, since real pace is
+ *                           already a better effort signal than a 6–10 guess.
  * @param {number|null} bwKg bodyweight snapshot in kg
+ * @param {number|null} distance      session distance, in `distanceUnit`
+ * @param {string|null} distanceUnit  'km' | 'mi' | 'm'
  * @returns {number|null}    estimated calories, or null if bodyweight unknown
  */
-function activityCalories(type, minutes, rpe, bwKg) {
+function activityCalories(type, minutes, rpe, bwKg, distance, distanceUnit) {
   if (!bwKg || !Number.isFinite(Number(bwKg))) return null;
   const mins = Number(minutes);
   if (!Number.isFinite(mins) || mins <= 0) return 0;
+
+  if (distance != null && distanceUnit) {
+    const distanceKm = distanceUnit === 'mi' ? distance * 1.60934 : distanceUnit === 'm' ? distance / 1000 : distance;
+    const paceMet = metFromPace(type, distanceKm, mins);
+    if (paceMet != null) {
+      const kcal = paceMet * Number(bwKg) * (mins / 60);
+      return Math.round(Math.min(kcal, 1500));
+    }
+  }
+
+  // Fallback: fixed MET × RPE multiplier (no distance logged, or a type this
+  // formula doesn't cover). RPE 6–10 -> 0.80–1.04 multiplier; missing/blank
+  // rpe is moderate (8). (Guard null/'' explicitly: Number(null) is 0, which
+  // would wrongly floor it.)
   const met = ACTIVITY_MET[type] || ACTIVITY_MET_DEFAULT;
-  // RPE 6–10 -> 0.80–1.04 multiplier; missing/blank rpe is moderate (8).
-  // (Guard null/'' explicitly: Number(null) is 0, which would wrongly floor it.)
   const rNum = (rpe == null || rpe === '' || !Number.isFinite(Number(rpe))) ? 8 : Number(rpe);
   const r = Math.max(6, Math.min(10, rNum));
   const mult = 0.8 + (r - 6) * 0.06;
