@@ -145,12 +145,23 @@ function fmtDuration(startIso, endIso) {
   return `${mm}:${String(ss).padStart(2, '0')}`;
 }
 
+// Sub-muscles within a group get a small, fixed hue nudge (mg-shade-N, N =
+// the sub-muscle's index in SUB_MUSCLES[group]) so e.g. upper/mid/lower chest
+// read as distinct at a glance while staying in the "chest" color family.
+// Same sub-muscle always gets the same shade — index is positional, not
+// randomized. Returns '' for whole-muscle (no sub) or an unrecognized value.
+function subMuscleShadeClass(group, sub) {
+  if (!sub) return '';
+  const idx = (SUB_MUSCLES[group] || []).indexOf(sub);
+  return idx > 0 ? ` mg-shade-${idx % 6}` : '';
+}
+
 // Colored muscle tag — one fixed hue per canonical group (defined in CSS as
 // --mg-* vars), rendered as a tinted chip. Unknown groups fall back to the
 // dim neutral look. Used on workout cards, history, pickers, and the library.
 function muscleTagHTML(group, sub) {
   const g = PICKER_GROUP_ORDER.includes(group) ? group : 'other';
-  return `<span class="badge badge--mg mg-${g}">${escapeHtml(group || '')}${sub ? ` · ${escapeHtml(sub)}` : ''}</span>`;
+  return `<span class="badge badge--mg mg-${g}${subMuscleShadeClass(g, sub)}">${escapeHtml(group || '')}${sub ? ` · ${escapeHtml(sub)}` : ''}</span>`;
 }
 
 // Sub-muscle-only chip, same tinted style/color as muscleTagHTML but without
@@ -160,7 +171,7 @@ function muscleTagHTML(group, sub) {
 // `sub` may be null (whole-muscle movement); label falls back to "General".
 function subMuscleTagHTML(group, sub) {
   const g = PICKER_GROUP_ORDER.includes(group) ? group : 'other';
-  return `<span class="badge badge--mg mg-${g}">${escapeHtml(sub || 'General')}</span>`;
+  return `<span class="badge badge--mg mg-${g}${subMuscleShadeClass(g, sub)}">${escapeHtml(sub || 'General')}</span>`;
 }
 
 // Attach library-search suggestions to a new-exercise Name input: as the user
@@ -772,6 +783,7 @@ async function openMergePicker(sourceEx, onMerged) {
       <div class="sheet__body">
         <div class="card__subtitle" style="margin-bottom:10px">All of <strong>${escapeHtml(sourceEx.name)}</strong>'s sets, PRs and program slots move into the exercise you pick. ${escapeHtml(sourceEx.name)} is then removed.</div>
         <input class="input" id="merge-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+        <div id="merge-sort"></div>
         <div id="merge-list"><div class="skeleton" style="height:120px"></div></div>
       </div>
     </div>`;
@@ -783,19 +795,33 @@ async function openMergePicker(sourceEx, onMerged) {
   catch (err) { sheet.querySelector('#merge-list').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
 
   const others = stats.filter((e) => e.id !== sourceEx.id);
-  const groups = {};
-  for (const e of others) { (groups[e.muscle_group] || (groups[e.muscle_group] = [])).push(e); }
-  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
-  sheet.querySelector('#merge-list').innerHTML = keys.map((g) => `
-    <div class="picker-group" data-group="${g}">
-      <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-      ${groups[g].map((e) => `
-        <button class="picker-row" data-merge-target="${e.id}" data-name="${escapeHtml(e.name).toLowerCase()}">
-          <span>${escapeHtml(e.name)}${e.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(e.sub_muscle)}</span>` : ''}</span>
-          <span class="picker-row__state">${e.workout_count ? e.workout_count + ' wk' : '·'}</span>
-        </button>`).join('')}
-    </div>`).join('');
+  let mergeSort = 'frequent';
+
+  function renderMergeList() {
+    const groups = {};
+    for (const e of others) { (groups[e.muscle_group] || (groups[e.muscle_group] = [])).push(e); }
+    for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], mergeSort);
+    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    sheet.querySelector('#merge-sort').innerHTML = exerciseSortHTML(mergeSort);
+    sheet.querySelector('#merge-list').innerHTML = keys.map((g) => `
+      <div class="picker-group" data-group="${g}">
+        <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+        ${groups[g].map((e) => `
+          <button class="picker-row" data-merge-target="${e.id}" data-name="${escapeHtml(e.name).toLowerCase()}">
+            <span>${escapeHtml(e.name)}${e.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, e.sub_muscle)}">${escapeHtml(e.sub_muscle)}</span>` : ''}</span>
+            <span class="picker-row__state">${e.workout_count ? e.workout_count + ' wk' : '·'}</span>
+          </button>`).join('')}
+      </div>`).join('');
+  }
+  renderMergeList();
   setupPickerFilter(sheet);
+
+  sheet.querySelector('#merge-sort').onclick = (e) => {
+    const btn = e.target.closest('[data-sort]');
+    if (!btn) return;
+    mergeSort = btn.dataset.sort;
+    renderMergeList();
+  };
 
   sheet.querySelector('#merge-list').onclick = async (e) => {
     const btn = e.target.closest('[data-merge-target]');
@@ -829,6 +855,7 @@ async function openSplitPicker(sourceEx, onDone) {
   const sheet = ensureSheet('split-picker-sheet');
   const inner = () => sheet.querySelector('.sheet__inner') || sheet;
   const selected = new Set(); // workout_ids to move
+  let splitSort = 'frequent';
 
   function renderShell(title, bodyHtml, backFn) {
     sheet.innerHTML = `
@@ -892,23 +919,38 @@ async function openSplitPicker(sourceEx, onDone) {
     try { stats = await API.exerciseStats(); }
     catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
     const others = stats.filter((e) => e.id !== sourceEx.id);
-    const groups = {};
-    for (const e of others) { (groups[e.muscle_group] || (groups[e.muscle_group] = [])).push(e); }
-    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
-    inner().querySelector('.sheet__body').innerHTML = `
-      <div class="card__subtitle" style="margin-bottom:10px">Move ${selected.size} session${selected.size !== 1 ? 's' : ''} onto:</div>
-      <button class="btn btn--ghost btn--block" id="split-new" style="margin-bottom:12px">+ New exercise</button>
-      <input class="input" id="split-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
-      <div id="split-target-list">${keys.map((g) => `
+
+    function buildTargetList() {
+      const groups = {};
+      for (const e of others) { (groups[e.muscle_group] || (groups[e.muscle_group] = [])).push(e); }
+      for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], splitSort);
+      const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+      inner().querySelector('#split-sort').innerHTML = exerciseSortHTML(splitSort);
+      inner().querySelector('#split-target-list').innerHTML = keys.map((g) => `
         <div class="picker-group" data-group="${g}">
           <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
           ${groups[g].map((e) => `
             <button class="picker-row" data-target="${e.id}" data-name="${escapeHtml(e.name).toLowerCase()}">
-              <span>${escapeHtml(e.name)}${e.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(e.sub_muscle)}</span>` : ''}</span>
+              <span>${escapeHtml(e.name)}${e.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, e.sub_muscle)}">${escapeHtml(e.sub_muscle)}</span>` : ''}</span>
               <span class="picker-row__state">${e.workout_count ? e.workout_count + ' wk' : '·'}</span>
             </button>`).join('')}
-        </div>`).join('')}</div>`;
+        </div>`).join('');
+    }
+
+    inner().querySelector('.sheet__body').innerHTML = `
+      <div class="card__subtitle" style="margin-bottom:10px">Move ${selected.size} session${selected.size !== 1 ? 's' : ''} onto:</div>
+      <button class="btn btn--ghost btn--block" id="split-new" style="margin-bottom:12px">+ New exercise</button>
+      <input class="input" id="split-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
+      <div id="split-sort"></div>
+      <div id="split-target-list"></div>`;
+    buildTargetList();
     setupPickerFilter(sheet);
+    inner().querySelector('#split-sort').onclick = (e) => {
+      const btn = e.target.closest('[data-sort]');
+      if (!btn) return;
+      splitSort = btn.dataset.sort;
+      buildTargetList();
+    };
     inner().querySelector('#split-new').onclick = () => {
       renderNewExerciseForm(sheet, {
         ctaLabel: 'Create & move here',
@@ -1107,6 +1149,42 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   };
 }
 
+// ---------- Exercise sort-within-group ----------
+// The muscle-group sectioning in every exercise list/picker is permanent —
+// this only controls the ORDER of exercises inside each section. 'frequent'
+// needs workout_count, 'recent' needs last_used_at (both come from
+// API.exerciseStats(), not the plain API.exercises() list) — callers whose
+// data lacks them just get ties broken by name every time, which degrades
+// harmlessly to alphabetical rather than erroring.
+const EXERCISE_SORTS = [
+  { key: 'frequent', label: 'Most used' },
+  { key: 'recent', label: 'Recently used' },
+  { key: 'az', label: 'A–Z' }
+];
+
+function exerciseSortHTML(current = 'frequent') {
+  return `<div class="ex-sort" data-ex-sort>
+    ${EXERCISE_SORTS.map((s) => `<button class="ex-sort__btn${s.key === current ? ' ex-sort__btn--active' : ''}" data-sort="${s.key}">${s.label}</button>`).join('')}
+  </div>`;
+}
+
+function sortExercisesBy(list, sortKey) {
+  const arr = [...list];
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  if (sortKey === 'recent') {
+    arr.sort((a, b) => {
+      const at = a.last_used_at ? Date.parse(a.last_used_at.replace(' ', 'T') + 'Z') : -Infinity;
+      const bt = b.last_used_at ? Date.parse(b.last_used_at.replace(' ', 'T') + 'Z') : -Infinity;
+      return bt !== at ? bt - at : byName(a, b);
+    });
+  } else if (sortKey === 'az') {
+    arr.sort(byName);
+  } else {
+    arr.sort((a, b) => ((b.workout_count || 0) - (a.workout_count || 0)) || byName(a, b));
+  }
+  return arr;
+}
+
 // ---------- Exercise picker filtering ----------
 // Shared muscle-group filter chips + search for the exercise pickers (workout
 // add, swap, history add). All three render the same structure: a search input
@@ -1176,8 +1254,9 @@ export {
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
-  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML,
+  SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,
+  EXERCISE_SORTS, exerciseSortHTML, sortExercisesBy,
   isIOS, isStandalone
 };

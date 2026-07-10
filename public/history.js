@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg } from './utils.js';
+import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -534,33 +534,45 @@ function renderSetEditSheet() {
   updateWeightEq();
 }
 
+let historyPickerSort = 'frequent';
+
 async function openHistoryAddExercisePicker(workoutId) {
   const picker = ensureSheet('history-add-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
   showSheet(picker);
   let exercises;
-  try { exercises = await API.exercises(); }
+  try { exercises = await API.exerciseStats(); }
   catch (err) {
     picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
   }
-  const groups = {};
-  for (const ex of exercises) (groups[ex.muscle_group] ||= []).push(ex);
-  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  function buildList() {
+    const groups = {};
+    for (const ex of exercises) (groups[ex.muscle_group] ||= []).push(ex);
+    for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], historyPickerSort);
+    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    picker.querySelector('#histadd-sort').innerHTML = exerciseSortHTML(historyPickerSort);
+    picker.querySelector('#histadd-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `<div class="picker-group" data-group="${g}"><div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+      ${groups[g].map((ex) => `<button class="picker-row" data-histadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}" data-ex-name="${escapeHtml(ex.name)}"><span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span><span class="picker-row__state">+</span></button>`).join('')}
+    </div>`).join('');
+    setupPickerFilter(picker);
+  }
+
   picker.innerHTML = `
     <div class="sheet__inner">
       <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">Add exercise to this workout</div><span style="width:40px"></span></div>
       <div class="sheet__body">
         <input class="input" id="histadd-search" data-picker-search placeholder="Search…" style="margin-bottom:12px"/>
-        ${pickerChipsHTML(keys)}
-        ${keys.map((g) => `<div class="picker-group" data-group="${g}"><div class="picker-group__title">${escapeHtml(g)}</div>
-          ${groups[g].map((ex) => `<button class="picker-row" data-histadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}" data-ex-name="${escapeHtml(ex.name)}"><span>${escapeHtml(ex.name)}</span><span class="picker-row__state">+</span></button>`).join('')}
-        </div>`).join('')}
+        <div id="histadd-sort"></div>
+        <div id="histadd-list"></div>
       </div>
     </div>`;
-  setupPickerFilter(picker);
+  buildList();
   picker.onclick = (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
+    const sortBtn = e.target.closest('[data-sort]');
+    if (sortBtn) { historyPickerSort = sortBtn.dataset.sort; buildList(); return; }
     const pickBtn = e.target.closest('[data-histadd]');
     if (!pickBtn) return;
     const exId = Number(pickBtn.dataset.histadd);

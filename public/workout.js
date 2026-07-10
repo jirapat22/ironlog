@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -1304,13 +1304,17 @@ async function openHowToSheet(exerciseId) {
   showSheet(sheet);
 }
 
+// Persists across re-opens (swap/add both use it) within a session — same
+// tier as other lightweight UI-only prefs.
+let workoutPickerSort = 'frequent';
+
 async function openSwapPicker(currentExerciseId) {
   const picker = ensureSheet('workout-swap-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
   showSheet(picker);
 
   let exercises;
-  try { exercises = await API.exercises(); }
+  try { exercises = await API.exerciseStats(); }
   catch (err) {
     picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
@@ -1321,12 +1325,27 @@ async function openSwapPicker(currentExerciseId) {
   const inWorkoutElsewhere = new Set(
     workoutState.programDay.exercises.filter((e, i) => i !== currentIdx).map((e) => e.exercise_id)
   );
-  const groups = {};
-  for (const ex of exercises) {
-    if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
-    groups[ex.muscle_group].push(ex);
+
+  function buildList() {
+    const groups = {};
+    for (const ex of exercises) {
+      if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
+      groups[ex.muscle_group].push(ex);
+    }
+    for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], workoutPickerSort);
+    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    picker.querySelector('#swap-sort').innerHTML = exerciseSortHTML(workoutPickerSort);
+    picker.querySelector('#swap-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
+      <div class="picker-group" data-group="${g}">
+        <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+        ${groups[g].map((ex) => `
+          <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+            <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+            <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
+          </button>`).join('')}
+      </div>`).join('');
+    setupPickerFilter(picker);
   }
-  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
 
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -1338,18 +1357,11 @@ async function openSwapPicker(currentExerciseId) {
       <div class="sheet__body">
         <div class="card__subtitle" style="margin-bottom:10px">Pick a replacement. This only affects today's workout.</div>
         <input class="input" id="swap-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
-        ${pickerChipsHTML(keys)}
-        ${keys.map((g) => `
-          <div class="picker-group" data-group="${g}">
-            <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-            ${groups[g].map((ex) => `
-              <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
-                <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
-              </button>`).join('')}
-          </div>`).join('')}
+        <div id="swap-sort"></div>
+        <div id="swap-list"></div>
       </div>
     </div>`;
+  buildList();
 
   document.getElementById('swap-create-new').onclick = () => openWorkoutNewExerciseForm(picker, {
     onBack: () => openSwapPicker(currentExerciseId),
@@ -1370,10 +1382,10 @@ async function openSwapPicker(currentExerciseId) {
     }
   });
 
-  setupPickerFilter(picker);
-
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
+    const sortBtn = e.target.closest('[data-sort]');
+    if (sortBtn) { workoutPickerSort = sortBtn.dataset.sort; buildList(); return; }
     const pickBtn = e.target.closest('[data-swap-pick]');
     if (!pickBtn) return;
     const newExId = Number(pickBtn.dataset.swapPick);
@@ -1448,19 +1460,34 @@ async function openWorkoutAddExercisePicker() {
   showSheet(picker);
 
   let exercises;
-  try { exercises = await API.exercises(); }
+  try { exercises = await API.exerciseStats(); }
   catch (err) {
     picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
   }
 
   const inWorkout = new Set(workoutState.programDay.exercises.map((e) => e.exercise_id));
-  const groups = {};
-  for (const ex of exercises) {
-    if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
-    groups[ex.muscle_group].push(ex);
+
+  function buildList() {
+    const groups = {};
+    for (const ex of exercises) {
+      if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
+      groups[ex.muscle_group].push(ex);
+    }
+    for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], workoutPickerSort);
+    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    picker.querySelector('#wkadd-sort').innerHTML = exerciseSortHTML(workoutPickerSort);
+    picker.querySelector('#wkadd-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
+      <div class="picker-group" data-group="${g}">
+        <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+        ${groups[g].map((ex) => `
+          <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+            <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+            <span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : 'add'}</span>
+          </button>`).join('')}
+      </div>`).join('');
+    setupPickerFilter(picker);
   }
-  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
 
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -1471,20 +1498,11 @@ async function openWorkoutAddExercisePicker() {
       </div>
       <div class="sheet__body">
         <input class="input" id="wkadd-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
-        ${pickerChipsHTML(keys)}
-        ${keys.map((g) => `
-          <div class="picker-group" data-group="${g}">
-            <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-            ${groups[g].map((ex) => `
-              <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
-                <span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : 'add'}</span>
-              </button>`).join('')}
-          </div>`).join('')}
+        <div id="wkadd-sort"></div>
+        <div id="wkadd-list"></div>
       </div>
     </div>`;
-
-  setupPickerFilter(picker);
+  buildList();
 
   document.getElementById('wkadd-create').onclick = () => openWorkoutNewExerciseForm(picker, {
     onBack: () => openWorkoutAddExercisePicker(),
@@ -1511,6 +1529,8 @@ async function openWorkoutAddExercisePicker() {
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
+    const sortBtn = e.target.closest('[data-sort]');
+    if (sortBtn) { workoutPickerSort = sortBtn.dataset.sort; buildList(); return; }
     const pickBtn = e.target.closest('[data-wkadd]');
     if (!pickBtn) return;
     const exId = Number(pickBtn.dataset.wkadd);

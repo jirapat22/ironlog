@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -516,6 +516,10 @@ async function persistEditRowOrder() {
 }
 
 // ---------- Exercise picker (programs context only) ----------
+// Persists across re-opens (back-navigation from edit/create sub-forms calls
+// openPicker again) within a session, same tier as other lightweight prefs.
+let dayPickerSort = 'frequent';
+
 // Two modes: add (default) appends the pick to the day; swap (`swapPde` = a
 // program_day_exercises id) replaces that slot's exercise in place — sets,
 // reps, rest and position all survive, only the movement changes.
@@ -523,14 +527,31 @@ async function openPicker({ swapPde = null } = {}) {
   const picker = ensureSheet('picker-sheet');
   const { allExercises } = editDayState;
   const swapping = swapPde ? editDayState.day.exercises.find((x) => x.id === swapPde) : null;
-  const groups = {};
-  for (const ex of allExercises) {
-    if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
-    groups[ex.muscle_group].push(ex);
-  }
-
   const currentIds = new Set(editDayState.day.exercises.map((e) => e.exercise_id));
-  const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+
+  function buildList() {
+    const groups = {};
+    for (const ex of allExercises) {
+      if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
+      groups[ex.muscle_group].push(ex);
+    }
+    for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], dayPickerSort);
+    const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    picker.querySelector('#picker-sort').innerHTML = exerciseSortHTML(dayPickerSort);
+    picker.querySelector('#picker-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
+      <div class="picker-group" data-group="${g}">
+        <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
+        ${groups[g].map((ex) => `
+          <div class="picker-row-wrap">
+            <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+              <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+              <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
+            </button>
+            <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
+          </div>`).join('')}
+      </div>`).join('');
+    setupPickerFilter(picker);
+  }
 
   picker.innerHTML = `
     <div class="sheet__inner">
@@ -543,28 +564,20 @@ async function openPicker({ swapPde = null } = {}) {
         ${swapping ? `<div class="card__subtitle" style="margin-bottom:10px">Replacing <strong>${escapeHtml(swapping.name)}</strong> — its sets/reps/rest stay.</div>` : ''}
         <input class="input" id="picker-search" data-picker-search placeholder="Search exercises…" style="margin-bottom:12px"/>
         <button class="btn btn--ghost btn--block" data-new-exercise style="margin-bottom:12px">+ Create custom exercise</button>
-        ${pickerChipsHTML(keys)}
-        ${keys.map((g) => `
-          <div class="picker-group" data-group="${g}">
-            <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-            ${groups[g].map((ex) => `
-              <div class="picker-row-wrap">
-                <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-                  <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
-                  <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
-                </button>
-                <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
-              </div>`).join('')}
-          </div>`).join('')}
+        <div id="picker-sort"></div>
+        <div id="picker-list"></div>
       </div>
     </div>
   `;
   showSheet(picker);
-  setupPickerFilter(picker);
+  buildList();
 
   picker.onclick = async (e) => {
     if (e.target.closest('[data-close-picker]')) return hideSheet(picker);
     if (e.target.closest('[data-new-exercise]')) return openNewExerciseForm(picker, swapPde);
+
+    const sortBtn = e.target.closest('[data-sort]');
+    if (sortBtn) { dayPickerSort = sortBtn.dataset.sort; buildList(); return; }
 
     const editExBtn = e.target.closest('[data-edit-ex]');
     if (editExBtn) {

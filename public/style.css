@@ -3819,3 +3819,39 @@ button {
 }
 
 .mg-title { color: var(--mg); }
+
+/* Sub-muscle shade nudge: same tinted-chip system, but every sub-muscle within
+   a group gets a small hue rotation (fixed index → fixed rotation, so "upper
+   chest" is always the same shade) — visually distinct from its siblings
+   while clearly staying in the parent group's color family. Applied on TOP of
+   an .mg-<group> class, never on group-level titles/badges. */
+.mg-shade-1 { filter: hue-rotate(16deg) saturate(1.08); }
+.mg-shade-2 { filter: hue-rotate(-16deg) saturate(1.08); }
+.mg-shade-3 { filter: hue-rotate(32deg) saturate(1.12); }
+.mg-shade-4 { filter: hue-rotate(-32deg) saturate(1.12); }
+.mg-shade-5 { filter: hue-rotate(48deg) saturate(1.16); }
+
+/* Sort-within-group control for exercise lists/pickers — the muscle-group
+   sectioning itself never changes; this only reorders exercises inside each
+   section (most used / recently used / A–Z). */
+.ex-sort {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ex-sort__btn {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.ex-sort__btn--active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+}
