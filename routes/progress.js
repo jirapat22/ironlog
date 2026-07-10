@@ -123,6 +123,7 @@ router.get('/calendar', (req, res) => {
        FROM workouts
        WHERE profile_id = ?
          AND finished_at IS NOT NULL
+         AND (kind IS NULL OR kind != 'activity')
          AND started_at >= datetime('now', '-6 months')
        GROUP BY date(started_at, ?)
        ORDER BY date ASC`

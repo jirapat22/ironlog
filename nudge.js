@@ -55,9 +55,13 @@ async function nudgeProfile(profileId) {
   const hour = userLocalHour(tzOffset);
   if (inQuietHours(hour, qStart, qEnd)) return;
 
+  // Activity sessions (walks especially) don't count toward "did you train"
+  // here — a walk logged purely for calories shouldn't silence the "go lift"
+  // reminder, matching the Consistency calendar's same exclusion.
   const last = db
     .prepare(
-      `SELECT MAX(finished_at) as t FROM workouts WHERE profile_id = ? AND finished_at IS NOT NULL`
+      `SELECT MAX(finished_at) as t FROM workouts
+       WHERE profile_id = ? AND finished_at IS NOT NULL AND (kind IS NULL OR kind != 'activity')`
     )
     .get(profileId);
   const lastTs = last?.t;
@@ -140,7 +144,10 @@ async function weeklySummaryProfile(profileId) {
   const todayKey = userLocalDayKey(tzOffset);
   if (settings.weekly_summary_last_sent === todayKey) return;
 
-  // Stats for the last 7 calendar days (warmup sets excluded from volume/count)
+  // Stats for the last 7 calendar days (warmup sets excluded from volume/count;
+  // activity sessions excluded from the "workouts" count — a walk logged for
+  // calories isn't a lifting session, and it has no sets so it'd report as a
+  // free "0 kg" workout otherwise).
   const stats = db.prepare(
     `SELECT
       COUNT(DISTINCT w.id) as workouts,
@@ -154,6 +161,7 @@ async function weeklySummaryProfile(profileId) {
      LEFT JOIN sets s ON s.workout_id = w.id
      WHERE w.profile_id = ?
        AND w.finished_at IS NOT NULL
+       AND (w.kind IS NULL OR w.kind != 'activity')
        AND w.finished_at >= datetime('now', '-7 days')`
   ).get(profileId);
 
