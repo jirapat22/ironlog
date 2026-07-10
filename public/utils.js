@@ -11,7 +11,8 @@ const LS = {
   currentTab: 'ironlog.currentTab',
   setNotesDraft: 'ironlog.setNotesDraft',
   notifEnabled: 'ironlog.notifEnabled',
-  installHintDismissed: 'ironlog.installHintDismissed'
+  installHintDismissed: 'ironlog.installHintDismissed',
+  historyKindFilter: 'ironlog.historyKindFilter'
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);

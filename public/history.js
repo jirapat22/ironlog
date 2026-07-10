@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -6,9 +6,27 @@ import { saveAsTemplate, openActivitySheet } from './workout.js';
 import { reportHandled } from './bugreport.js';
 
 // ---------- HISTORY tab ----------
+// Kind filter (All / Strength / Cardio) — a workout that logs lots of walks
+// otherwise buries strength sessions in scroll; this hides the other kind
+// outright rather than just visually distinguishing the cards. Persists
+// across visits (same tier as other lightweight UI-only prefs).
+const HISTORY_KIND_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'strength', label: 'Strength' },
+  { key: 'activity', label: 'Cardio' }
+];
+
+function historyKindFilterHTML(current) {
+  return `<div class="ex-sort" data-history-kind style="margin-bottom:12px">
+    ${HISTORY_KIND_FILTERS.map((f) => `<button class="ex-sort__btn${f.key === current ? ' ex-sort__btn--active' : ''}" data-kind="${f.key}">${f.label}</button>`).join('')}
+  </div>`;
+}
+
 async function renderHistory() {
   const root = $('#view-history');
+  let kindFilter = localStorage.getItem(LS.historyKindFilter) || 'all';
   root.innerHTML = `
+    ${historyKindFilterHTML(kindFilter)}
     <input class="input" id="history-filter" placeholder="Filter by exercise name…" style="margin-bottom:12px"/>
     <div id="history-list">${skeletonBlocks(4)}</div>
   `;
@@ -21,17 +39,36 @@ async function renderHistory() {
     if (!history.length) { list.innerHTML = `<div class="empty">No workouts yet</div>`; return; }
     list.innerHTML = history.map((w) => historyCardHTML(w)).join('');
 
-    $('#history-filter').oninput = (e) => {
-      list.dataset.filter = e.target.value.trim().toLowerCase();
-      const f = list.dataset.filter;
+    // Combines the name-search text and the kind toggle — a card must match
+    // both to stay visible.
+    const applyFilters = () => {
+      const f = list.dataset.filter || '';
       [...list.querySelectorAll('.history-card')].forEach((card) => {
-        if (!f) { card.classList.remove('hidden'); return; }
-        // Names are on every card up front now, so a non-match can be hidden
-        // outright (including activity cards, which have none).
+        const isActivity = card.classList.contains('history-card--activity');
+        const kindMatch = kindFilter === 'all' || (kindFilter === 'activity') === isActivity;
         const hay = card.dataset.exerciseNames || '';
-        card.classList.toggle('hidden', !hay.includes(f));
+        const textMatch = !f || hay.includes(f);
+        card.classList.toggle('hidden', !(kindMatch && textMatch));
       });
     };
+
+    $('#history-filter').oninput = (e) => {
+      list.dataset.filter = e.target.value.trim().toLowerCase();
+      applyFilters();
+    };
+
+    root.querySelector('[data-history-kind]').onclick = (e) => {
+      const btn = e.target.closest('[data-kind]');
+      if (!btn) return;
+      kindFilter = btn.dataset.kind;
+      localStorage.setItem(LS.historyKindFilter, kindFilter);
+      root.querySelectorAll('[data-history-kind] .ex-sort__btn').forEach((b) =>
+        b.classList.toggle('ex-sort__btn--active', b.dataset.kind === kindFilter));
+      haptic(10);
+      applyFilters();
+    };
+
+    applyFilters(); // apply the persisted kind filter immediately on load
 
     list.onclick = async (e) => {
       const editSetBtn = e.target.closest('[data-edit-set]');
