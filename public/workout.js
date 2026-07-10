@@ -1305,7 +1305,7 @@ async function openHowToSheet(exerciseId) {
 }
 
 async function openSwapPicker(currentExerciseId) {
-  const picker = ensureSheet('swap-picker-sheet');
+  const picker = ensureSheet('workout-swap-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
   showSheet(picker);
 
@@ -1443,7 +1443,7 @@ async function openSwapPicker(currentExerciseId) {
 }
 
 async function openWorkoutAddExercisePicker() {
-  const picker = ensureSheet('swap-picker-sheet');
+  const picker = ensureSheet('workout-add-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
   showSheet(picker);
 

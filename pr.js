@@ -5,15 +5,23 @@ const { db, tx } = require('./db');
 // invalidate the cached best-by-rep-count (set delete, set edit, workout
 // delete).
 function recomputePrsForExercise(profileId, exerciseId) {
+  // Warmups never count toward a PR (routes/sets.js skips them at insert
+  // time) — this rebuild must exclude them too, or editing/deleting ANY set
+  // for the exercise resurrects a warmup as a "best" for its rep count.
   const repRows = db
-    .prepare('SELECT DISTINCT reps FROM sets WHERE profile_id = ? AND exercise_id = ?')
+    .prepare('SELECT DISTINCT reps FROM sets WHERE profile_id = ? AND exercise_id = ? AND is_warmup = 0')
     .all(profileId, exerciseId);
+
+  // Assisted exercises log ASSISTANCE (more = easier), so "best" is the
+  // LOWEST weight at that rep count — the inverse of every other exercise.
+  const ex = db.prepare('SELECT is_assisted FROM exercises WHERE id = ?').get(exerciseId);
+  const dir = ex?.is_assisted ? 'ASC' : 'DESC';
 
   const best = db.prepare(`
     SELECT weight, weight_unit, logged_at
     FROM sets
-    WHERE profile_id = ? AND exercise_id = ? AND reps = ?
-    ORDER BY (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END) DESC,
+    WHERE profile_id = ? AND exercise_id = ? AND reps = ? AND is_warmup = 0
+    ORDER BY (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END) ${dir},
              logged_at ASC
     LIMIT 1
   `);

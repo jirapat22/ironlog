@@ -10,16 +10,20 @@ function toKg(weight, unit) {
 
 function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
   const newKg = toKg(weight, unit);
-  const newE1RM = newKg * (1 + reps / 30);
 
-  // What is the user's overall best for this exercise BEFORE we update?
-  // - Non-bodyweight: best e1RM across all per-rep PR records
-  // - Bodyweight at weight=0: best (highest) reps ever logged at 0 added weight
-  const ex = db.prepare('SELECT is_bodyweight FROM exercises WHERE id = ?').get(exerciseId);
-  const isBwUnloaded = !!ex?.is_bodyweight && newKg === 0;
+  const ex = db.prepare('SELECT is_bodyweight, is_assisted FROM exercises WHERE id = ?').get(exerciseId);
+  // Assisted exercises log ASSISTANCE (more = easier) — the inverse of every
+  // other exercise, where more = harder. Flip the sign before folding it into
+  // the e1RM-style estimate so "beat previous best" means less assistance (or
+  // more reps at the same assistance), not more raw kg.
+  const sign = ex?.is_assisted ? -1 : 1;
+  const newE1RM = sign * newKg * (1 + reps / 30);
+  // Zero load (unweighted bodyweight, or fully-unassisted) is the hardest
+  // variant either way — compare by reps directly rather than through e1RM.
+  const isZeroLoad = !!ex?.is_bodyweight && newKg === 0;
 
   let beatPreviousBest = false;
-  if (isBwUnloaded) {
+  if (isZeroLoad) {
     const row = db.prepare(
       `SELECT MAX(reps) as max FROM personal_records WHERE profile_id = ? AND exercise_id = ? AND weight = 0`
     ).get(profileId, exerciseId);
@@ -29,16 +33,24 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
     const row = db.prepare(
       `SELECT MAX(
          (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END)
-         * (1.0 + reps / 30.0)
+         * (1.0 + reps / 30.0) * ?
        ) as best FROM personal_records WHERE profile_id = ? AND exercise_id = ?`
-    ).get(profileId, exerciseId);
-    const prevBestE1RM = row?.best || 0;
-    // 0.1% threshold to avoid float-noise PRs from tiny rounding
-    beatPreviousBest = newE1RM > prevBestE1RM * 1.001;
+    ).get(sign, profileId, exerciseId);
+    const prevBestE1RM = row?.best;
+    if (prevBestE1RM == null) {
+      // No prior record for this exercise at all — anything logged is a PR.
+      beatPreviousBest = true;
+    } else {
+      // 0.1% threshold to avoid float-noise PRs from tiny rounding — an
+      // absolute buffer (not a straight *1.001 multiply) so it tightens the
+      // bar in the right direction for assisted's negative-signed values too.
+      beatPreviousBest = newE1RM > prevBestE1RM + Math.abs(prevBestE1RM) * 0.001;
+    }
   }
 
   // Always keep the per-rep-count cache up to date — used by the PR list and
-  // by recomputePrsForExercise after edits/deletes.
+  // by recomputePrsForExercise after edits/deletes. "Better at this rep count"
+  // also flips for assisted: less assistance wins, not more.
   const existing = db
     .prepare('SELECT * FROM personal_records WHERE profile_id = ? AND exercise_id = ? AND reps = ?')
     .get(profileId, exerciseId, reps);
@@ -49,7 +61,7 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
     ).run(profileId, exerciseId, weight, unit, reps);
   } else {
     const existingKg = toKg(existing.weight, existing.weight_unit);
-    if (newKg > existingKg) {
+    if (sign * newKg > sign * existingKg) {
       db.prepare(
         `UPDATE personal_records
          SET weight = ?, weight_unit = ?, achieved_at = datetime('now')
@@ -94,6 +106,12 @@ router.post('/', (req, res) => {
   if (![nWeight, nReps, nSetNumber].every(Number.isFinite)) {
     return res.status(400).json({ error: 'weight, reps, and set_number must be numbers' });
   }
+  // Negative/zero values are meaningless here (the client already blocks them,
+  // but the server is the actual boundary — PR/volume math has no floor of its
+  // own and would happily sum a negative "set" into history forever).
+  if (nWeight < 0) return res.status(400).json({ error: 'weight cannot be negative' });
+  if (!Number.isInteger(nReps) || nReps <= 0) return res.status(400).json({ error: 'reps must be a positive whole number' });
+  if (!Number.isInteger(nSetNumber) || nSetNumber <= 0) return res.status(400).json({ error: 'set_number must be a positive whole number' });
   if ((nRpe != null && !Number.isFinite(nRpe)) || (nRir != null && !Number.isFinite(nRir))) {
     return res.status(400).json({ error: 'rpe and rir must be numbers when provided' });
   }
@@ -142,8 +160,13 @@ router.patch('/:id', (req, res) => {
     if (req.body && f in req.body) {
       const v = req.body[f];
       if (nullableNumeric.has(f) && v == null) continue;
-      if (!Number.isFinite(Number(v))) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) {
         return res.status(400).json({ error: `${f} must be a number` });
+      }
+      if (f === 'weight' && n < 0) return res.status(400).json({ error: 'weight cannot be negative' });
+      if ((f === 'reps' || f === 'set_number') && (!Number.isInteger(n) || n <= 0)) {
+        return res.status(400).json({ error: `${f} must be a positive whole number` });
       }
     }
   }

@@ -466,8 +466,10 @@ async function renderExerciseLibraryList(sheet) {
         <input type="number" min="1" max="100" inputmode="numeric" value="${ex.rep_max ?? ''}" placeholder="${REP_GOAL_DEFAULT_MAX}" data-goal-max/>
         <button class="rep-goal-edit__save" data-goal-save>&#x2713;</button>`;
       goalBtn.replaceWith(wrap);
+      let saving = false;
       const save = async (ev) => {
         ev.stopPropagation();
+        if (saving) return; // guards Enter + tap both firing, or a double-tap re-submitting mid-flight
         const minRaw = wrap.querySelector('[data-goal-min]').value.trim();
         const maxRaw = wrap.querySelector('[data-goal-max]').value.trim();
         const minV = minRaw === '' ? null : Number(minRaw);
@@ -476,6 +478,8 @@ async function renderExerciseLibraryList(sheet) {
           if (v != null && (!Number.isInteger(v) || v < 1 || v > 100)) return toast('Reps must be whole numbers 1–100');
         }
         if (minV != null && maxV != null && minV > maxV) return toast('Min can’t exceed max');
+        saving = true;
+        wrap.querySelectorAll('input, button').forEach((el) => { el.disabled = true; });
         try {
           const updated = await API.updateExercise(exId, { rep_min: minV, rep_max: maxV });
           Object.assign(ex, { rep_min: updated.rep_min ?? null, rep_max: updated.rep_max ?? null });
@@ -483,7 +487,15 @@ async function renderExerciseLibraryList(sheet) {
           tmp.innerHTML = repGoalChipHTML(ex);
           wrap.replaceWith(tmp.firstElementChild);
           haptic(10);
-        } catch (err) { toast(err.message); }
+        } catch (err) {
+          // Fall back to the chip unchanged rather than leaving the row stuck
+          // showing raw inputs with no way back except closing the sheet —
+          // the user can tap the chip again to retry.
+          toast(err.message);
+          const tmp = document.createElement('div');
+          tmp.innerHTML = repGoalChipHTML(ex);
+          wrap.replaceWith(tmp.firstElementChild);
+        }
       };
       wrap.querySelector('[data-goal-save]').onclick = save;
       wrap.querySelectorAll('input').forEach((inp) => {

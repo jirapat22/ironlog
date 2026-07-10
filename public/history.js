@@ -535,7 +535,7 @@ function renderSetEditSheet() {
 }
 
 async function openHistoryAddExercisePicker(workoutId) {
-  const picker = ensureSheet('swap-picker-sheet');
+  const picker = ensureSheet('history-add-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
   showSheet(picker);
   let exercises;

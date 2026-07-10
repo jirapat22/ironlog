@@ -63,7 +63,16 @@ function playBeep() {
   } catch { /* fail silently */ }
 }
 
+// While an actionToast's button is live, a plain toast() would otherwise
+// clobber its innerHTML/onclick (both share #toast) — silently dropping the
+// pending action (e.g. "Keep for next time" after a mid-workout swap) if
+// anything else toasts within its window. Queue instead; it plays right after
+// the action toast's window closes, whichever way that happens.
+let toastActionPending = false;
+let queuedToast = null;
+
 function toast(msg, ms = 2000) {
+  if (toastActionPending) { queuedToast = { msg, ms }; return; }
   const el = $('#toast');
   el.textContent = msg;
   el.classList.remove('hidden');
@@ -79,9 +88,15 @@ function actionToast(msg, actionLabel, onAction, ms = 5000) {
   el.innerHTML = `<span>${escapeHtml(msg)}</span> <button type="button" class="toast__action">${escapeHtml(actionLabel)}</button>`;
   el.classList.remove('hidden');
   clearTimeout(toast._t);
+  toastActionPending = true;
+  const finish = () => {
+    toastActionPending = false;
+    el.classList.add('hidden');
+    if (queuedToast) { const q = queuedToast; queuedToast = null; toast(q.msg, q.ms); }
+  };
   const btn = el.querySelector('.toast__action');
-  btn.onclick = () => { clearTimeout(toast._t); el.classList.add('hidden'); onAction(); };
-  toast._t = setTimeout(() => el.classList.add('hidden'), ms);
+  btn.onclick = () => { clearTimeout(toast._t); onAction(); finish(); };
+  toast._t = setTimeout(finish, ms);
 }
 
 function formatDateShort(iso) {
@@ -787,6 +802,7 @@ async function openMergePicker(sourceEx, onMerged) {
     if (!btn) return;
     const targetId = Number(btn.dataset.mergeTarget);
     const target = others.find((x) => x.id === targetId);
+    if (!target) { toast('That exercise is no longer available — reopen this list and try again'); return; }
     const ok = await confirmSheet({
       title: 'Merge exercises',
       message: `Move everything from "${sourceEx.name}" into "${target.name}"? "${sourceEx.name}" will be deleted. This can't be undone.`,

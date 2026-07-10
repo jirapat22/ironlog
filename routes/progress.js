@@ -3,6 +3,16 @@ const { db, REGION_TO_GROUP, effectiveVolumeLoadKgSql } = require('../db');
 
 const router = express.Router();
 
+// Shared local-time modifier builder: clamps to a real timezone range and
+// formats for SQLite's datetime(x, mod) — used everywhere "this week"/"today"
+// needs to mean the user's local calendar day, not UTC's. Pass the negated
+// offset to convert a local-frame value back to UTC (e.g. after snapping to a
+// local Monday) rather than re-deriving the clamp/format logic per call site.
+function tzModFromOffset(offsetMin) {
+  const clamped = Math.max(-840, Math.min(840, Math.trunc(offsetMin)));
+  return `${clamped >= 0 ? '+' : ''}${clamped} minutes`;
+}
+
 router.get('/progress/:exerciseId', (req, res) => {
   const exerciseId = Number(req.params.exerciseId);
   const exercise = db
@@ -32,16 +42,21 @@ router.get('/progress/:exerciseId', (req, res) => {
 router.get('/volume/weekly', (req, res) => {
   const weeks = Number.parseInt(req.query.weeks, 10);
   const hasWindow = Number.isFinite(weeks) && weeks > 0;
+  // Bucket by the user's LOCAL week (?tzOffset, like /calendar), not UTC — a
+  // UTC-only %W bucket put anyone east of UTC into "last week" for hours after
+  // their Monday actually began, disagreeing with the muscle-coverage strip.
+  const tz = Number(req.query.tzOffset);
+  const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
   // Bind the window as a parameter rather than interpolating into the SQL.
   // NOTE: SQLite's datetime() has NO 'weeks' modifier — datetime('now','-8 weeks')
   // returns NULL, so `logged_at >= NULL` silently excluded EVERY row and the
   // chart came up empty. Convert to days (weeks * 7), which IS supported.
   const dateClause = hasWindow ? `AND s.logged_at >= datetime('now', ?)` : '';
-  const params = hasWindow ? [req.profileId, `-${weeks * 7} days`] : [req.profileId];
+  const params = [mod, req.profileId, ...(hasWindow ? [`-${weeks * 7} days`] : [])];
   const rows = db
     .prepare(
       `SELECT
-         strftime('%Y-%W', s.logged_at) as week,
+         strftime('%Y-%W', s.logged_at, ?) as week,
          e.muscle_group,
          SUM(CASE WHEN s.is_warmup = 0 THEN ${effectiveVolumeLoadKgSql('s', 'e', 'w')} * s.reps ELSE 0 END) as volume,
          SUM(CASE WHEN s.is_warmup = 0 THEN 1 ELSE 0 END) as sets
@@ -60,12 +75,18 @@ router.get('/volume/weekly', (req, res) => {
 // Fair mid-week comparison for the volume trend badge: this week SO FAR vs last
 // week THROUGH THE SAME POINT (its Monday → the same weekday/time a week ago),
 // instead of a full last week that always makes a partial current week look
-// down. Week starts Monday, in UTC — consistent with the /volume/weekly chart
-// (strftime %W is also UTC-Monday).
+// down. Week start is snapped in the user's LOCAL time (?tzOffset) then
+// converted back to UTC for direct comparison against logged_at (stored UTC) —
+// shift to local, find the most recent Monday, shift back. "Same point a week
+// ago" is a fixed 7-day duration, so it needs no timezone conversion at all.
 router.get('/volume/week-compare', (req, res) => {
+  const tz = Number(req.query.tzOffset);
+  const offsetMin = Number.isFinite(tz) ? tz : 0;
+  const mod = tzModFromOffset(offsetMin);
+  const revMod = tzModFromOffset(-offsetMin);
   const load = effectiveVolumeLoadKgSql('s', 'e', 'w');
-  const weekStart = "datetime('now','weekday 0','-6 days','start of day')";
-  const lastWeekStart = `datetime(${weekStart},'-7 days')`;
+  const weekStart = "datetime('now', ?, 'weekday 0', '-6 days', 'start of day', ?)";
+  const lastWeekStart = `datetime(${weekStart}, '-7 days')`;
   const samePoint = "datetime('now','-7 days')";
   const row = db.prepare(
     `SELECT
@@ -75,7 +96,7 @@ router.get('/volume/week-compare', (req, res) => {
      JOIN exercises e ON e.id = s.exercise_id
      JOIN workouts  w ON w.id = s.workout_id
      WHERE s.profile_id = ? AND s.is_warmup = 0 AND s.logged_at >= ${lastWeekStart}`
-  ).get(req.profileId);
+  ).get(mod, revMod, mod, revMod, req.profileId, mod, revMod);
   res.json({ this_so_far: Math.round(row.this_so_far), last_to_date: Math.round(row.last_to_date) });
 });
 
@@ -95,8 +116,7 @@ router.get('/calendar', (req, res) => {
     const west = Number(row?.value);
     offsetMin = Number.isFinite(west) ? -west : 0;
   }
-  offsetMin = Math.max(-840, Math.min(840, Math.trunc(offsetMin)));
-  const mod = `${offsetMin >= 0 ? '+' : ''}${offsetMin} minutes`;
+  const mod = tzModFromOffset(offsetMin);
   const rows = db
     .prepare(
       `SELECT date(started_at, ?) as date, COUNT(*) as count
@@ -134,8 +154,7 @@ router.get('/muscle-frequency', (req, res) => {
 // 2×/week goal strip on the Programs tab.
 router.get('/muscle-coverage', (req, res) => {
   const tz = Number(req.query.tzOffset);
-  const offsetMin = Math.max(-840, Math.min(840, Math.trunc(Number.isFinite(tz) ? tz : 0)));
-  const mod = `${offsetMin >= 0 ? '+' : ''}${offsetMin} minutes`;
+  const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
   const rows = db.prepare(
     `SELECT e.muscle_group, COUNT(DISTINCT s.workout_id) AS sessions
      FROM sets s
