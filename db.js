@@ -330,6 +330,16 @@ function migrateMultiUser() {
   if (!columnExists('exercises', 'secondary_muscles')) {
     db.exec('ALTER TABLE exercises ADD COLUMN secondary_muscles TEXT');
   }
+  // secondary_major: JSON array, subset of secondary_muscles — the regions
+  // that get real mechanical loading (prime-mover level, not just a
+  // stabilizer/incidental hit) and therefore count toward that region's
+  // parent muscle_group in the 2x/week coverage goal. NULL = not yet
+  // classified, meaning "fall back to crediting every secondary region"
+  // (the original behavior, and the safe default for a user's own customs
+  // that predate this column) — an explicit array (even []) always wins.
+  if (!columnExists('exercises', 'secondary_major')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN secondary_major TEXT');
+  }
   // weight_mode: only meaningful for equipment='dumbbell'. 'per_arm' (default)
   // means the logged weight is one dumbbell, so volume math doubles it;
   // 'combined' means the logged number is already the full load (e.g. a
@@ -735,6 +745,8 @@ function seed() {
 
   populateMuscleAndMet();
   populateSecondaryMuscles();
+  fixTricepsSecondaryTag();
+  populateSecondaryMajor();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
   auditWeightModeCatalog();
@@ -920,12 +932,14 @@ const MUSCLE_GROUPS = Object.keys(GROUP_SUB_MUSCLES);
 // SUB_MUSCLE_BY_NAME (it gets the volume); these only feed recency. Applied
 // once (meta-flag guarded) so user edits are never clobbered.
 const SECONDARY_BY_NAME = {
-  // Chest presses -> front delt + triceps
-  'Bench Press': ['front delt', 'triceps'], 'Incline Bench Press': ['front delt', 'triceps'],
-  'Decline Bench Press': ['front delt', 'triceps'], 'Incline Dumbbell Press': ['front delt', 'triceps'],
-  'Flat Dumbbell Press': ['front delt', 'triceps'], 'Machine Chest Press': ['front delt', 'triceps'],
-  'Chest Dip': ['front delt', 'triceps'], 'Assisted Dip': ['front delt', 'triceps'],
-  'Push-Up': ['front delt', 'triceps'], 'Close-Grip Bench Press': ['mid chest', 'front delt'],
+  // Chest presses -> front delt + triceps. 'lateral head' (not the invalid
+  // bare 'triceps') — the triceps group's own taxonomy only has long/lateral
+  // head, no generic catch-all (unlike biceps' 'biceps' bucket).
+  'Bench Press': ['front delt', 'lateral head'], 'Incline Bench Press': ['front delt', 'lateral head'],
+  'Decline Bench Press': ['front delt', 'lateral head'], 'Incline Dumbbell Press': ['front delt', 'lateral head'],
+  'Flat Dumbbell Press': ['front delt', 'lateral head'], 'Machine Chest Press': ['front delt', 'lateral head'],
+  'Chest Dip': ['front delt', 'lateral head'], 'Assisted Dip': ['front delt', 'lateral head'],
+  'Push-Up': ['front delt', 'lateral head'], 'Close-Grip Bench Press': ['mid chest', 'front delt'],
   'Diamond Push-Up': ['mid chest', 'front delt'], 'Tricep Dip': ['lower chest', 'front delt'],
   // Back pulls
   'Deadlift': ['glutes', 'hamstrings', 'traps', 'upper back'],
@@ -942,9 +956,9 @@ const SECONDARY_BY_NAME = {
   'Good Morning': ['hamstrings', 'glutes'], 'Hyperextension': ['glutes', 'hamstrings'],
   'Face Pull': ['rear delt'],
   // Shoulder presses -> side delt + triceps
-  'Overhead Press': ['side delt', 'triceps'], 'Seated Dumbbell Press': ['side delt', 'triceps'],
-  'Arnold Press': ['side delt', 'triceps'], 'Machine Shoulder Press': ['side delt', 'triceps'],
-  'Landmine Press': ['side delt', 'triceps', 'upper chest'], 'Upright Row': ['traps', 'front delt'],
+  'Overhead Press': ['side delt', 'lateral head'], 'Seated Dumbbell Press': ['side delt', 'lateral head'],
+  'Arnold Press': ['side delt', 'lateral head'], 'Machine Shoulder Press': ['side delt', 'lateral head'],
+  'Landmine Press': ['side delt', 'lateral head', 'upper chest'], 'Upright Row': ['traps', 'front delt'],
   'Y-T-W Raise': ['upper back'],
   // Legs
   'Back Squat': ['glutes', 'hamstrings', 'lower back'], 'Front Squat': ['glutes', 'upper back'],
@@ -974,6 +988,84 @@ function populateSecondaryMuscles() {
       const clean = regions.filter((r) => REGION_TO_GROUP[r]);
       if (clean.length) upd.run(JSON.stringify(clean), name);
     }
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time repair: seed_secondary_v1 (above) shipped SECONDARY_BY_NAME with a
+// bare 'triceps' string, which isn't a valid sub-muscle region (the triceps
+// group's taxonomy only has 'long head'/'lateral head', no generic bucket) —
+// REGION_TO_GROUP[r] silently filtered it out of every chest/shoulder press's
+// secondary_muscles. Already-deployed rows never got the tag at all, so this
+// re-adds it (as 'lateral head') without disturbing any other tag a user may
+// have added since. New installs get it right from SECONDARY_BY_NAME already.
+function fixTricepsSecondaryTag() {
+  const FLAG = 'fix_triceps_secondary_v1';
+  if (getMeta(FLAG)) return;
+  const affected = [
+    'Bench Press', 'Incline Bench Press', 'Decline Bench Press', 'Incline Dumbbell Press',
+    'Flat Dumbbell Press', 'Machine Chest Press', 'Chest Dip', 'Assisted Dip', 'Push-Up',
+    'Overhead Press', 'Seated Dumbbell Press', 'Arnold Press', 'Machine Shoulder Press', 'Landmine Press'
+  ];
+  const rows = db.prepare(
+    `SELECT id, secondary_muscles FROM exercises
+     WHERE name IN (${affected.map(() => '?').join(',')}) AND created_by_profile_id IS NULL`
+  ).all(...affected);
+  const upd = db.prepare('UPDATE exercises SET secondary_muscles = ? WHERE id = ?');
+  tx(() => {
+    for (const row of rows) {
+      let regions = [];
+      try { regions = row.secondary_muscles ? JSON.parse(row.secondary_muscles) : []; } catch { regions = []; }
+      if (!Array.isArray(regions)) regions = [];
+      if (!regions.includes('lateral head')) regions.push('lateral head');
+      upd.run(JSON.stringify(regions), row.id);
+    }
+    setMeta(FLAG, '1');
+  });
+}
+
+// Which of SECONDARY_BY_NAME's regions get real mechanical loading (the
+// exercise is genuinely a prime-mover-level hit on that region, not just a
+// stabilizer or incidental assist) — these are the only secondary regions
+// that count toward the parent muscle_group's 2x/week coverage credit
+// (routes/progress.js /muscle-coverage). Anything in SECONDARY_BY_NAME but
+// absent here still shows as an "also works" tag and still feeds recency —
+// it just doesn't earn a coverage tick for that group.
+//
+// Rule of thumb applied: a heavy hip-hinge/loaded-carry crossing into a
+// different group (deadlift's hamstrings/glutes, farmer carry's traps) is
+// major. Everything else that crosses groups — arm assist on presses/pulls,
+// deltoid/back stabilization, isometric bracing during squats/hinges — is
+// sub-threshold vs. a dedicated session and stays minor (tag-only). Only
+// cross-group regions matter here; same-group ones (e.g. a squat's glutes,
+// already under `legs`) are a no-op for coverage either way.
+const SECONDARY_MAJOR_BY_NAME = {
+  'Deadlift': ['glutes', 'hamstrings'],
+  'Sumo Deadlift': ['glutes', 'hamstrings', 'quads'],
+  'Rack Pull': ['glutes'],
+  'Good Morning': ['hamstrings', 'glutes'],
+  'Farmer Carry': ['traps']
+};
+
+// Apply the major/minor secondary split once. Any seeded exercise with
+// secondary_muscles but no entry above gets an explicit '[]' (not left NULL)
+// so it's clear it was deliberately classified as tag-only, not merely
+// unvisited — re-deploys and later user edits are preserved either way.
+function populateSecondaryMajor() {
+  const FLAG = 'seed_secondary_major_v1';
+  if (getMeta(FLAG)) return;
+  const setExplicit = db.prepare(
+    'UPDATE exercises SET secondary_major = ? WHERE name = ? AND secondary_major IS NULL AND created_by_profile_id IS NULL'
+  );
+  tx(() => {
+    for (const [name, regions] of Object.entries(SECONDARY_MAJOR_BY_NAME)) {
+      const clean = regions.filter((r) => REGION_TO_GROUP[r]);
+      setExplicit.run(JSON.stringify(clean), name);
+    }
+    db.prepare(
+      `UPDATE exercises SET secondary_major = '[]'
+       WHERE secondary_major IS NULL AND secondary_muscles IS NOT NULL AND created_by_profile_id IS NULL`
+    ).run();
     setMeta(FLAG, '1');
   });
 }

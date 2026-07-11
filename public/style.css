@@ -993,6 +993,22 @@ button {
   cursor: pointer;
 }
 .sub2-item input { width: 16px; height: 16px; accent-color: var(--accent); }
+.sub2-major-toggle {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+}
+.sub2-major-toggle--on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
 /* Workout tab */
 .workout-sticky {

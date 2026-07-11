@@ -164,14 +164,22 @@ router.get('/muscle-frequency', (req, res) => {
 // (sub-muscle region strings, mapped to their parent group through
 // REGION_TO_GROUP), any other group it also works — e.g. Deadlift is
 // primary=back, but its secondary tags (glutes, hamstrings) map to legs, so a
-// deadlift session now also ticks legs. secondary_muscles is JSON, so this is
-// done in JS rather than pure SQL; DISTINCT collapses multiple sets of the
-// same exercise in one workout to a single row before crediting.
+// deadlift session also ticks legs. Only regions in secondary_major (the
+// prime-mover-level hits — see SECONDARY_MAJOR_BY_NAME in db.js) actually
+// credit a group; a region tagged but NOT in secondary_major (e.g.
+// Hyperextension's glutes/hamstrings, or a chest press's triceps) is still
+// shown as an "also works" tag but doesn't earn a coverage tick — those hits
+// are real but sub-threshold vs. a dedicated session. secondary_major NULL
+// (not yet classified — a legacy/custom exercise) falls back to crediting
+// every tagged region, same as before this split existed. secondary_muscles
+// is JSON, so this is done in JS rather than pure SQL; DISTINCT collapses
+// multiple sets of the same exercise in one workout to a single row before
+// crediting.
 router.get('/muscle-coverage', (req, res) => {
   const tz = Number(req.query.tzOffset);
   const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
   const rows = db.prepare(
-    `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles
+    `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles, e.secondary_major
      FROM sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.profile_id = ?
@@ -187,13 +195,21 @@ router.get('/muscle-coverage', (req, res) => {
   };
   for (const row of rows) {
     credit(row.muscle_group, row.workout_id);
-    if (row.secondary_muscles) {
-      let regions = [];
-      try { regions = JSON.parse(row.secondary_muscles); } catch { regions = []; }
-      for (const region of regions) {
-        const g = REGION_TO_GROUP[region];
-        if (g && g !== row.muscle_group) credit(g, row.workout_id);
-      }
+    if (!row.secondary_muscles) continue;
+    let regions = [];
+    try { regions = JSON.parse(row.secondary_muscles); } catch { regions = []; }
+    let creditable;
+    if (row.secondary_major == null) {
+      creditable = new Set(regions); // unclassified: fall back to full credit
+    } else {
+      let major = [];
+      try { major = JSON.parse(row.secondary_major); } catch { major = []; }
+      creditable = new Set(Array.isArray(major) ? major : []);
+    }
+    for (const region of regions) {
+      if (!creditable.has(region)) continue;
+      const g = REGION_TO_GROUP[region];
+      if (g && g !== row.muscle_group) credit(g, row.workout_id);
     }
   }
   res.json([...sessionsByGroup.entries()].map(([muscle_group, set]) => ({ muscle_group, sessions: set.size })));

@@ -4,7 +4,7 @@ const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx, mergeExercises, moveExerciseSess
 const router = express.Router();
 
 const SELECT_COLS =
-  'id, name, muscle_group, sub_muscle, secondary_muscles, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override, rep_min, rep_max';
+  'id, name, muscle_group, sub_muscle, secondary_muscles, secondary_major, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override, rep_min, rep_max';
 
 // Optional target-rep bound: null/'' clears it; otherwise a whole number 1-100.
 // Returns { ok, value } so callers can 400 on bad input instead of coercing.
@@ -15,23 +15,46 @@ function parseRepBound(raw) {
   return { ok: true, value: n };
 }
 
-// Parse the stored JSON secondary_muscles into an array for the API response.
+// Parse the stored JSON secondary_muscles/secondary_major into arrays for the
+// API response. secondary_major stays `null` (not `[]`) when unclassified —
+// that distinction matters to the coverage math (routes/progress.js) and to
+// the "also works" picker's default state.
 function shapeExercise(row) {
   if (!row) return row;
   let secondary = [];
   if (row.secondary_muscles) {
     try { secondary = JSON.parse(row.secondary_muscles); } catch { secondary = []; }
   }
-  return { ...row, secondary_muscles: Array.isArray(secondary) ? secondary : [] };
+  let secondaryMajor = null;
+  if (row.secondary_major != null) {
+    try { secondaryMajor = JSON.parse(row.secondary_major); } catch { secondaryMajor = null; }
+    if (!Array.isArray(secondaryMajor)) secondaryMajor = null;
+  }
+  return {
+    ...row,
+    secondary_muscles: Array.isArray(secondary) ? secondary : [],
+    secondary_major: secondaryMajor
+  };
 }
 
 // Validate/clean a secondary_muscles array: keep known regions, drop the
-// primary and duplicates. Returns a JSON string to store, or null if empty.
-function cleanSecondary(input, primarySub) {
-  if (!Array.isArray(input)) return null;
-  const out = [...new Set(input.map((r) => String(r).trim()))]
+// primary and duplicates. Returns a plain array (caller decides how to store).
+function cleanSecondaryList(input, primarySub) {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input.map((r) => String(r).trim()))]
     .filter((r) => REGION_TO_GROUP[r] && r !== primarySub);
-  return out.length ? JSON.stringify(out) : null;
+}
+
+// Validate/clean a secondary_major array against the (already-cleaned)
+// secondary_muscles list — a region can only be "major" if it's also tagged.
+// `input === undefined` (field omitted entirely) defaults to the FULL list,
+// matching the historical "everything credits" behavior for callers that
+// don't know about tiers yet; an explicit array (including []) always wins.
+function cleanSecondaryMajorList(input, secondaryList) {
+  if (input === undefined) return [...secondaryList];
+  if (!Array.isArray(input)) return [];
+  const allowed = new Set(secondaryList);
+  return [...new Set(input.map((r) => String(r).trim()))].filter((r) => allowed.has(r));
 }
 
 router.get('/', (req, res) => {
@@ -62,7 +85,7 @@ router.get('/:id(\\d+)', (req, res) => {
 router.get('/stats', (req, res) => {
   const rows = db.prepare(`
     SELECT
-      e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles,
+      e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles, e.secondary_major,
       e.notes, e.equipment, e.is_bodyweight, e.is_assisted, e.weight_mode, e.step_override, e.rep_min, e.rep_max,
       COUNT(DISTINCT s.workout_id) AS workout_count,
       MAX(w.started_at)            AS last_used_at,
@@ -142,13 +165,32 @@ router.patch('/:id', (req, res) => {
     updates.push('rep_min = ?'); values.push(min.value);
     updates.push('rep_max = ?'); values.push(max.value);
   }
+  let secondaryList = null; // set below only if secondary_muscles is in the request
   if ('secondary_muscles' in (req.body || {})) {
     // Primary to exclude = the new sub_muscle if being set, else the existing one.
     const primary = 'sub_muscle' in req.body
       ? (req.body.sub_muscle && String(req.body.sub_muscle).trim()) || null
       : existing.sub_muscle;
+    secondaryList = cleanSecondaryList(req.body.secondary_muscles, primary);
     updates.push('secondary_muscles = ?');
-    values.push(cleanSecondary(req.body.secondary_muscles, primary));
+    values.push(secondaryList.length ? JSON.stringify(secondaryList) : null);
+  }
+  if ('secondary_major' in (req.body || {})) {
+    const list = secondaryList !== null
+      ? secondaryList
+      : (existing.secondary_muscles ? (() => { try { return JSON.parse(existing.secondary_muscles); } catch { return []; } })() : []);
+    updates.push('secondary_major = ?');
+    values.push(JSON.stringify(cleanSecondaryMajorList(req.body.secondary_major, list)));
+  } else if (secondaryList !== null && existing.secondary_major != null) {
+    // secondary_muscles changed but secondary_major wasn't sent, and this
+    // exercise already has explicit tiers — re-intersect so a region that
+    // just got un-tagged also drops out of the major set. If secondary_major
+    // was still NULL (never classified), leave it NULL rather than pinning
+    // it to [] — that would silently kill the legacy full-credit fallback.
+    let prevMajor = [];
+    try { prevMajor = JSON.parse(existing.secondary_major); } catch { prevMajor = []; }
+    updates.push('secondary_major = ?');
+    values.push(JSON.stringify(cleanSecondaryMajorList(prevMajor, secondaryList)));
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
   values.push(id);
@@ -255,7 +297,7 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, rep_min, rep_max, weight_mode, instructions } = req.body || {};
+  const { name, muscle_group, notes, equipment = 'barbell', sub_muscle, secondary_muscles, secondary_major, rep_min, rep_max, weight_mode, instructions } = req.body || {};
   if (!name || !muscle_group) {
     return res.status(400).json({ error: 'name and muscle_group are required' });
   }
@@ -266,7 +308,9 @@ router.post('/', (req, res) => {
   const validEquipment = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
   const equip = validEquipment.includes(equipment) ? equipment : 'barbell';
   const sub = (sub_muscle && String(sub_muscle).trim()) ? String(sub_muscle).trim() : null;
-  const secondary = cleanSecondary(secondary_muscles, sub);
+  const secondaryList = cleanSecondaryList(secondary_muscles, sub);
+  const secondary = secondaryList.length ? JSON.stringify(secondaryList) : null;
+  const major = JSON.stringify(cleanSecondaryMajorList(secondary_major, secondaryList));
   const min = parseRepBound(rep_min);
   const max = parseRepBound(rep_max);
   if (!min.ok || !max.ok) {
@@ -286,8 +330,8 @@ router.post('/', (req, res) => {
     : null;
   try {
     const info = db
-      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, notes, equipment, weight_mode, rep_min, rep_max, instructions, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(name.trim(), group, sub, secondary, notes || null, equip, mode, min.value, max.value, howTo, req.profileId);
+      .prepare('INSERT INTO exercises (name, muscle_group, sub_muscle, secondary_muscles, secondary_major, notes, equipment, weight_mode, rep_min, rep_max, instructions, created_by_profile_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(name.trim(), group, sub, secondary, major, notes || null, equip, mode, min.value, max.value, howTo, req.profileId);
     const row = db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(info.lastInsertRowid);
     res.status(201).json(shapeExercise(row));
   } catch (err) {

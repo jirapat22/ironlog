@@ -644,13 +644,25 @@ function subMuscleOptions(group, selected) {
 }
 
 // Checklist markup for the "also works" secondary muscles: every region across
-// all groups except the chosen primary, with current selections checked.
-function secondaryChecklistHTML(primaryRegion, selectedSet) {
+// all groups except the chosen primary, with current selections checked. Each
+// checked region also gets a small "counts" / "tag only" toggle — whether it
+// earns a tick toward that region's parent muscle group in the 2x/week
+// coverage goal, or is purely an informational tag (e.g. a chest press's
+// triceps hit is real but shouldn't count as tricep day).
+function secondaryChecklistHTML(primaryRegion, selectedSet, majorSet) {
   const sel = selectedSet instanceof Set ? selectedSet : new Set(selectedSet || []);
+  const major = majorSet instanceof Set ? majorSet : new Set(majorSet || []);
   return Object.entries(SUB_MUSCLES).map(([g, subs]) => {
     const items = subs
       .filter((s) => s !== primaryRegion)
-      .map((s) => `<label class="sub2-item"><input type="checkbox" value="${s}" ${sel.has(s) ? 'checked' : ''}/><span>${s}</span></label>`)
+      .map((s) => {
+        const checked = sel.has(s);
+        const isMajor = major.has(s);
+        return `<label class="sub2-item">
+          <input type="checkbox" value="${s}" ${checked ? 'checked' : ''}/><span>${s}</span>
+          ${checked ? `<button type="button" class="sub2-major-toggle${isMajor ? ' sub2-major-toggle--on' : ''}" data-major-toggle="${s}">${isMajor ? 'counts' : 'tag only'}</button>` : ''}
+        </label>`;
+      })
       .join('');
     return items ? `<div class="sub2-group"><div class="sub2-group__title">${g}</div>${items}</div>` : '';
   }).join('');
@@ -658,21 +670,34 @@ function secondaryChecklistHTML(primaryRegion, selectedSet) {
 
 // Mount a self-managing secondary-muscle picker into containerEl. `getPrimary`
 // returns the current primary region (excluded from the list). Call .render()
-// after the primary changes; .getSelected() returns the chosen regions.
-function createSecondaryPicker(containerEl, getPrimary, initial = []) {
+// after the primary changes; .getSelected() returns the chosen regions and
+// .getSelectedMajor() the subset that counts toward coverage. `initialMajor`
+// null/undefined defaults every initial selection to "counts" (matches the
+// legacy full-credit behavior); pass [] explicitly for "none of these count".
+function createSecondaryPicker(containerEl, getPrimary, initial = [], initialMajor = null) {
   const selected = new Set(initial || []);
+  const major = new Set(initialMajor != null ? initialMajor : (initial || []));
   function render() {
     const primary = getPrimary();
-    if (primary) selected.delete(primary);
-    containerEl.innerHTML = secondaryChecklistHTML(primary, selected);
+    if (primary) { selected.delete(primary); major.delete(primary); }
+    containerEl.innerHTML = secondaryChecklistHTML(primary, selected, major);
   }
   containerEl.addEventListener('change', (e) => {
     const cb = e.target.closest('input[type=checkbox]');
     if (!cb) return;
-    if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+    if (cb.checked) { selected.add(cb.value); major.add(cb.value); } // newly checked regions default to "counts"
+    else { selected.delete(cb.value); major.delete(cb.value); }
+    render();
+  });
+  containerEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-major-toggle]');
+    if (!btn) return;
+    const region = btn.dataset.majorToggle;
+    if (major.has(region)) major.delete(region); else major.add(region);
+    render();
   });
   render();
-  return { render, getSelected: () => [...selected] };
+  return { render, getSelected: () => [...selected], getSelectedMajor: () => [...major] };
 }
 
 // ---------- Exercise edit form ----------
@@ -749,6 +774,7 @@ function renderNewExerciseForm(containerEl, { ctaLabel = 'Create', onBack, onCre
     const muscle_group = containerEl.querySelector('#nx-muscle').value;
     const sub_muscle = subSel.value || null;
     const secondary_muscles = sub2.getSelected();
+    const secondary_major = sub2.getSelectedMajor();
     const equipment = containerEl.querySelector('#nx-equipment').value;
     const repRange = readRepRangeInputs(containerEl, '#nx-repmin', '#nx-repmax');
     if (!repRange.ok) return toast(repRange.error);
@@ -757,7 +783,7 @@ function renderNewExerciseForm(containerEl, { ctaLabel = 'Create', onBack, onCre
     const fromLib = libPick && libPick.name === name ? libPick : null;
     try {
       const ex = await API.addExercise({
-        name, muscle_group, sub_muscle, secondary_muscles, equipment,
+        name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment,
         rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes,
         instructions: fromLib?.instructions || undefined,
         weight_mode: fromLib?.unilateral ? 'per_arm' : undefined
@@ -1042,7 +1068,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
 
   containerEl.querySelector('[data-back-edit-ex]').onclick = () => onBack && onBack();
   const subSel = containerEl.querySelector('#edit-ex-sub');
-  const sub2 = createSecondaryPicker(containerEl.querySelector('#edit-ex-sub2'), () => subSel.value, ex.secondary_muscles || []);
+  const sub2 = createSecondaryPicker(containerEl.querySelector('#edit-ex-sub2'), () => subSel.value, ex.secondary_muscles || [], ex.secondary_major);
   // When the group changes, reset the sub-muscle dropdown to that group's
   // regions, then refresh the "also works" list to exclude the new primary.
   containerEl.querySelector('#edit-ex-muscle').onchange = (e) => {
@@ -1079,6 +1105,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     const muscle_group = containerEl.querySelector('#edit-ex-muscle').value;
     const sub_muscle = subSel.value || null;
     const secondary_muscles = sub2.getSelected();
+    const secondary_major = sub2.getSelectedMajor();
     const equipment = containerEl.querySelector('#edit-ex-equipment').value;
     const weight_mode = containerEl.querySelector('#edit-ex-weightmode').value;
     const stepRaw = containerEl.querySelector('#edit-ex-step').value.trim();
@@ -1090,7 +1117,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     if (!repRange.ok) return toast(repRange.error);
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
-    const payload = { name, muscle_group, sub_muscle, secondary_muscles, equipment, weight_mode, step_override, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
+    const payload = { name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment, weight_mode, step_override, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
     const howtoEl = containerEl.querySelector('#edit-ex-howto');
     if (howtoEl && howtoAdminCode !== null) {
       payload.instructions = howtoEl.value.trim() || null;
