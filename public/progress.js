@@ -486,7 +486,12 @@ async function renderVolumeSection() {
 
 function renderCalendar(entries) {
   const root = $('#calendar');
+  // Gym-attendance heat + streak/best/totals are driven ONLY by `count` —
+  // unchanged from before. `activity_count` (cardio) is tracked separately
+  // and only ever shown as a small dot on the cell, so a heavy-walking week
+  // can't inflate the streak or "days at the gym" numbers.
   const countMap = new Map(entries.map((e) => [e.date, e.count]));
+  const activityCountMap = new Map(entries.map((e) => [e.date, e.activity_count || 0]));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayIso = localDateStr(today);   // was toISOString() — wrong in UTC+ timezones
@@ -554,10 +559,17 @@ function renderCalendar(entries) {
   const cell = (iso) => {
     if (!iso) return '<div class="cal-cell cal-cell--empty"></div>';
     const cnt = countMap.get(iso) || 0;
+    const actCnt = activityCountMap.get(iso) || 0;
     const isToday = iso === todayIso;
     const cls = cnt >= 2 ? 'cal-cell--hi' : cnt === 1 ? 'cal-cell--med' : '';
-    const tip = cnt ? `${iso} · ${cnt} session${cnt > 1 ? 's' : ''}` : iso;
-    return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${tip}"></div>`;
+    const tipParts = [iso];
+    if (cnt) tipParts.push(`${cnt} session${cnt > 1 ? 's' : ''}`);
+    if (actCnt) tipParts.push(`${actCnt} cardio`);
+    // The cardio dot is a secondary marker only — it never changes cls/the
+    // cell's own background, so gym-attendance intensity reads exactly as
+    // before even on a day that also had a walk.
+    const dot = actCnt ? '<span class="cal-cell__dot"></span>' : '';
+    return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${tipParts.join(' · ')}">${dot}</div>`;
   };
 
   const gridHTML = monthGroups.map(({ label, cols }) => `
@@ -585,6 +597,10 @@ function renderCalendar(entries) {
       <div class="cal-cell cal-cell--hi"></div>
       <span style="font-size:10px;color:var(--text-dim)">2+/day</span>
     </div>
+    ${entries.some((e) => e.activity_count > 0) ? `
+    <div class="cal-legend">
+      <span style="font-size:10px;color:var(--text-dim)"><span class="cal-cell__dot" style="position:static;display:inline-block;margin-right:4px;vertical-align:middle"></span>cardio logged that day (doesn't count toward streak)</span>
+    </div>` : ''}
   `;
 }
 

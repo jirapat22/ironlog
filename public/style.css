@@ -3350,11 +3350,25 @@ button {
 }
 
 .cal-cell {
+  position: relative;
   width: 14px;
   height: 14px;
   border-radius: 3px;
   background: var(--surface-2);
   flex-shrink: 0;
+}
+
+/* Cardio marker — secondary to the gym-attendance heat color, never changes
+   it. A distinct hue (cyan, not used by the red/yellow/amber heat scale or
+   any muscle-group color) so it reads as "also did cardio", not "more sets". */
+.cal-cell__dot {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #4dd0e1;
 }
 
 .cal-cell--empty {

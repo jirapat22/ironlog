@@ -117,13 +117,19 @@ router.get('/calendar', (req, res) => {
     offsetMin = Number.isFinite(west) ? -west : 0;
   }
   const mod = tzModFromOffset(offsetMin);
+  // `count` (gym attendance — streak/best/totals) and `activity_count` (cardio,
+  // shown only as a secondary per-day marker) are counted separately in one
+  // pass so a cardio-only day still gets a row (activity_count>0, count=0)
+  // without ever adding to the gym-attendance number itself.
   const rows = db
     .prepare(
-      `SELECT date(started_at, ?) as date, COUNT(*) as count
+      `SELECT
+         date(started_at, ?) as date,
+         COUNT(CASE WHEN kind IS NULL OR kind != 'activity' THEN 1 END) as count,
+         COUNT(CASE WHEN kind = 'activity' THEN 1 END) as activity_count
        FROM workouts
        WHERE profile_id = ?
          AND finished_at IS NOT NULL
-         AND (kind IS NULL OR kind != 'activity')
          AND started_at >= datetime('now', '-6 months')
        GROUP BY date(started_at, ?)
        ORDER BY date ASC`
