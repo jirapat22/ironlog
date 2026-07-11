@@ -20,6 +20,7 @@
   --accent-dim: #9a4e22;
   --danger: #c8492b;    /* oxide red — destructive / overdue */
   --success: #8fb45a;   /* sage — fresh / on-track */
+  --cardio: #4a9fb5;    /* slate teal — cardio/activity marker, reads against both the amber heat and the molten-orange accent */
   --radius: 9px;
   --radius-sm: 6px;
   --nav-h: 68px;
@@ -3359,16 +3360,24 @@ button {
 }
 
 /* Cardio marker — secondary to the gym-attendance heat color, never changes
-   it. A distinct hue (cyan, not used by the red/yellow/amber heat scale or
-   any muscle-group color) so it reads as "also did cardio", not "more sets". */
-.cal-cell__dot {
+   it. --cardio is a distinct hue (not used by the amber/orange heat scale or
+   any muscle-group color) so it reads as "also did cardio", not "more sets".
+   One dot per session (capped at 3 — a 14px cell can't legibly show more). */
+.cal-cell__dots {
   position: absolute;
   bottom: 1px;
-  right: 1px;
-  width: 4px;
-  height: 4px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 1px;
+}
+.cal-cell__dot {
+  width: 3px;
+  height: 3px;
   border-radius: 50%;
-  background: #4dd0e1;
+  background: var(--cardio);
+  flex-shrink: 0;
 }
 
 .cal-cell--empty {

@@ -565,11 +565,15 @@ function renderCalendar(entries) {
     const tipParts = [iso];
     if (cnt) tipParts.push(`${cnt} session${cnt > 1 ? 's' : ''}`);
     if (actCnt) tipParts.push(`${actCnt} cardio`);
-    // The cardio dot is a secondary marker only — it never changes cls/the
+    // The cardio dots are a secondary marker only — they never change cls/the
     // cell's own background, so gym-attendance intensity reads exactly as
-    // before even on a day that also had a walk.
-    const dot = actCnt ? '<span class="cal-cell__dot"></span>' : '';
-    return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${tipParts.join(' · ')}">${dot}</div>`;
+    // before even on a day that also had a walk. One dot per session, capped
+    // at 3 (a 14px cell can't legibly show more) — the tooltip always has the
+    // real count regardless of how many render.
+    const dots = actCnt
+      ? `<span class="cal-cell__dots">${'<span class="cal-cell__dot"></span>'.repeat(Math.min(actCnt, 3))}</span>`
+      : '';
+    return `<div class="cal-cell ${cls} ${isToday ? 'cal-cell--today' : ''}" title="${tipParts.join(' · ')}">${dots}</div>`;
   };
 
   const gridHTML = monthGroups.map(({ label, cols }) => `
