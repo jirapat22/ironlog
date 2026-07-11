@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -1313,6 +1313,7 @@ async function openHowToSheet(exerciseId) {
 // Persists across re-opens (swap/add both use it) within a session — same
 // tier as other lightweight UI-only prefs.
 let workoutPickerSort = 'frequent';
+let workoutPickerSubGroup = false;
 
 // Fields copied from the exercise catalog whenever an exercise is placed (or
 // replaced) in workoutState.programDay.exercises — every consumer reads
@@ -1357,6 +1358,12 @@ async function openSwapPicker(currentExerciseId) {
     workoutState.programDay.exercises.filter((e, i) => i !== currentIdx).map((e) => e.exercise_id)
   );
 
+  const pickRowHTML = (ex, g, showSubTag) => `
+    <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+      <span>${escapeHtml(ex.name)}${showSubTag && ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+      <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
+    </button>`;
+
   function buildList() {
     const groups = {};
     for (const ex of exercises) {
@@ -1365,15 +1372,16 @@ async function openSwapPicker(currentExerciseId) {
     }
     for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], workoutPickerSort);
     const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
-    picker.querySelector('#swap-sort').innerHTML = exerciseSortHTML(workoutPickerSort);
+    picker.querySelector('#swap-sort').innerHTML = exerciseSortHTML(workoutPickerSort) + subGroupToggleHTML(workoutPickerSubGroup);
     picker.querySelector('#swap-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
       <div class="picker-group" data-group="${g}">
         <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-        ${groups[g].map((ex) => `
-          <button class="picker-row ${ex.id === currentExerciseId || inWorkoutElsewhere.has(ex.id) ? 'picker-row--added' : ''}" data-swap-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-            <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
-            <span class="picker-row__state">${ex.id === currentExerciseId ? 'current' : inWorkoutElsewhere.has(ex.id) ? 'in workout' : 'pick'}</span>
-          </button>`).join('')}
+        ${workoutPickerSubGroup
+          ? groupBySubMuscle(g, groups[g]).map(({ sub, exercises: exs }) => `
+              <div class="picker-subgroup__title mg-title mg-${g}${subMuscleShadeClass(g, sub)}">${escapeHtml(sub || 'General')}</div>
+              ${exs.map((ex) => pickRowHTML(ex, g, false)).join('')}
+            `).join('')
+          : groups[g].map((ex) => pickRowHTML(ex, g, true)).join('')}
       </div>`).join('');
     setupPickerFilter(picker);
   }
@@ -1413,6 +1421,8 @@ async function openSwapPicker(currentExerciseId) {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
     const sortBtn = e.target.closest('[data-sort]');
     if (sortBtn) { workoutPickerSort = sortBtn.dataset.sort; buildList(); return; }
+    const subgroupBtn = e.target.closest('[data-subgroup-toggle]');
+    if (subgroupBtn) { workoutPickerSubGroup = !workoutPickerSubGroup; buildList(); return; }
     const pickBtn = e.target.closest('[data-swap-pick]');
     if (!pickBtn) return;
     const newExId = Number(pickBtn.dataset.swapPick);
@@ -1486,6 +1496,12 @@ async function openWorkoutAddExercisePicker() {
 
   const inWorkout = new Set(workoutState.programDay.exercises.map((e) => e.exercise_id));
 
+  const addRowHTML = (ex, g, showSubTag) => `
+    <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+      <span>${escapeHtml(ex.name)}${showSubTag && ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+      <span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : 'add'}</span>
+    </button>`;
+
   function buildList() {
     const groups = {};
     for (const ex of exercises) {
@@ -1494,15 +1510,16 @@ async function openWorkoutAddExercisePicker() {
     }
     for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], workoutPickerSort);
     const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
-    picker.querySelector('#wkadd-sort').innerHTML = exerciseSortHTML(workoutPickerSort);
+    picker.querySelector('#wkadd-sort').innerHTML = exerciseSortHTML(workoutPickerSort) + subGroupToggleHTML(workoutPickerSubGroup);
     picker.querySelector('#wkadd-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
       <div class="picker-group" data-group="${g}">
         <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-        ${groups[g].map((ex) => `
-          <button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-wkadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-            <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
-            <span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : 'add'}</span>
-          </button>`).join('')}
+        ${workoutPickerSubGroup
+          ? groupBySubMuscle(g, groups[g]).map(({ sub, exercises: exs }) => `
+              <div class="picker-subgroup__title mg-title mg-${g}${subMuscleShadeClass(g, sub)}">${escapeHtml(sub || 'General')}</div>
+              ${exs.map((ex) => addRowHTML(ex, g, false)).join('')}
+            `).join('')
+          : groups[g].map((ex) => addRowHTML(ex, g, true)).join('')}
       </div>`).join('');
     setupPickerFilter(picker);
   }
@@ -1544,6 +1561,8 @@ async function openWorkoutAddExercisePicker() {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(picker);
     const sortBtn = e.target.closest('[data-sort]');
     if (sortBtn) { workoutPickerSort = sortBtn.dataset.sort; buildList(); return; }
+    const subgroupBtn = e.target.closest('[data-subgroup-toggle]');
+    if (subgroupBtn) { workoutPickerSubGroup = !workoutPickerSubGroup; buildList(); return; }
     const pickBtn = e.target.closest('[data-wkadd]');
     if (!pickBtn) return;
     const exId = Number(pickBtn.dataset.wkadd);

@@ -3882,3 +3882,34 @@ button {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* Sub-muscle split toggle — subdivides each muscle-group section into
+   sub-muscle buckets (see groupBySubMuscle). The group sectioning itself
+   never changes; this is purely an optional finer layer inside it. */
+.subgroup-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.subgroup-toggle--active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.picker-subgroup__title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+  margin: 10px 0 6px 4px;
+}

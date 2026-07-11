@@ -1186,6 +1186,31 @@ function sortExercisesBy(list, sortKey) {
   return arr;
 }
 
+// ---------- Sub-muscle sub-sectioning ----------
+// Optional finer subdivision WITHIN a muscle-group section — the group
+// sectioning itself stays permanent (same rule as sort-within-group); this
+// only splits an already-grouped, already-sorted exercise list into
+// sub-muscle buckets so a big group (legs, back) isn't one long scroll.
+// Buckets follow SUB_MUSCLES' canonical order; a "General" bucket (no
+// sub_muscle, or one outside this group's taxonomy) comes last.
+function groupBySubMuscle(group, exercises) {
+  const order = SUB_MUSCLES[group] || [];
+  const buckets = new Map(order.map((s) => [s, []]));
+  const general = [];
+  for (const ex of exercises) {
+    const list = ex.sub_muscle && buckets.has(ex.sub_muscle) ? buckets.get(ex.sub_muscle) : general;
+    list.push(ex);
+  }
+  const result = [];
+  for (const [sub, list] of buckets) if (list.length) result.push({ sub, exercises: list });
+  if (general.length) result.push({ sub: null, exercises: general });
+  return result;
+}
+
+function subGroupToggleHTML(active) {
+  return `<button class="subgroup-toggle${active ? ' subgroup-toggle--active' : ''}" data-subgroup-toggle aria-pressed="${active}">&#x2637; Split by sub-muscle</button>`;
+}
+
 // ---------- Exercise picker filtering ----------
 // Shared muscle-group filter chips + search for the exercise pickers (workout
 // add, swap, history add). All three render the same structure: a search input
@@ -1258,6 +1283,6 @@ export {
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,
-  EXERCISE_SORTS, exerciseSortHTML, sortExercisesBy,
+  EXERCISE_SORTS, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML,
   isIOS, isStandalone
 };

@@ -154,24 +154,49 @@ router.get('/muscle-frequency', (req, res) => {
   res.json(rows);
 });
 
-// This week's coverage per PRIMARY muscle group: how many separate sessions
+// This week's coverage per muscle group: how many separate sessions
 // (workouts) hit each group so far, Monday-start in the user's local time
 // (?tzOffset like /calendar). Any working set counts; active workouts count
 // immediately so today's session ticks the strip while you train. Drives the
 // 2×/week goal strip on the Programs tab.
+//
+// Credits BOTH the exercise's primary muscle_group AND, via secondary_muscles
+// (sub-muscle region strings, mapped to their parent group through
+// REGION_TO_GROUP), any other group it also works — e.g. Deadlift is
+// primary=back, but its secondary tags (glutes, hamstrings) map to legs, so a
+// deadlift session now also ticks legs. secondary_muscles is JSON, so this is
+// done in JS rather than pure SQL; DISTINCT collapses multiple sets of the
+// same exercise in one workout to a single row before crediting.
 router.get('/muscle-coverage', (req, res) => {
   const tz = Number(req.query.tzOffset);
   const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
   const rows = db.prepare(
-    `SELECT e.muscle_group, COUNT(DISTINCT s.workout_id) AS sessions
+    `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles
      FROM sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.profile_id = ?
        AND s.is_warmup = 0
-       AND datetime(s.logged_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')
-     GROUP BY e.muscle_group`
+       AND datetime(s.logged_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')`
   ).all(req.profileId, mod, mod);
-  res.json(rows);
+
+  const sessionsByGroup = new Map(); // muscle_group -> Set(workout_id)
+  const credit = (group, workoutId) => {
+    if (!group) return;
+    if (!sessionsByGroup.has(group)) sessionsByGroup.set(group, new Set());
+    sessionsByGroup.get(group).add(workoutId);
+  };
+  for (const row of rows) {
+    credit(row.muscle_group, row.workout_id);
+    if (row.secondary_muscles) {
+      let regions = [];
+      try { regions = JSON.parse(row.secondary_muscles); } catch { regions = []; }
+      for (const region of regions) {
+        const g = REGION_TO_GROUP[region];
+        if (g && g !== row.muscle_group) credit(g, row.workout_id);
+      }
+    }
+  }
+  res.json([...sessionsByGroup.entries()].map(([muscle_group, set]) => ({ muscle_group, sessions: set.size })));
 });
 
 // Finer breakdown by sub-muscle (upper/mid/lower pec, front/side/rear delt,

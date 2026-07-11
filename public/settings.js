@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -375,6 +375,7 @@ async function openExerciseLibrary() {
 // Persists across re-opens (edit/save/delete all re-call renderExerciseLibraryList)
 // but not page reloads — same tier as other lightweight UI-only preferences.
 let exLibSort = 'frequent';
+let exLibSubGroup = false;
 
 async function renderExerciseLibraryList(sheet) {
   let stats;
@@ -418,25 +419,36 @@ async function renderExerciseLibraryList(sheet) {
     for (const g of Object.keys(byGroup)) byGroup[g] = sortExercisesBy(byGroup[g], exLibSort);
 
     const order = [...new Set([...GROUPS, ...Object.keys(byGroup)])].filter((g) => byGroup[g]);
+
+    const rowHTML = (ex, g, showSubTag) => `
+      <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
+        <div class="ex-lib-row__info">
+          <div class="ex-lib-row__name">${escapeHtml(ex.name)}${showSubTag && ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</div>
+          <div class="ex-lib-row__meta">
+            ${ex.workout_count === 0
+              ? '<span style="color:var(--text-dim)">Never used</span>'
+              : `<span style="color:var(--accent)">${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''}</span> · last ${fmtDate(ex.last_used_at)}`}
+          </div>
+        </div>
+        ${repGoalChipHTML(ex)}
+        <button class="btn--icon" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
+        ${ex.workout_count === 0 && !ex.program_count
+          ? `<button class="btn--icon btn--icon-danger" data-del-ex="${ex.id}" title="Delete">×</button>`
+          : ''}
+      </div>`;
+
+    // When split-by-sub-muscle is on, the sub-muscle already IS the section
+    // header, so the inline tag on each row (showSubTag) would be redundant —
+    // suppressed the same way subMuscleTagHTML's sectioned views already do.
     const html = order.map((g) => `
       <div class="ex-lib-group" data-group="${g}">
         <div class="ex-lib-group__title mg-title mg-${g}">${g}</div>
-        ${byGroup[g].map((ex) => `
-          <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
-            <div class="ex-lib-row__info">
-              <div class="ex-lib-row__name">${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</div>
-              <div class="ex-lib-row__meta">
-                ${ex.workout_count === 0
-                  ? '<span style="color:var(--text-dim)">Never used</span>'
-                  : `<span style="color:var(--accent)">${ex.workout_count} workout${ex.workout_count !== 1 ? 's' : ''}</span> · last ${fmtDate(ex.last_used_at)}`}
-              </div>
-            </div>
-            ${repGoalChipHTML(ex)}
-            <button class="btn--icon" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
-            ${ex.workout_count === 0 && !ex.program_count
-              ? `<button class="btn--icon btn--icon-danger" data-del-ex="${ex.id}" title="Delete">×</button>`
-              : ''}
-          </div>`).join('')}
+        ${exLibSubGroup
+          ? groupBySubMuscle(g, byGroup[g]).map(({ sub, exercises }) => `
+              <div class="picker-subgroup__title mg-title mg-${g}${subMuscleShadeClass(g, sub)}">${escapeHtml(sub || 'General')}</div>
+              ${exercises.map((ex) => rowHTML(ex, g, false)).join('')}
+            `).join('')
+          : byGroup[g].map((ex) => rowHTML(ex, g, true)).join('')}
       </div>`).join('');
 
     const unusedCount = stats.filter((e) => e.workout_count === 0).length;
@@ -446,6 +458,7 @@ async function renderExerciseLibraryList(sheet) {
         ${stats.length} exercises total · <strong>${unusedCount}</strong> never used
       </div>
       ${exerciseSortHTML(exLibSort)}
+      ${subGroupToggleHTML(exLibSubGroup)}
       ${pickerChipsHTML(order)}
       ${html}`;
 
@@ -464,6 +477,14 @@ async function renderExerciseLibraryList(sheet) {
 
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+
+    const subgroupBtn = e.target.closest('[data-subgroup-toggle]');
+    if (subgroupBtn) {
+      if (sheet.querySelector('.rep-goal-edit')) { toast('Finish editing the rep goal first'); return; }
+      exLibSubGroup = !exLibSubGroup;
+      buildBody();
+      return;
+    }
 
     const sortBtn = e.target.closest('[data-sort]');
     if (sortBtn) {
