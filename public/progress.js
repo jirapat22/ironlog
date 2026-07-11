@@ -530,6 +530,7 @@ function renderCalendar(entries) {
   const toMonday = (d) => { const m = new Date(d); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); m.setHours(0,0,0,0); return m; };
   const weekMap = new Map();
   for (const e of entries) {
+    if (!e.count) continue; // cardio-only day: dotted separately, must not enter the gym-streak/best map (a present-but-zero week would break the run)
     const key = localDateStr(toMonday(new Date(e.date + 'T00:00:00')));  // was toISOString()
     weekMap.set(key, (weekMap.get(key) || 0) + e.count);
   }

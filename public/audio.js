@@ -105,6 +105,10 @@ async function refreshBadgeFromCalendar() {
     start.setDate(start.getDate() - day);
     let count = 0;
     for (const e of entries) {
+      // Only gym days count toward the attendance badge. A cardio-only day is
+      // returned by /api/calendar as { count: 0, activity_count: >0 } — skip
+      // it (e.count === undefined = legacy bare-string entry, treated as a gym day).
+      if (e && typeof e === 'object' && !e.count) continue;
       const when = new Date((e.date || e) + 'T00:00:00');
       if (when >= start) count++;
     }
