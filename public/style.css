@@ -1418,14 +1418,15 @@ button {
   gap: 10px;
   padding: 10px 14px;
   margin: 0 -4px 14px;
-  background: rgba(232, 255, 71, 0.12);
-  border: 1px solid rgba(232, 255, 71, 0.4);
+  background: rgba(232, 255, 71, 0.22);
+  border: 1px solid rgba(232, 255, 71, 0.55);
   border-radius: var(--radius-sm);
   color: var(--accent);
   font-weight: 600;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
   animation: restIn 0.18s ease-out;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .rest-sticky.done {

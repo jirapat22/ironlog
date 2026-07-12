@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -78,6 +78,11 @@ async function openSettingsSheet() {
             <button class="btn btn--ghost btn--sm" id="open-ex-library">View</button>
           </div>
           <div class="card__subtitle">Edit muscle group, sub-muscle and "also works" tags, see usage stats, or delete unused exercises.</div>
+          <div class="settings-row" style="margin-top:10px">
+            <span>Check for kg/lbs mix-ups</span>
+            <button class="btn btn--ghost btn--sm" id="check-unit-outliers">Check</button>
+          </div>
+          <div id="unit-outliers-result"></div>
         </div>
 
         <div class="settings-group__title">Ideas &amp; Bugs</div>
@@ -301,6 +306,25 @@ async function openSettingsSheet() {
     }
 
     if (e.target.closest('#open-ex-library')) { openExerciseLibrary(); return; }
+
+    const outlierBtn = e.target.closest('#check-unit-outliers');
+    if (outlierBtn) {
+      const resultEl = sheet.querySelector('#unit-outliers-result');
+      outlierBtn.disabled = true;
+      outlierBtn.textContent = '…';
+      try {
+        const outliers = await API.unitOutliers();
+        resultEl.innerHTML = !outliers.length
+          ? `<div class="card__subtitle" style="margin-top:8px">No mix-ups found — every exercise looks consistent.</div>`
+          : `<div class="card__subtitle" style="margin-top:8px">${outliers.length} set${outliers.length !== 1 ? 's' : ''} logged in an unusual unit for that exercise. Find them in History and tap to fix:</div>
+             <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--text-dim)">
+               ${outliers.map((o) => `<li>${escapeHtml(o.exercise_name)} — ${fmtSetWeight(o.weight, o.weight_unit)} (usually ${o.usual_unit}) on ${formatDateShort(o.logged_at)}</li>`).join('')}
+             </ul>`;
+      } catch (err) { toast(err.message); }
+      outlierBtn.disabled = false;
+      outlierBtn.textContent = 'Check';
+      return;
+    }
 
     if (e.target.closest('#open-notes')) { openNotesSheet(); return; }
 

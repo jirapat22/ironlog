@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -645,6 +645,26 @@ function buildProgressionHint(rec, trend = []) {
   }
 }
 
+// Which unit you've actually logged most for this exercise across the last
+// session plus your last few finished workouts (workoutState.recentSessions).
+// Returns null when there isn't enough history (<2 sets) or it's genuinely
+// split close to 50/50 — in both cases the caller falls back to trusting
+// whichever set it already picked, same as before this existed.
+function majorityUnitFor(exerciseId, lastSets) {
+  const counts = { kg: 0, lbs: 0 };
+  for (const s of lastSets) counts[s.weight_unit === 'lbs' ? 'lbs' : 'kg']++;
+  for (const session of workoutState?.recentSessions || []) {
+    for (const s of session.sets || []) {
+      if (s.exercise_id === exerciseId && !s.is_warmup) counts[s.weight_unit === 'lbs' ? 'lbs' : 'kg']++;
+    }
+  }
+  const total = counts.kg + counts.lbs;
+  if (total < 2) return null;
+  if (counts.kg >= counts.lbs * 2) return 'kg';
+  if (counts.lbs >= counts.kg * 2) return 'lbs';
+  return null;
+}
+
 function recommendForNext(ex, lastSets) {
   if (!lastSets.length) return null;
   // Double progression is keyed on the exercise's rep RANGE, not the slot's
@@ -667,7 +687,16 @@ function recommendForNext(ex, lastSets) {
   );
   const allHit = workingSets.every((s) => s.reps >= targetReps);
 
-  const unit = bestSet.weight_unit;
+  // Which unit you've actually been using for this exercise lately — a
+  // single stray unit-toggle tap on one set shouldn't get "remembered" as
+  // the new normal forever. Only overrides bestSet's own unit when recent
+  // history shows a clear (2:1+) majority for the OTHER unit; otherwise
+  // falls back to bestSet's unit, same as before this existed.
+  const majority = majorityUnitFor(ex.exercise_id, lastSets);
+  const unit = majority || bestSet.weight_unit;
+  const bestWeight = unit === bestSet.weight_unit
+    ? bestSet.weight
+    : +fromKg(toKg(bestSet.weight, bestSet.weight_unit), unit).toFixed(2);
   const step = stepForExercise(unit, ex);
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
@@ -675,13 +704,13 @@ function recommendForNext(ex, lastSets) {
   let recWeight, isProgression;
   if (allHit) {
     if (isAssisted) {
-      recWeight = Math.max(0, +(bestSet.weight - step).toFixed(2));
+      recWeight = Math.max(0, +(bestWeight - step).toFixed(2));
     } else {
-      recWeight = +(bestSet.weight + step).toFixed(2);
+      recWeight = +(bestWeight + step).toFixed(2);
     }
     isProgression = true;
   } else {
-    recWeight = bestSet.weight;
+    recWeight = bestWeight;
     isProgression = false;
   }
 
@@ -695,7 +724,7 @@ function recommendForNext(ex, lastSets) {
     // session's sets were measured against, for the hint's "all hit N+" line.
     recWeight, recUnit: unit, recReps: allHit ? repMin : targetReps, hitReps: targetReps,
     isProgression, isBodyweight: isBw, isAssisted,
-    lastWeight: fmtSetWeight(bestSet.weight, unit, isBw, isAssisted),
+    lastWeight: fmtSetWeight(bestWeight, unit, isBw, isAssisted),
     recDisplay: isAssisted
       ? (recWeight === 0 ? 'BW (no assistance)' : `${recWeight}${unit} assistance`)
       : isBw

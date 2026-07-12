@@ -276,6 +276,10 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
+function fromKg(kg, unit) {
+  return unit === 'lbs' ? kg / 0.45359237 : kg;
+}
+
 // Small "≈ X kg/lb" equivalent for a logged weight (the opposite unit). Empty
 // for non-positive weights. Used as a tag on set rows.
 function weightEquiv(weight, unit) {
@@ -1303,7 +1307,7 @@ export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash,
-  e1RM, toKg, fmtSetWeight, weightEquiv,
+  e1RM, toKg, fromKg, fmtSetWeight, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,

@@ -193,6 +193,42 @@ router.patch('/:id', (req, res) => {
   res.json(row);
 });
 
+// Sets whose weight_unit looks like a mistake: for each exercise, whichever
+// unit you've logged less often is flagged IF the other unit has it beat 2:1
+// or better (skips exercises you genuinely log in both, e.g. hotel-gym lbs
+// plates). Fix candidates the normal way — tap the set in History to edit it.
+router.get('/unit-outliers', (req, res) => {
+  const rows = db.prepare(
+    `SELECT s.id, s.exercise_id, e.name AS exercise_name, s.weight, s.weight_unit, s.reps, s.logged_at
+     FROM sets s JOIN exercises e ON e.id = s.exercise_id
+     WHERE s.profile_id = ? AND s.is_warmup = 0
+     ORDER BY s.exercise_id, s.logged_at`
+  ).all(req.profileId);
+
+  const byExercise = new Map();
+  for (const r of rows) {
+    if (!byExercise.has(r.exercise_id)) byExercise.set(r.exercise_id, []);
+    byExercise.get(r.exercise_id).push(r);
+  }
+
+  const outliers = [];
+  for (const sets of byExercise.values()) {
+    const kg = sets.filter((s) => s.weight_unit !== 'lbs');
+    const lbs = sets.filter((s) => s.weight_unit === 'lbs');
+    const [majority, minority] = kg.length >= lbs.length ? [kg, lbs] : [lbs, kg];
+    if (minority.length && majority.length >= minority.length * 2) {
+      for (const s of minority) {
+        outliers.push({
+          set_id: s.id, exercise_name: s.exercise_name, weight: s.weight,
+          weight_unit: s.weight_unit, reps: s.reps, logged_at: s.logged_at,
+          usual_unit: majority[0].weight_unit
+        });
+      }
+    }
+  }
+  res.json(outliers);
+});
+
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT exercise_id FROM sets WHERE id = ? AND profile_id = ?').get(id, req.profileId);
