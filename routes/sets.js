@@ -171,7 +171,7 @@ router.patch('/:id', (req, res) => {
     }
   }
 
-  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed'];
+  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag'];
   const updates = [];
   const values = [];
   for (const f of fields) {

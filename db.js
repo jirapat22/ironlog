@@ -388,6 +388,14 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE sets ADD COLUMN unit_reviewed INTEGER NOT NULL DEFAULT 0');
   }
 
+  // sets.form_flag: tapped on a logged set to mean "hit the reps but form
+  // broke down" — the set still counts as done, but recommendForNext (see
+  // public/workout.js) treats it like a miss so next session repeats the
+  // weight instead of progressing it.
+  if (!columnExists('sets', 'form_flag')) {
+    db.exec('ALTER TABLE sets ADD COLUMN form_flag INTEGER NOT NULL DEFAULT 0');
+  }
+
   // workouts.exercise_list: JSON snapshot of the in-progress workout's exercise
   // list (after swaps/adds/removes/reorders). Mid-workout edits used to live
   // only in a localStorage draft — iOS evicting PWA storage (or opening the
