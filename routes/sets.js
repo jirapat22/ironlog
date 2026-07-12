@@ -171,7 +171,7 @@ router.patch('/:id', (req, res) => {
     }
   }
 
-  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup'];
+  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed'];
   const updates = [];
   const values = [];
   for (const f of fields) {
@@ -197,11 +197,13 @@ router.patch('/:id', (req, res) => {
 // unit you've logged less often is flagged IF the other unit has it beat 2:1
 // or better (skips exercises you genuinely log in both, e.g. hotel-gym lbs
 // plates). Fix candidates the normal way — tap the set in History to edit it.
+// Confirmed-fine sets (unit_reviewed) are excluded so a real intentional
+// lbs/kg switch doesn't get re-flagged on every check.
 router.get('/unit-outliers', (req, res) => {
   const rows = db.prepare(
     `SELECT s.id, s.exercise_id, e.name AS exercise_name, s.weight, s.weight_unit, s.reps, s.logged_at
      FROM sets s JOIN exercises e ON e.id = s.exercise_id
-     WHERE s.profile_id = ? AND s.is_warmup = 0
+     WHERE s.profile_id = ? AND s.is_warmup = 0 AND s.unit_reviewed = 0
      ORDER BY s.exercise_id, s.logged_at`
   ).all(req.profileId);
 

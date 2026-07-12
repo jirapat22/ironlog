@@ -381,6 +381,13 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE sets ADD COLUMN load_multiplier INTEGER');
   }
 
+  // sets.unit_reviewed: set once the user confirms a flagged kg/lbs "mix-up"
+  // (GET /api/sets/unit-outliers) is actually correct — excludes it from
+  // that check going forward instead of re-flagging it every time.
+  if (!columnExists('sets', 'unit_reviewed')) {
+    db.exec('ALTER TABLE sets ADD COLUMN unit_reviewed INTEGER NOT NULL DEFAULT 0');
+  }
+
   // workouts.exercise_list: JSON snapshot of the in-progress workout's exercise
   // list (after swaps/adds/removes/reorders). Mid-workout edits used to live
   // only in a localStorage draft — iOS evicting PWA storage (or opening the

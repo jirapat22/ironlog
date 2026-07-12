@@ -316,13 +316,29 @@ async function openSettingsSheet() {
         const outliers = await API.unitOutliers();
         resultEl.innerHTML = !outliers.length
           ? `<div class="card__subtitle" style="margin-top:8px">No mix-ups found — every exercise looks consistent.</div>`
-          : `<div class="card__subtitle" style="margin-top:8px">${outliers.length} set${outliers.length !== 1 ? 's' : ''} logged in an unusual unit for that exercise. Find them in History and tap to fix:</div>
-             <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--text-dim)">
-               ${outliers.map((o) => `<li>${escapeHtml(o.exercise_name)} — ${fmtSetWeight(o.weight, o.weight_unit)} (usually ${o.usual_unit}) on ${formatDateShort(o.logged_at)}</li>`).join('')}
-             </ul>`;
+          : `<div class="card__subtitle" style="margin-top:8px">${outliers.length} set${outliers.length !== 1 ? 's' : ''} logged in an unusual unit for that exercise. Fix a real mistake in History; if it's actually correct, mark it fine so it stops showing up here:</div>
+             <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
+               ${outliers.map((o) => `
+                 <div class="settings-row" data-outlier-row="${o.set_id}" style="font-size:13px">
+                   <span>${escapeHtml(o.exercise_name)} — ${fmtSetWeight(o.weight, o.weight_unit)} (usually ${o.usual_unit}) · ${formatDateShort(o.logged_at)}</span>
+                   <button class="btn btn--ghost btn--sm" data-mark-unit-ok="${o.set_id}">Looks fine</button>
+                 </div>`).join('')}
+             </div>`;
       } catch (err) { toast(err.message); }
       outlierBtn.disabled = false;
       outlierBtn.textContent = 'Check';
+      return;
+    }
+
+    const markOkBtn = e.target.closest('[data-mark-unit-ok]');
+    if (markOkBtn) {
+      const setId = Number(markOkBtn.dataset.markUnitOk);
+      markOkBtn.disabled = true;
+      try {
+        await API.updateSet(setId, { unit_reviewed: 1 });
+        haptic(10);
+        sheet.querySelector(`[data-outlier-row="${setId}"]`)?.remove();
+      } catch (err) { toast(err.message); markOkBtn.disabled = false; }
       return;
     }
 
