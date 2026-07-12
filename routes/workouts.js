@@ -373,49 +373,90 @@ router.get('/:id/sets', (req, res) => {
     )
     .all(id);
 
-  // Plateau/decline tag per exercise: this workout's best (effective-load)
-  // set vs. the immediately-preceding finished session's best for the same
-  // exercise — same 2-point rule as the live workout hint (workout.js's
-  // classifyTrend), so History can flag a stuck/dropping streak without
-  // scrolling back to compare by eye.
+  // Status tags per exercise present in this workout — same rules the live
+  // workout hint uses (workout.js's classifyTrend), so History can flag a
+  // stuck/dropping/climbing streak, or a brand-new exercise, without
+  // scrolling back to compare by eye:
+  //   first_time — no prior finished session for this exercise at all.
+  //   decline    — this session's best (effective-load) set is below the
+  //                immediately preceding session's.
+  //   plateau    — same load as the immediately preceding session.
+  //   up         — this session AND the preceding one were both increases
+  //                over the one before (2 consecutive increases — a single
+  //                bump doesn't count as a "going up" streak yet).
+  // trend_points carries the actual prior weight(s)/date(s) so the client
+  // can show specifics in a tap-for-detail popup without a second fetch.
   const exerciseIds = [...new Set(rows.filter((s) => !s.is_warmup).map((s) => s.exercise_id))];
   const trendStatus = {};
+  const firstTime = {};
+  const trendPoints = {};
   if (exerciseIds.length) {
-    const thisBest = {};
+    const thisBest = {}; // exercise_id -> { kg, weight, unit }
     for (const s of rows) {
       if (s.is_warmup) continue;
       const kg = effKg({ ...s, bw_kg: owned.bw_kg });
-      if (!(s.exercise_id in thisBest) || kg > thisBest[s.exercise_id]) thisBest[s.exercise_id] = kg;
+      if (!(s.exercise_id in thisBest) || kg > thisBest[s.exercise_id].kg) {
+        thisBest[s.exercise_id] = { kg, weight: s.weight, unit: s.weight_unit };
+      }
     }
     const priorRows = db.prepare(
       `SELECT s.exercise_id, s.weight, s.weight_unit, s.load_multiplier, e.is_bodyweight, e.is_assisted, e.weight_mode,
-              w.id AS workout_id, w.bw_kg
+              w.id AS workout_id, w.bw_kg, w.started_at
        FROM sets s
        JOIN workouts w ON w.id = s.workout_id
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.profile_id = ? AND s.is_warmup = 0 AND w.finished_at IS NOT NULL AND w.started_at < ?
          AND s.exercise_id IN (${exerciseIds.map(() => '?').join(',')})
-       ORDER BY w.started_at DESC`
+       ORDER BY w.started_at DESC, w.id DESC`
     ).all(req.profileId, owned.started_at, ...exerciseIds);
-    const priorBest = {}; // exercise_id -> best kg of its most recent PRIOR workout
-    const priorWorkoutId = {}; // exercise_id -> that workout's id, so later (older) rows for the same exercise are skipped
+    // exercise_id -> up to 2 most recent PRIOR sessions, most-recent-first,
+    // each { workoutId, kg, weight, unit, date }. priorRows is already
+    // globally ordered by recency, so the first two distinct workout_ids
+    // encountered per exercise ARE its two most recent prior sessions.
+    const sessions = {};
     for (const s of priorRows) {
-      if (priorWorkoutId[s.exercise_id] && priorWorkoutId[s.exercise_id] !== s.workout_id) continue;
-      priorWorkoutId[s.exercise_id] = s.workout_id;
+      const list = sessions[s.exercise_id] || (sessions[s.exercise_id] = []);
+      let entry = list.find((e) => e.workoutId === s.workout_id);
+      if (!entry) {
+        if (list.length >= 2) continue;
+        entry = { workoutId: s.workout_id, kg: -Infinity, weight: null, unit: null, date: s.started_at };
+        list.push(entry);
+      }
       const kg = effKg(s);
-      if (!(s.exercise_id in priorBest) || kg > priorBest[s.exercise_id]) priorBest[s.exercise_id] = kg;
+      if (kg > entry.kg) { entry.kg = kg; entry.weight = s.weight; entry.unit = s.weight_unit; }
     }
     const EPS = 0.05;
     for (const exId of exerciseIds) {
       const cur = thisBest[exId];
-      const prior = priorBest[exId];
-      if (cur == null || prior == null) continue;
-      if (cur < prior - EPS) trendStatus[exId] = 'decline';
-      else if (Math.abs(cur - prior) <= EPS) trendStatus[exId] = 'plateau';
+      if (!cur) continue;
+      const [prior1, prior2] = sessions[exId] || [];
+      if (!prior1) { firstTime[exId] = true; continue; }
+      trendPoints[exId] = [prior2, prior1].filter(Boolean).map((p) => ({ weight: p.weight, unit: p.unit, date: p.date }))
+        .concat([{ weight: cur.weight, unit: cur.unit, date: owned.started_at }]);
+      if (cur.kg < prior1.kg - EPS) trendStatus[exId] = 'decline';
+      else if (Math.abs(cur.kg - prior1.kg) <= EPS) trendStatus[exId] = 'plateau';
+      else if (cur.kg > prior1.kg + EPS && prior2 && prior1.kg > prior2.kg + EPS) trendStatus[exId] = 'up';
     }
   }
 
-  res.json(rows.map((s) => ({ ...s, trend_status: trendStatus[s.exercise_id] || null })));
+  // New-PR tag per SET (not per exercise) — a workout can have multiple sets
+  // each holding the record for their OWN rep count (personal_records is
+  // keyed by (exercise_id, reps), not just the single heaviest set).
+  const prRows = exerciseIds.length
+    ? db.prepare(
+        `SELECT exercise_id, weight, weight_unit, reps FROM personal_records
+         WHERE profile_id = ? AND exercise_id IN (${exerciseIds.map(() => '?').join(',')})`
+      ).all(req.profileId, ...exerciseIds)
+    : [];
+  const prKeys = new Set(prRows.map((p) => `${p.exercise_id}|${p.weight}|${p.weight_unit}|${p.reps}`));
+
+  res.json(rows.map((s) => ({
+    ...s,
+    trend_status: trendStatus[s.exercise_id] || null,
+    is_first_time: !!firstTime[s.exercise_id],
+    trend_points: trendPoints[s.exercise_id] || null,
+    is_pr: !s.is_warmup && prKeys.has(`${s.exercise_id}|${s.weight}|${s.weight_unit}|${s.reps}`)
+  })));
 });
 
 // Remove a single exercise from a workout: delete this profile's sets for that

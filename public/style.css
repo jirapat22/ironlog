@@ -1875,6 +1875,8 @@ button {
   padding: 1px 6px;
   border-radius: 999px;
   vertical-align: 1px;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .prog-hint__badge--decline {
@@ -1887,6 +1889,24 @@ button {
   background: color-mix(in srgb, var(--text-dim) 18%, transparent);
   border: 1px solid var(--text-dim);
   color: var(--text-dim);
+}
+
+.prog-hint__badge--up {
+  background: rgba(232, 255, 71, 0.15);
+  border: 1px solid rgba(232, 255, 71, 0.45);
+  color: var(--accent);
+}
+
+.prog-hint__badge--first {
+  background: rgba(98, 216, 255, 0.12);
+  border: 1px solid rgba(98, 216, 255, 0.35);
+  color: #62d8ff;
+}
+
+.prog-hint--first {
+  background: rgba(98, 216, 255, 0.08);
+  border: 1px solid rgba(98, 216, 255, 0.2);
+  color: #c7efff;
 }
 
 .prog-hint__sub {
@@ -2235,6 +2255,16 @@ button {
   font-size: 10px;
   color: var(--text-dim);
   pointer-events: none;
+}
+
+.set-row__pr {
+  position: absolute;
+  top: 6px;
+  right: 50px;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px;
+  cursor: pointer;
 }
 
 .set-row__rpe-badge {
@@ -3605,6 +3635,8 @@ button {
   padding: 1px 6px;
   border-radius: 999px;
   vertical-align: 1px;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .history-ex__trend--decline {
@@ -3617,6 +3649,23 @@ button {
   background: color-mix(in srgb, var(--text-dim) 18%, transparent);
   border: 1px solid var(--text-dim);
   color: var(--text-dim);
+}
+
+.history-ex__trend--up {
+  background: rgba(232, 255, 71, 0.15);
+  border: 1px solid rgba(232, 255, 71, 0.45);
+  color: var(--accent);
+}
+
+.history-ex__trend--first {
+  background: rgba(98, 216, 255, 0.12);
+  border: 1px solid rgba(98, 216, 255, 0.35);
+  color: #62d8ff;
+}
+
+.history-ex__set-pr {
+  cursor: pointer;
+  padding: 0 2px;
 }
 
 /* Muscle group · sub-muscle tag after the exercise name in history */

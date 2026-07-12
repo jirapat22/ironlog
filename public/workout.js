@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -559,7 +559,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 
   const trend = pastTrendFor(ex);
 
-  const hint = rec ? buildProgressionHint(rec, trend) : '';
+  const hint = rec ? buildProgressionHint(rec, trend) : (lastSets.length ? '' : firstTimeHintHTML());
 
   // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
   const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
@@ -606,8 +606,11 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 
 // 'decline' when the most recent session's top load dropped from the one
 // before it; 'plateau' when the last two sessions sat at the exact same
-// load (stuck, not yet re-hitting the rep target either). null otherwise —
+// load; 'up' when the last two POINT-TO-POINT gaps were both increases (2
+// consecutive increases — a single bump isn't a streak yet). null otherwise,
 // including when there's too little history (<2 sessions) to say either way.
+// Same function drives both the live pre-log hint (trend = past sessions
+// only) and the post-workout summary (trend = past sessions + today).
 function classifyTrend(trend, rec) {
   if (trend.length < 2) return null;
   const ctx = { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted };
@@ -619,13 +622,42 @@ function classifyTrend(trend, rec) {
   const EPS = 0.05;
   if (last < prev - EPS) return 'decline';
   if (Math.abs(last - prev) <= EPS) return 'plateau';
+  if (trend.length >= 3) {
+    const prevPrev = loadKg(trend[trend.length - 3], ctx);
+    if (prev > prevPrev + EPS) return 'up';
+  }
   return null;
+}
+
+// Tappable status badge for a classifyTrend() result — a button carrying its
+// own detail message in data attributes (opened via showBadgeDetail on tap,
+// wired in wireWorkoutView). `trend` is oldest→newest past sessions.
+function trendBadgeHTML(status, trend, rec) {
+  if (!status) return '';
+  const label = (s) => `${fmtSetWeight(s.weight, s.weight_unit, !!rec.isBodyweight, !!rec.isAssisted)} on ${formatDateShort(s.logged_at)}`;
+  if (status === 'decline') {
+    const [prior, cur] = trend.slice(-2);
+    const msg = prior && cur ? `Dropped from ${label(prior)} to ${fmtSetWeight(cur.weight, cur.weight_unit, !!rec.isBodyweight, !!rec.isAssisted)}.` : 'Dropped from the previous session.';
+    return `<button class="prog-hint__badge prog-hint__badge--decline" data-badge-title="Decline" data-badge-msg="${escapeHtml(msg)}">&#x2198; Decline</button>`;
+  }
+  if (status === 'plateau') {
+    const [prior] = trend.slice(-2);
+    const msg = prior ? `Same weight as your last session — ${label(prior)}.` : 'Same weight as your last session.';
+    return `<button class="prog-hint__badge prog-hint__badge--plateau" data-badge-title="Plateau" data-badge-msg="${escapeHtml(msg)}">&#x23F8; Plateau</button>`;
+  }
+  if (status === 'up') {
+    const points = trend.slice(-3);
+    const msg = points.length ? `Trending up: ${points.map(label).join(' → ')}.` : 'Two sessions in a row of weight increases.';
+    return `<button class="prog-hint__badge prog-hint__badge--up" data-badge-title="Going up" data-badge-msg="${escapeHtml(msg)}">&#x2B06; Going up</button>`;
+  }
+  return '';
 }
 
 function buildProgressionHint(rec, trend = []) {
   const upArrow = rec.isAssisted ? '&#x2B07;' : '&#x2B06;';
   const upLabel = rec.isAssisted ? 'Reduce assistance' : 'Increase weight';
   const sameLabel = rec.isAssisted ? 'Same assistance' : 'Same weight';
+  const trendStatus = classifyTrend(trend, rec);
 
   // Trend line: oldest → newest top weight with direction indicator
   let trendLine = '';
@@ -649,7 +681,7 @@ function buildProgressionHint(rec, trend = []) {
   if (rec.isProgression) {
     return `
       <div class="prog-hint prog-hint--up">
-        <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong></div>
+        <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> ${trendBadgeHTML(trendStatus, trend, rec)}</div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
@@ -664,17 +696,23 @@ function buildProgressionHint(rec, trend = []) {
     const gap = rec.recReps - rec.minReps;
     const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
     const nextStep = rec.isAssisted ? 'reduce assistance' : 'add weight';
-    const trendStatus = classifyTrend(trend, rec);
-    const badge = trendStatus === 'decline' ? '<span class="prog-hint__badge prog-hint__badge--decline">&#x2198; Decline</span>'
-      : trendStatus === 'plateau' ? '<span class="prog-hint__badge prog-hint__badge--plateau">&#x23F8; Plateau</span>'
-      : '';
     return `
       <div class="prog-hint prog-hint--same">
-        <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set ${badge}</div>
+        <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set ${trendBadgeHTML(trendStatus, trend, rec)}</div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
         ${trendLine}
       </div>`;
   }
+}
+
+// "First time" note shown in place of the progression hint when there's no
+// history at all for this exercise (recommendForNext returned null because
+// lastSets was empty) — nothing to recommend yet, but worth a friendly flag.
+function firstTimeHintHTML() {
+  return `
+    <div class="prog-hint prog-hint--first">
+      <div class="prog-hint__main">&#x1F195; <button class="prog-hint__badge prog-hint__badge--first" data-badge-title="First time" data-badge-msg="No previous sessions logged for this exercise yet — this is the first one on record.">First time</button></div>
+    </div>`;
 }
 
 // Last 3 finished sessions' top set for this exercise, oldest → newest.
@@ -814,6 +852,13 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   const perArmBadge = (logged?.reps_r != null && logged?.reps_l != null && logged.reps_r !== logged.reps_l)
     ? `<span class="set-row__e1rm">${fmtReps(logged.reps, logged.reps_r, logged.reps_l)}</span>`
     : '';
+  // is_new_pr only exists on the object returned by the POST that just
+  // logged this set (see confirmSet) — it isn't a stored column, so it
+  // won't survive a full refetch/resume. Same ephemeral scope as the PR
+  // flash animation it accompanies; History is the durable record of PRs.
+  const prBadge = logged?.is_new_pr
+    ? `<button class="set-row__pr" data-badge-title="New PR" data-badge-msg="New personal record: ${escapeHtml(fmtSetWeight(logged.weight, logged.weight_unit, isBw, isAssisted))} × ${logged.reps} reps.">&#x1F3C6;</button>`
+    : '';
   // Optional per-side rep breakdown (right/left) for dumbbell-type per-arm
   // exercises, e.g. right hand got 9, left got 7 — the main reps field above
   // stays the single "official" number (the weaker side); this is opt-in
@@ -864,6 +909,9 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
 function wireWorkoutView() {
   const root = $('#view-workout');
   root.onclick = async (e) => {
+    const badgeBtn = e.target.closest('[data-badge-title]');
+    if (badgeBtn) { showBadgeDetail(badgeBtn.dataset.badgeTitle, badgeBtn.dataset.badgeMsg); return; }
+
     if (e.target.closest('[data-finish-workout]')) return finishWorkout();
     if (e.target.closest('[data-cancel-workout]')) return cancelWorkout();
     if (e.target.closest('[data-rest-cancel]')) return cancelRestCountdown();
@@ -1207,8 +1255,16 @@ async function confirmSet(row) {
       cascadePrefillSiblings(row, weight, unit, reps);
       moveNextHighlight(exId);
       haptic(30);
-      if (res.is_new_pr) showPRFlash();
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      if (res.is_new_pr) {
+        showPRFlash();
+        const prBadge = document.createElement('button');
+        prBadge.className = 'set-row__pr';
+        prBadge.dataset.badgeTitle = 'New PR';
+        prBadge.dataset.badgeMsg = `New personal record: ${fmtSetWeight(weight, unit, !!ex?.is_bodyweight, !!ex?.is_assisted)} × ${reps} reps.`;
+        prBadge.textContent = '🏆';
+        row.appendChild(prBadge);
+      }
       startRestCountdown(ex?.rest_seconds ?? undefined);
       // Append e1RM badge to the newly-done row
       if (!isWarmup && reps > 0) {
@@ -1832,7 +1888,8 @@ async function finishWorkout() {
     // live hint's badge, with today's best set appended to the trend so a
     // stuck or dropping streak shows up as soon as it happens, not next visit.
     const readyToGoUp = [];
-    const stuckOrDeclining = [];
+    const goingUp = [];
+    const worthALook = [];
     for (const ex of workoutState.programDay.exercises) {
       const logged = workoutState.loggedSets.filter((s) => s.exercise_id === ex.exercise_id && !s.is_warmup);
       if (!logged.length) continue;
@@ -1842,7 +1899,8 @@ async function finishWorkout() {
       if (rec.isStale || rec.isFormHeld) continue;
       const todayBest = logged.reduce((best, s) => loadKg(s, ex) >= loadKg(best, ex) ? s : best, logged[0]);
       const status = classifyTrend([...pastTrendFor(ex), todayBest], rec);
-      if (status) stuckOrDeclining.push({ name: ex.name, status });
+      if (status === 'up') goingUp.push({ name: ex.name });
+      else if (status) worthALook.push({ name: ex.name, status });
     }
 
     renderSummary({
@@ -1857,7 +1915,8 @@ async function finishWorkout() {
       programId: tmplProgramId,
       dayId: tmplDayId,
       readyToGoUp,
-      stuckOrDeclining
+      goingUp,
+      worthALook
     });
 
     clearDraft(id);
@@ -1871,7 +1930,7 @@ async function finishWorkout() {
   }
 }
 
-function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises, programId, dayId, readyToGoUp = [], stuckOrDeclining = [] }) {
+function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, calories, templateExercises, programId, dayId, readyToGoUp = [], goingUp = [], worthALook = [] }) {
   const root = $('#view-workout');
   const calTile = calories
     ? `<div class="summary__tile"><div class="summary__tile-label">Burned (est.)</div><div class="summary__tile-value">${calories}&nbsp;kcal</div></div>`
@@ -1894,9 +1953,13 @@ function renderSummary({ workoutId, sets, volume, duration, newPRs, dayLabel, ca
           <div class="card__title">Ready to go up &#x2B06;</div>
           ${readyToGoUp.map(({ name, rec }) => `<div class="card__subtitle" style="margin-top:6px"><strong style="color:var(--accent)">${escapeHtml(name)}</strong> — hit ${rec.hitReps}+ every set. Next time: <strong>${rec.recDisplay} × ${rec.recReps}</strong></div>`).join('')}
         </div>` : ''}
-      ${stuckOrDeclining.length ? `<div class="card" style="text-align:left">
+      ${goingUp.length ? `<div class="card" style="text-align:left">
+          <div class="card__title">Trending up &#x1F4C8;</div>
+          ${goingUp.map(({ name }) => `<div class="card__subtitle" style="margin-top:6px"><strong style="color:var(--accent)">${escapeHtml(name)}</strong> — 2 sessions in a row of weight increases</div>`).join('')}
+        </div>` : ''}
+      ${worthALook.length ? `<div class="card" style="text-align:left">
           <div class="card__title">Worth a look</div>
-          ${stuckOrDeclining.map(({ name, status }) => `<div class="card__subtitle" style="margin-top:6px"><strong style="color:${status === 'decline' ? 'var(--danger)' : 'var(--text-dim)'}">${escapeHtml(name)}</strong> — ${status === 'decline' ? 'dropped from last session' : 'stuck at the same weight for 2+ sessions'}</div>`).join('')}
+          ${worthALook.map(({ name, status }) => `<div class="card__subtitle" style="margin-top:6px"><strong style="color:${status === 'decline' ? 'var(--danger)' : 'var(--text-dim)'}">${escapeHtml(name)}</strong> — ${status === 'decline' ? 'dropped from last session' : 'stuck at the same weight for 2+ sessions'}</div>`).join('')}
         </div>` : ''}
       <div class="feel-prompt">
         <div class="feel-prompt__label">How did it feel?</div>

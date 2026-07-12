@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, showBadgeDetail, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -86,6 +86,16 @@ async function renderHistory() {
     applyFilters(); // apply the persisted kind filter immediately on load
 
     list.onclick = async (e) => {
+      // Checked first: a status badge (New PR) can sit INSIDE the set-row
+      // button, so its detail popup must intercept the click before it also
+      // opens the edit-set sheet underneath it.
+      const badgeBtn = e.target.closest('[data-badge-title]');
+      if (badgeBtn) {
+        e.stopPropagation();
+        showBadgeDetail(badgeBtn.dataset.badgeTitle, badgeBtn.dataset.badgeMsg);
+        return;
+      }
+
       const editSetBtn = e.target.closest('[data-edit-set]');
       if (editSetBtn) {
         e.stopPropagation();
@@ -277,24 +287,48 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     // and sets arrive ordered by logged_at.
     const grouped = new Map();
     for (const s of sets) {
-      if (!grouped.has(s.exercise_id)) grouped.set(s.exercise_id, { exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sub: s.sub_muscle, trendStatus: s.trend_status, sets: [] });
+      if (!grouped.has(s.exercise_id)) grouped.set(s.exercise_id, {
+        exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sub: s.sub_muscle,
+        isBodyweight: s.is_bodyweight, isAssisted: s.is_assisted,
+        trendStatus: s.trend_status, isFirstTime: s.is_first_time, trendPoints: s.trend_points,
+        sets: []
+      });
       grouped.get(s.exercise_id).sets.push(s);
     }
     for (const g of grouped.values()) g.sets.sort((a, b) => a.set_number - b.set_number);
 
-    // Same stuck/dropping-streak flag as the live workout hint (workout.js's
-    // classifyTrend) — computed server-side per exercise since it needs the
-    // PRIOR session's sets, which this card doesn't otherwise fetch.
-    const trendBadgeHTML = (status) => status === 'decline'
-      ? '<span class="history-ex__trend history-ex__trend--decline" title="Dropped from the previous session">&#x2198; Decline</span>'
-      : status === 'plateau'
-        ? '<span class="history-ex__trend history-ex__trend--plateau" title="Same weight as the previous session">&#x23F8; Plateau</span>'
-        : '';
+    // Same status tags as the live workout hint (workout.js's classifyTrend),
+    // computed server-side since they need the PRIOR session's sets, which
+    // this card doesn't otherwise fetch. Each badge is a button carrying its
+    // own detail message in data attributes — tap it to see the specifics.
+    const badgeAttrs = (title, msg) => `data-badge-title="${escapeHtml(title)}" data-badge-msg="${escapeHtml(msg)}"`;
+    const pointLabel = (g, p) => `${fmtSetWeight(p.weight, p.unit, g.isBodyweight, g.isAssisted)} on ${formatDateShort(p.date)}`;
+    const trendBadgeHTML = (g) => {
+      if (g.isFirstTime) {
+        return `<button class="history-ex__trend history-ex__trend--first" ${badgeAttrs('First time', `No previous sessions logged for ${g.name} yet — this is the first one on record.`)}>&#x1F195; First time</button>`;
+      }
+      const points = g.trendPoints || [];
+      if (g.trendStatus === 'decline') {
+        const [prior, cur] = points.slice(-2);
+        const msg = prior && cur ? `Dropped from ${pointLabel(g, prior)} to ${fmtSetWeight(cur.weight, cur.unit, g.isBodyweight, g.isAssisted)} this session.` : 'Dropped from the previous session.';
+        return `<button class="history-ex__trend history-ex__trend--decline" ${badgeAttrs('Decline', msg)}>&#x2198; Decline</button>`;
+      }
+      if (g.trendStatus === 'plateau') {
+        const [prior] = points.slice(-2);
+        const msg = prior ? `Same weight as your last session — ${pointLabel(g, prior)}.` : 'Same weight as your last session.';
+        return `<button class="history-ex__trend history-ex__trend--plateau" ${badgeAttrs('Plateau', msg)}>&#x23F8; Plateau</button>`;
+      }
+      if (g.trendStatus === 'up') {
+        const msg = points.length ? `Trending up: ${points.map((p) => pointLabel(g, p)).join(' → ')}.` : 'Two sessions in a row of weight increases.';
+        return `<button class="history-ex__trend history-ex__trend--up" ${badgeAttrs('Going up', msg)}>&#x2B06; Going up</button>`;
+      }
+      return '';
+    };
 
     const exHTML = [...grouped.values()].map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
         <div class="history-ex__head">
-          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g.trendStatus)}</div>
+          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g)}</div>
           <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
         </div>
         <div class="history-ex__sets">
@@ -302,6 +336,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
             <button class="history-ex__set" data-edit-set="${s.id}">
               <span class="history-ex__set-n">Set ${s.set_number}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${fmtReps(s.reps, s.reps_r, s.reps_l)}</span>
+              ${s.is_pr ? `<span class="history-ex__set-pr" ${badgeAttrs('New PR', `New personal record: ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps} reps.`)}>&#x1F3C6;</span>` : ''}
               ${showEquiv && !s.is_bodyweight && !s.is_assisted && weightEquiv(s.weight, s.weight_unit) ? `<span class="history-ex__set-aux">${weightEquiv(s.weight, s.weight_unit)}</span>` : ''}
               ${!s.is_warmup && !s.is_bodyweight && !s.is_assisted && s.reps > 0 && s.weight > 0 ? `<span class="history-ex__set-aux">~${Math.round(e1RM(toKg(s.weight, s.weight_unit), s.reps))}kg 1RM</span>` : ''}
               ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}

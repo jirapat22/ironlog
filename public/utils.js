@@ -601,6 +601,26 @@ function confirmSheet({ title, message = '', confirmText = 'Confirm', cancelText
   });
 }
 
+// Small read-only info sheet — tap/detail popup for a status badge (PR,
+// Plateau, Decline, Going up, First time). No confirm/cancel, just a title,
+// a message, and a close button.
+function showBadgeDetail(title, message) {
+  const sheet = ensureSheet('badge-detail-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <span style="width:32px"></span>
+        <div class="sheet__title">${escapeHtml(title || '')}</div>
+        <button class="btn--icon" data-badge-detail-close aria-label="Close">&times;</button>
+      </div>
+      <div class="sheet__body">
+        <p style="color:var(--text-dim);margin:0">${escapeHtml(message || '')}</p>
+      </div>
+    </div>`;
+  sheet.querySelector('[data-badge-detail-close]').onclick = () => hideSheet(sheet);
+  showSheet(sheet);
+}
+
 // ---------- Sub-muscle taxonomy ----------
 // Single source of truth: canonical regions per muscle group, in display order.
 // Drives the sub-muscle picker (exercise add/edit), the Muscle Detail analytics
@@ -1317,7 +1337,7 @@ export {
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv,
-  showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
+  showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
