@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -277,22 +277,31 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     // and sets arrive ordered by logged_at.
     const grouped = new Map();
     for (const s of sets) {
-      if (!grouped.has(s.exercise_id)) grouped.set(s.exercise_id, { exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sub: s.sub_muscle, sets: [] });
+      if (!grouped.has(s.exercise_id)) grouped.set(s.exercise_id, { exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sub: s.sub_muscle, trendStatus: s.trend_status, sets: [] });
       grouped.get(s.exercise_id).sets.push(s);
     }
     for (const g of grouped.values()) g.sets.sort((a, b) => a.set_number - b.set_number);
 
+    // Same stuck/dropping-streak flag as the live workout hint (workout.js's
+    // classifyTrend) — computed server-side per exercise since it needs the
+    // PRIOR session's sets, which this card doesn't otherwise fetch.
+    const trendBadgeHTML = (status) => status === 'decline'
+      ? '<span class="history-ex__trend history-ex__trend--decline" title="Dropped from the previous session">&#x2198; Decline</span>'
+      : status === 'plateau'
+        ? '<span class="history-ex__trend history-ex__trend--plateau" title="Same weight as the previous session">&#x23F8; Plateau</span>'
+        : '';
+
     const exHTML = [...grouped.values()].map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
         <div class="history-ex__head">
-          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''}</div>
+          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g.trendStatus)}</div>
           <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
         </div>
         <div class="history-ex__sets">
           ${g.sets.map((s) => `
             <button class="history-ex__set" data-edit-set="${s.id}">
               <span class="history-ex__set-n">Set ${s.set_number}</span>
-              <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps}</span>
+              <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${fmtReps(s.reps, s.reps_r, s.reps_l)}</span>
               ${showEquiv && !s.is_bodyweight && !s.is_assisted && weightEquiv(s.weight, s.weight_unit) ? `<span class="history-ex__set-aux">${weightEquiv(s.weight, s.weight_unit)}</span>` : ''}
               ${!s.is_warmup && !s.is_bodyweight && !s.is_assisted && s.reps > 0 && s.weight > 0 ? `<span class="history-ex__set-aux">~${Math.round(e1RM(toKg(s.weight, s.weight_unit), s.reps))}kg 1RM</span>` : ''}
               ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}

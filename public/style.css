@@ -1382,6 +1382,31 @@ button {
   font-size: 13px;
 }
 
+.set-row__perarm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.set-row__perarm label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.set-row__perarm-input {
+  width: 40px;
+  padding: 4px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+
 .rest-timer {
   display: inline-flex;
   align-items: center;
@@ -1829,6 +1854,12 @@ button {
   background: color-mix(in srgb, var(--text-dim) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--text-dim) 30%, transparent);
   color: var(--text-dim);
+}
+
+.prog-hint--form {
+  background: rgba(240, 169, 44, 0.1);
+  border: 1px solid rgba(240, 169, 44, 0.35);
+  color: #f0a92c;
 }
 
 .prog-hint__main {
@@ -3563,6 +3594,29 @@ button {
   font-weight: 600;
   font-size: 14px;
   margin-bottom: 4px;
+}
+
+.history-ex__trend {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  vertical-align: 1px;
+}
+
+.history-ex__trend--decline {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.history-ex__trend--plateau {
+  background: color-mix(in srgb, var(--text-dim) 18%, transparent);
+  border: 1px solid var(--text-dim);
+  color: var(--text-dim);
 }
 
 /* Muscle group · sub-muscle tag after the exercise name in history */

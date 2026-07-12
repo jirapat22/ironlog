@@ -348,9 +348,20 @@ router.post('/last-by-exercise', (req, res) => {
   res.json(out);
 });
 
+// Effective load in kg for one set, mirroring db.js's effectiveVolumeLoadKgSql
+// (bodyweight/assisted offset by that set's own workout's bw_kg snapshot,
+// per-arm doubling) — needed in JS here since trend comparison spans rows
+// from DIFFERENT workouts, each with its own bw_kg, not one SQL CASE.
+function effKg(s) {
+  const kg = s.weight_unit === 'lbs' ? s.weight * 0.45359237 : s.weight;
+  if (s.is_bodyweight && s.is_assisted && s.bw_kg != null) return Math.max(0, s.bw_kg - kg);
+  if (s.is_bodyweight && s.bw_kg != null) return s.bw_kg + kg;
+  return kg * (s.load_multiplier ?? (s.weight_mode === 'per_arm' ? 2 : 1));
+}
+
 router.get('/:id/sets', (req, res) => {
   const id = Number(req.params.id);
-  const owned = db.prepare('SELECT id FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
+  const owned = db.prepare('SELECT id, started_at, bw_kg FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!owned) return res.status(404).json({ error: 'workout not found' });
   const rows = db
     .prepare(
@@ -361,7 +372,50 @@ router.get('/:id/sets', (req, res) => {
        ORDER BY s.logged_at`
     )
     .all(id);
-  res.json(rows);
+
+  // Plateau/decline tag per exercise: this workout's best (effective-load)
+  // set vs. the immediately-preceding finished session's best for the same
+  // exercise — same 2-point rule as the live workout hint (workout.js's
+  // classifyTrend), so History can flag a stuck/dropping streak without
+  // scrolling back to compare by eye.
+  const exerciseIds = [...new Set(rows.filter((s) => !s.is_warmup).map((s) => s.exercise_id))];
+  const trendStatus = {};
+  if (exerciseIds.length) {
+    const thisBest = {};
+    for (const s of rows) {
+      if (s.is_warmup) continue;
+      const kg = effKg({ ...s, bw_kg: owned.bw_kg });
+      if (!(s.exercise_id in thisBest) || kg > thisBest[s.exercise_id]) thisBest[s.exercise_id] = kg;
+    }
+    const priorRows = db.prepare(
+      `SELECT s.exercise_id, s.weight, s.weight_unit, s.load_multiplier, e.is_bodyweight, e.is_assisted, e.weight_mode,
+              w.id AS workout_id, w.bw_kg
+       FROM sets s
+       JOIN workouts w ON w.id = s.workout_id
+       JOIN exercises e ON e.id = s.exercise_id
+       WHERE s.profile_id = ? AND s.is_warmup = 0 AND w.finished_at IS NOT NULL AND w.started_at < ?
+         AND s.exercise_id IN (${exerciseIds.map(() => '?').join(',')})
+       ORDER BY w.started_at DESC`
+    ).all(req.profileId, owned.started_at, ...exerciseIds);
+    const priorBest = {}; // exercise_id -> best kg of its most recent PRIOR workout
+    const priorWorkoutId = {}; // exercise_id -> that workout's id, so later (older) rows for the same exercise are skipped
+    for (const s of priorRows) {
+      if (priorWorkoutId[s.exercise_id] && priorWorkoutId[s.exercise_id] !== s.workout_id) continue;
+      priorWorkoutId[s.exercise_id] = s.workout_id;
+      const kg = effKg(s);
+      if (!(s.exercise_id in priorBest) || kg > priorBest[s.exercise_id]) priorBest[s.exercise_id] = kg;
+    }
+    const EPS = 0.05;
+    for (const exId of exerciseIds) {
+      const cur = thisBest[exId];
+      const prior = priorBest[exId];
+      if (cur == null || prior == null) continue;
+      if (cur < prior - EPS) trendStatus[exId] = 'decline';
+      else if (Math.abs(cur - prior) <= EPS) trendStatus[exId] = 'plateau';
+    }
+  }
+
+  res.json(rows.map((s) => ({ ...s, trend_status: trendStatus[s.exercise_id] || null })));
 });
 
 // Remove a single exercise from a workout: delete this profile's sets for that

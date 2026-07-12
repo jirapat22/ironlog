@@ -396,6 +396,19 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE sets ADD COLUMN form_flag INTEGER NOT NULL DEFAULT 0');
   }
 
+  // sets.reps_r / sets.reps_l: optional per-side rep breakdown for per-arm
+  // (dumbbell) exercises, e.g. right hand got 9, left got 7. `reps` itself
+  // always stays MIN(reps_r, reps_l) when both are set — the weaker side is
+  // what every existing volume/PR/progression calculation should key off,
+  // so those never need to know reps_r/reps_l exist. NULL/NULL means no
+  // per-side breakdown was recorded; `reps` is the whole story.
+  if (!columnExists('sets', 'reps_r')) {
+    db.exec('ALTER TABLE sets ADD COLUMN reps_r INTEGER');
+  }
+  if (!columnExists('sets', 'reps_l')) {
+    db.exec('ALTER TABLE sets ADD COLUMN reps_l INTEGER');
+  }
+
   // workouts.exercise_list: JSON snapshot of the in-progress workout's exercise
   // list (after swaps/adds/removes/reorders). Mid-workout edits used to live
   // only in a localStorage draft — iOS evicting PWA storage (or opening the

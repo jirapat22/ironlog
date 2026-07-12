@@ -8,6 +8,17 @@ function toKg(weight, unit) {
   return unit === 'lbs' ? weight * 0.45359237 : weight;
 }
 
+// Optional per-side rep breakdown (per-arm exercises). Returns {ok, repsR,
+// repsL} — both null if neither was sent, or an error if only one was (a
+// breakdown needs both sides to mean anything).
+function parseRepsSides(reps_r, reps_l) {
+  if (reps_r == null && reps_l == null) return { ok: true, repsR: null, repsL: null };
+  if (reps_r == null || reps_l == null) return { ok: false };
+  const r = Number(reps_r), l = Number(reps_l);
+  if (!Number.isInteger(r) || r <= 0 || !Number.isInteger(l) || l <= 0) return { ok: false };
+  return { ok: true, repsR: r, repsL: l };
+}
+
 function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
   const newKg = toKg(weight, unit);
 
@@ -81,6 +92,8 @@ router.post('/', (req, res) => {
     weight,
     weight_unit = 'kg',
     reps,
+    reps_r = null,
+    reps_l = null,
     rpe = null,
     rir = null,
     notes = null,
@@ -96,10 +109,16 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'weight_unit must be kg or lbs' });
   }
 
+  const sides = parseRepsSides(reps_r, reps_l);
+  if (!sides.ok) return res.status(400).json({ error: 'reps_r and reps_l must both be positive whole numbers, or both omitted' });
+
   // Coerce + validate numerics so a stringy value can't silently corrupt
   // volume/PR math later (SQLite is loosely typed and would store it as-is).
   const nWeight = Number(weight);
-  const nReps = Number(reps);
+  // A per-side breakdown always wins over whatever `reps` was sent — the
+  // weaker side is the number every downstream volume/PR/progression
+  // calculation should key off, so the client can't send them out of sync.
+  const nReps = sides.repsR != null ? Math.min(sides.repsR, sides.repsL) : Number(reps);
   const nSetNumber = Number(set_number);
   const nRpe = rpe == null ? null : Number(rpe);
   const nRir = rir == null ? null : Number(rir);
@@ -133,10 +152,10 @@ router.post('/', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup, load_multiplier)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, reps_r, reps_l, rpe, rir, notes, is_warmup, load_multiplier)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier);
+    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, sides.repsR, sides.repsL, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
   const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps);
@@ -171,13 +190,30 @@ router.patch('/:id', (req, res) => {
     }
   }
 
-  const fields = ['weight', 'weight_unit', 'reps', 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag'];
+  // reps_r/reps_l (if either is present) always drive `reps` — so `reps`
+  // is handled separately below instead of via the generic loop, and any
+  // `reps` also sent in the same request is ignored in favor of the
+  // per-side breakdown (mirrors POST's behavior).
+  const bodyHasSides = 'reps_r' in (req.body || {}) || 'reps_l' in (req.body || {});
+  const fields = ['weight', 'weight_unit', ...(bodyHasSides ? [] : ['reps']), 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag'];
   const updates = [];
   const values = [];
   for (const f of fields) {
     if (f in (req.body || {})) {
       updates.push(`${f} = ?`);
       values.push(req.body[f]);
+    }
+  }
+  if (bodyHasSides) {
+    const rR = 'reps_r' in req.body ? req.body.reps_r : existing.reps_r;
+    const rL = 'reps_l' in req.body ? req.body.reps_l : existing.reps_l;
+    const sides = parseRepsSides(rR, rL);
+    if (!sides.ok) return res.status(400).json({ error: 'reps_r and reps_l must both be positive whole numbers, or both cleared' });
+    updates.push('reps_r = ?', 'reps_l = ?');
+    values.push(sides.repsR, sides.repsL);
+    if (sides.repsR != null) {
+      updates.push('reps = ?');
+      values.push(Math.min(sides.repsR, sides.repsL));
     }
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });

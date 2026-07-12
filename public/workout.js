@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -653,6 +653,13 @@ function buildProgressionHint(rec, trend = []) {
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
+  } else if (rec.isFormHeld) {
+    return `
+      <div class="prog-hint prog-hint--form">
+        <div class="prog-hint__main">&#x26A0; Hit ${rec.hitReps}+, but form was flagged &mdash; repeating <strong>${rec.lastWeight}</strong></div>
+        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; clean it up before adding weight</div>
+        ${trendLine}
+      </div>`;
   } else {
     const gap = rec.recReps - rec.minReps;
     const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
@@ -725,6 +732,12 @@ function recommendForNext(ex, lastSets) {
   // A set flagged "form broke down" still counts as done, but not as a hit —
   // it shouldn't be able to push you into progressing the weight next time.
   const allHit = workingSets.every((s) => s.reps >= targetReps && !s.form_flag);
+  // Distinguish "you actually missed the reps" from "you hit them, but form
+  // broke down" — every set that kept you from allHit did so ONLY via the
+  // form flag (its reps were fine on their own). Drives a distinct hint
+  // instead of lumping this in with a genuine miss or a plateau.
+  const missedSets = workingSets.filter((s) => !(s.reps >= targetReps && !s.form_flag));
+  const isFormHeld = missedSets.length > 0 && missedSets.every((s) => s.form_flag && s.reps >= targetReps);
 
   // Long layoff (3+ weeks since this exercise's last session): don't trust
   // last time's numbers enough to push a weight increase — ease back in at
@@ -768,7 +781,7 @@ function recommendForNext(ex, lastSets) {
     // progression); otherwise keep chasing the top. hitReps is what the last
     // session's sets were measured against, for the hint's "all hit N+" line.
     recWeight, recUnit: unit, recReps: (allHit && !isStale) ? repMin : targetReps, hitReps: targetReps,
-    isProgression, isBodyweight: isBw, isAssisted, isStale, gapDays,
+    isProgression, isBodyweight: isBw, isAssisted, isStale, gapDays, isFormHeld,
     lastWeight: fmtSetWeight(bestWeight, unit, isBw, isAssisted),
     recDisplay: isAssisted
       ? (recWeight === 0 ? 'BW (no assistance)' : `${recWeight}${unit} assistance`)
@@ -798,6 +811,16 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
     const load = loadKg({ weight: logged.weight, weight_unit: logged.weight_unit }, ex);
     if (load > 0) e1rmBadge = `<span class="set-row__e1rm">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
   }
+  const perArmBadge = (logged?.reps_r != null && logged?.reps_l != null && logged.reps_r !== logged.reps_l)
+    ? `<span class="set-row__e1rm">${fmtReps(logged.reps, logged.reps_r, logged.reps_l)}</span>`
+    : '';
+  // Optional per-side rep breakdown (right/left) for dumbbell-type per-arm
+  // exercises, e.g. right hand got 9, left got 7 — the main reps field above
+  // stays the single "official" number (the weaker side); this is opt-in
+  // detail entered/edited via the extras panel, same place as the note.
+  const isPerArm = ex.weight_mode === 'per_arm' && !isBw;
+  const repsR = logged?.reps_r ?? '';
+  const repsL = logged?.reps_l ?? '';
   return `
     <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
@@ -824,8 +847,15 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
       </div>
       <div class="set-row__extras">
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
+        ${isPerArm ? `
+        <div class="set-row__perarm">
+          <span class="set-row__perarm-label">Reps differ per side?</span>
+          <label>R <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-r value="${repsR}" placeholder="&mdash;"/></label>
+          <label>L <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-l value="${repsL}" placeholder="&mdash;"/></label>
+        </div>` : ''}
       </div>
       ${e1rmBadge}
+      ${perArmBadge}
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
     </div>
   `;
@@ -1122,11 +1152,24 @@ async function confirmSet(row) {
   const setNumber = Number(row.dataset.set);
   const unit = row.querySelector('[data-unit]').textContent.trim();
   const weight = parseFloat(row.querySelector('[data-field="weight"] .num-input__field').value || '0');
-  const reps = parseInt(row.querySelector('[data-field="reps"] .num-input__field').value || '0', 10);
+  const repsInput = parseInt(row.querySelector('[data-field="reps"] .num-input__field').value || '0', 10);
   const note = row.querySelector('[data-note]')?.value?.trim() || null;
   const rirRaw = row.dataset.rir;
   const rir = rirRaw === '' || rirRaw == null ? null : Number(rirRaw);
   const isWarmup = row.dataset.warmup === '1';
+
+  // Optional right/left rep breakdown (per-arm exercises) — when both sides
+  // are filled, the weaker side becomes the "official" reps (same number
+  // every other calculation already keys off), overriding the main stepper.
+  const repsRRaw = row.querySelector('[data-reps-r]')?.value?.trim();
+  const repsLRaw = row.querySelector('[data-reps-l]')?.value?.trim();
+  const repsR = repsRRaw ? parseInt(repsRRaw, 10) : null;
+  const repsL = repsLRaw ? parseInt(repsLRaw, 10) : null;
+  if ((repsR != null) !== (repsL != null)) {
+    toast('Enter reps for both sides, or leave both blank');
+    return;
+  }
+  const reps = repsR != null ? Math.min(repsR, repsL) : repsInput;
 
   // weight=0 is a legitimate, meaningful value for both bodyweight (no added
   // weight) and assisted exercises (no assistance — the hardest variant, and
@@ -1143,7 +1186,7 @@ async function confirmSet(row) {
   if (checkBtn) checkBtn.disabled = true;
   try {
     if (row.dataset.setId) {
-      await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, rir, notes: note });
+      await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir, notes: note });
       row.classList.remove('editing');
       haptic(20);
       toast('Updated');
@@ -1152,7 +1195,7 @@ async function confirmSet(row) {
         workout_id: workoutState.workout.id,
         exercise_id: exId,
         set_number: setNumber,
-        weight, weight_unit: unit, reps, rir,
+        weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir,
         notes: note,
         is_warmup: isWarmup ? 1 : 0
       });
@@ -1796,7 +1839,7 @@ async function finishWorkout() {
       const rec = recommendForNext(ex, logged);
       if (!rec) continue;
       if (rec.isProgression) { readyToGoUp.push({ name: ex.name, rec }); continue; }
-      if (rec.isStale) continue;
+      if (rec.isStale || rec.isFormHeld) continue;
       const todayBest = logged.reduce((best, s) => loadKg(s, ex) >= loadKg(best, ex) ? s : best, logged[0]);
       const status = classifyTrend([...pastTrendFor(ex), todayBest], rec);
       if (status) stuckOrDeclining.push({ name: ex.name, status });

@@ -288,6 +288,15 @@ function weightEquiv(weight, unit) {
   return unit === 'lbs' ? `≈ ${+(w * 0.45359237).toFixed(1)} kg` : `≈ ${+(w / 0.45359237).toFixed(1)} lb`;
 }
 
+// "9" normally, or "9 (R9/L7)" when a per-arm set recorded a right/left
+// breakdown that actually differs — the plain reps count is always the
+// weaker side already, this just adds the detail when there's one worth
+// showing (repsR === repsL isn't worth cluttering the row with).
+function fmtReps(reps, repsR, repsL) {
+  if (repsR == null || repsL == null || repsR === repsL) return String(reps);
+  return `${reps} (R${repsR}/L${repsL})`;
+}
+
 function fmtSetWeight(weight, unit, isBw, isAssisted) {
   if (isAssisted) {
     if (!weight || weight === 0) return 'BW';
@@ -1307,7 +1316,7 @@ export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash,
-  e1RM, toKg, fromKg, fmtSetWeight, weightEquiv,
+  e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet,
   enableDragReorder,
   PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
