@@ -18,7 +18,16 @@ function reportApiError(path, method, status, message) {
   document.dispatchEvent(new CustomEvent('ironlog:api-error', { detail: { path, method, status, message } }));
 }
 
-async function api(path, opts = {}) {
+// Gateway-level failures (proxy couldn't get a response from the app at all
+// — a deploy mid-request, a container restart, a platform blip) are worth
+// one silent retry, but ONLY for idempotent methods: retrying a PATCH/DELETE
+// just re-applies the same end state, but retrying a POST could create a
+// duplicate if the original request actually succeeded and only the
+// response got lost in transit.
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+const RETRYABLE_METHODS = new Set(['GET', 'PATCH', 'DELETE', 'PUT']);
+
+async function api(path, opts = {}, isRetry = false) {
   const controller = new AbortController();
   const timeoutMs = opts.timeoutMs ?? 30000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -39,6 +48,11 @@ async function api(path, opts = {}) {
       throw err;
     }
     if (!res.ok) {
+      if (!isRetry && RETRYABLE_STATUS.has(res.status) && RETRYABLE_METHODS.has(method)) {
+        clearTimeout(timer);
+        await new Promise((r) => setTimeout(r, 400));
+        return api(path, opts, true);
+      }
       const err = await res.json().catch(() => ({ error: res.statusText }));
       const message = err.error || `HTTP ${res.status}`;
       reportApiError(path, method, res.status, message);
