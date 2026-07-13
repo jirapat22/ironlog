@@ -2252,14 +2252,27 @@ button {
   gap: 4px 10px;
 }
 
-/* Sits directly under the weight number it's converting, in that same grid
-   column — explicit grid-column so it lands on its own row there instead of
-   competing with unit-toggle/reps for row 1's remaining columns. */
+/* Wraps the weight input + its kg/lbs caption as one unit — this wrapper is
+   the grid item for column 2 (not the bare input), so the caption stays
+   glued directly under the number via a fixed 2px flex gap regardless of
+   how wide that column gets (on a wide screen, a bare grid-row placement
+   left an inexplicit ~25px gap and let the caption's box stretch/center
+   across the full column width, making it look disconnected). */
+.set-row__weight-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.set-row__weight-wrap .num-input {
+  width: 100%;
+}
+
 .set-row__weight-eq {
-  grid-column: 2;
   font-size: 10px;
   color: var(--text-dim);
-  text-align: center;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
