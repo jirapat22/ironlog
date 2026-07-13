@@ -2258,19 +2258,18 @@ button {
    how wide that column gets (on a wide screen, a bare grid-row placement
    left an inexplicit ~25px gap and let the caption's box stretch/center
    across the full column width, making it look disconnected). */
-.set-row__weight-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.set-row__weight-wrap .num-input {
-  width: 100%;
-}
-
+/* Sits directly under the weight number, in its own grid row so it never
+   affects row 1's height — nesting it INSIDE the weight input's cell (a
+   prior attempt) made that cell taller than unit-toggle/reps next to it,
+   throwing off row 1's shared height. justify-self:center (not the grid
+   default stretch) keeps its box sized to its own short text instead of
+   the full (possibly very wide) column, so it doesn't drift into empty
+   space on a wide screen. */
 .set-row__weight-eq {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: center;
+  margin-top: 2px;
   font-size: 10px;
   color: var(--text-dim);
   font-family: var(--font-mono);

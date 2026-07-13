@@ -879,14 +879,12 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   return `
     <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
-      <div class="set-row__weight-wrap">
-        <div class="num-input" data-field="weight">
-          <button class="num-input__btn" data-step="-1">−</button>
-          <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" placeholder="${wPlaceholder}" aria-label="weight"/>
-          <button class="num-input__btn" data-step="1">+</button>
-        </div>
-        <span class="set-row__weight-eq" data-eq>${weightHintText(w, u, ex)}</span>
+      <div class="num-input" data-field="weight">
+        <button class="num-input__btn" data-step="-1">−</button>
+        <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" placeholder="${wPlaceholder}" aria-label="weight"/>
+        <button class="num-input__btn" data-step="1">+</button>
       </div>
+      <span class="set-row__weight-eq" data-eq>${weightHintText(w, u, ex)}</span>
       <button class="unit-toggle ${u === 'kg' ? 'kg' : 'lbs'}" data-unit>${u}</button>
       <div class="num-input" data-field="reps">
         <button class="num-input__btn" data-step="-1">−</button>
