@@ -859,13 +859,16 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   const prBadge = logged?.is_new_pr
     ? `<button class="set-row__pr" data-badge-title="New PR" data-badge-msg="New personal record: ${escapeHtml(fmtSetWeight(logged.weight, logged.weight_unit, isBw, isAssisted))} × ${logged.reps} reps.">&#x1F3C6;</button>`
     : '';
-  // One shared line for every small "hint" — weight equivalent, e1RM
-  // estimate, per-side reps, new-PR flag — instead of each one competing
-  // for the same cramped corner (previously two of them were absolutely
-  // positioned and could visually overlap on a narrow phone screen).
-  // data-eq stays in the DOM unconditionally: updateRowEquiv() needs it to
-  // live-update as weight/unit change, even before there's anything to show.
-  const hintsHTML = `<div class="set-row__hints"><span class="set-row__hint" data-eq>${weightHintText(w, u, ex)}</span>${e1rmBadge}${perArmBadge}${prBadge}</div>`;
+  // e1RM estimate, per-side reps, new-PR flag share one line at the bottom
+  // of the row (previously two of them were absolutely positioned and could
+  // visually overlap on a narrow phone screen). The weight-equivalent
+  // (kg/lbs) text is kept separate, directly under the weight number itself
+  // — it reads as a conversion of THAT number, not a general session stat,
+  // so it should sit next to what it's converting rather than down with the
+  // other hints. data-eq stays in the DOM unconditionally: updateRowEquiv()
+  // needs it to live-update as weight/unit change, even before there's
+  // anything to show.
+  const hintsHTML = `<div class="set-row__hints">${e1rmBadge}${perArmBadge}${prBadge}</div>`;
   // Optional per-side rep breakdown (right/left) for dumbbell-type per-arm
   // exercises, e.g. right hand got 9, left got 7 — the main reps field above
   // stays the single "official" number (the weaker side); this is opt-in
@@ -881,6 +884,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
         <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" placeholder="${wPlaceholder}" aria-label="weight"/>
         <button class="num-input__btn" data-step="1">+</button>
       </div>
+      <span class="set-row__weight-eq" data-eq>${weightHintText(w, u, ex)}</span>
       <button class="unit-toggle ${u === 'kg' ? 'kg' : 'lbs'}" data-unit>${u}</button>
       <div class="num-input" data-field="reps">
         <button class="num-input__btn" data-step="-1">−</button>

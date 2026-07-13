@@ -2252,6 +2252,18 @@ button {
   gap: 4px 10px;
 }
 
+/* Sits directly under the weight number it's converting, in that same grid
+   column — explicit grid-column so it lands on its own row there instead of
+   competing with unit-toggle/reps for row 1's remaining columns. */
+.set-row__weight-eq {
+  grid-column: 2;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .set-row__hint {
   font-size: 10px;
   color: var(--text-dim);
