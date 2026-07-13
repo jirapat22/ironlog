@@ -1261,6 +1261,19 @@ async function confirmSet(row) {
       moveNextHighlight(exId);
       haptic(30);
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      // Newly-confirmed rows are patched in place rather than fully
+      // re-rendered via setRowHTML, so the form-flag button (only present in
+      // the template when `logged` is set) has to be added here too —
+      // otherwise it silently doesn't exist until some unrelated action
+      // happens to trigger a full re-render.
+      if (!isWarmup) {
+        const formBtn = document.createElement('button');
+        formBtn.className = 'set-row__form-flag';
+        formBtn.dataset.toggleForm = '1';
+        formBtn.title = "Form broke down on this set — won't count toward progressing next time";
+        formBtn.textContent = '⚠️';
+        row.querySelector('[data-rest]')?.insertAdjacentElement('beforebegin', formBtn);
+      }
       const hints = row.querySelector('.set-row__hints');
       if (res.is_new_pr) {
         showPRFlash();
