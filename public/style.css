@@ -78,8 +78,7 @@ body {
    numbers above stay in the condensed display face.) */
 .num-input__field,
 .mfreq-label,
-.set-row__e1rm,
-.set-row__eq,
+.set-row__hint,
 .history-ex__set-w,
 .history-ex__set-aux,
 .pr-event__main,
@@ -1309,12 +1308,6 @@ button {
   border-radius: 6px;
 }
 
-.set-row__eq {
-  color: var(--text-dim);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
 .set-row__note-toggle:active {
   background: var(--surface-2);
 }
@@ -1325,10 +1318,10 @@ button {
 
 .set-row__form-flag {
   color: var(--text-dim);
-  font-size: 13px;
-  padding: 4px 8px;
+  font-size: 15px;
+  padding: 4px 6px;
   border-radius: 6px;
-  opacity: 0.5;
+  opacity: 0.75;
 }
 
 .set-row__form-flag:active {
@@ -2247,23 +2240,26 @@ button {
   font-size: 15px;
 }
 
-/* e1RM badge on logged set rows */
-.set-row__e1rm {
-  position: absolute;
-  bottom: 3px;
-  left: 34px;
+/* One shared line for every small hint on a logged set row (weight
+   equivalent, e1RM estimate, per-side reps, new-PR flag) — normal flex flow,
+   not absolutely positioned, so nothing can silently overlap another hint
+   or the "rest" button above it on a narrow screen. */
+.set-row__hints {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.set-row__hint {
   font-size: 10px;
   color: var(--text-dim);
-  pointer-events: none;
 }
 
 .set-row__pr {
-  position: absolute;
-  top: 6px;
-  right: 50px;
   font-size: 13px;
   line-height: 1;
-  padding: 2px;
   cursor: pointer;
 }
 

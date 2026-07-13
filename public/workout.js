@@ -847,10 +847,10 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   let e1rmBadge = '';
   if (logged && !isWarmup && logged.reps > 0) {
     const load = loadKg({ weight: logged.weight, weight_unit: logged.weight_unit }, ex);
-    if (load > 0) e1rmBadge = `<span class="set-row__e1rm">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
+    if (load > 0) e1rmBadge = `<span class="set-row__hint">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
   }
   const perArmBadge = (logged?.reps_r != null && logged?.reps_l != null && logged.reps_r !== logged.reps_l)
-    ? `<span class="set-row__e1rm">${fmtReps(logged.reps, logged.reps_r, logged.reps_l)}</span>`
+    ? `<span class="set-row__hint">${fmtReps(logged.reps, logged.reps_r, logged.reps_l)}</span>`
     : '';
   // is_new_pr only exists on the object returned by the POST that just
   // logged this set (see confirmSet) — it isn't a stored column, so it
@@ -859,6 +859,13 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   const prBadge = logged?.is_new_pr
     ? `<button class="set-row__pr" data-badge-title="New PR" data-badge-msg="New personal record: ${escapeHtml(fmtSetWeight(logged.weight, logged.weight_unit, isBw, isAssisted))} × ${logged.reps} reps.">&#x1F3C6;</button>`
     : '';
+  // One shared line for every small "hint" — weight equivalent, e1RM
+  // estimate, per-side reps, new-PR flag — instead of each one competing
+  // for the same cramped corner (previously two of them were absolutely
+  // positioned and could visually overlap on a narrow phone screen).
+  // data-eq stays in the DOM unconditionally: updateRowEquiv() needs it to
+  // live-update as weight/unit change, even before there's anything to show.
+  const hintsHTML = `<div class="set-row__hints"><span class="set-row__hint" data-eq>${weightHintText(w, u, ex)}</span>${e1rmBadge}${perArmBadge}${prBadge}</div>`;
   // Optional per-side rep breakdown (right/left) for dumbbell-type per-arm
   // exercises, e.g. right hand got 9, left got 7 — the main reps field above
   // stays the single "official" number (the weaker side); this is opt-in
@@ -886,10 +893,10 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
         ${rirButtons}
         <button class="rpe-btn rpe-btn--clear" data-rir-clear ${effRir !== '' && effRir != null ? '' : 'style="visibility:hidden"'}>×</button>
         <button class="set-row__note-toggle" data-toggle-note title="Add a note">&#x270E;</button>
-        ${logged && !isWarmup ? `<button class="set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}" data-toggle-form title="Form broke down on this set — won't count toward progressing next time">&#x26A0;</button>` : ''}
+        ${logged && !isWarmup ? `<button class="set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}" data-toggle-form title="Form broke down on this set — won't count toward progressing next time">&#x26A0;&#xFE0F;</button>` : ''}
         <button data-rest class="rest-timer">rest</button>
-        <span class="set-row__eq" data-eq>${weightHintText(w, u, ex)}</span>
       </div>
+      ${hintsHTML}
       <div class="set-row__extras">
         <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
         ${isPerArm ? `
@@ -899,8 +906,6 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
           <label>L <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-l value="${repsL}" placeholder="&mdash;"/></label>
         </div>` : ''}
       </div>
-      ${e1rmBadge}
-      ${perArmBadge}
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
     </div>
   `;
@@ -1256,6 +1261,7 @@ async function confirmSet(row) {
       moveNextHighlight(exId);
       haptic(30);
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      const hints = row.querySelector('.set-row__hints');
       if (res.is_new_pr) {
         showPRFlash();
         const prBadge = document.createElement('button');
@@ -1263,17 +1269,17 @@ async function confirmSet(row) {
         prBadge.dataset.badgeTitle = 'New PR';
         prBadge.dataset.badgeMsg = `New personal record: ${fmtSetWeight(weight, unit, !!ex?.is_bodyweight, !!ex?.is_assisted)} × ${reps} reps.`;
         prBadge.textContent = '🏆';
-        row.appendChild(prBadge);
+        hints?.appendChild(prBadge);
       }
       startRestCountdown(ex?.rest_seconds ?? undefined);
-      // Append e1RM badge to the newly-done row
+      // Append e1RM hint to the newly-done row
       if (!isWarmup && reps > 0) {
         const load = loadKg({ weight, weight_unit: unit }, ex);
         if (load > 0) {
           const badge = document.createElement('span');
-          badge.className = 'set-row__e1rm';
+          badge.className = 'set-row__hint';
           badge.textContent = `~${Math.round(e1RM(load, reps))} kg 1RM`;
-          row.appendChild(badge);
+          hints?.appendChild(badge);
         }
       }
     }
