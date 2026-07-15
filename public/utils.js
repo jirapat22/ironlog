@@ -631,7 +631,11 @@ const SUB_MUSCLES = {
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
   biceps: ['biceps', 'long head', 'short head', 'brachialis'],
-  triceps: ['long head', 'lateral head'],
+  // 'tricep long head', not bare 'long head' — that collided with biceps'
+  // own 'long head' (same string, two groups), which broke REGION_TO_GROUP's
+  // resolution on the server and let the "Also works" picker's checkbox
+  // state leak between two unrelated checkboxes sharing one value.
+  triceps: ['tricep long head', 'lateral head'],
   forearms: ['wrist flexors', 'wrist extensors'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
   core: ['abs', 'obliques']

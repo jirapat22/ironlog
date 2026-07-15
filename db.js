@@ -772,6 +772,7 @@ function seed() {
   for (const sql of equipmentMigrations) db.exec(sql);
 
   populateMuscleAndMet();
+  fixTricepLongHeadCollision();
   populateSecondaryMuscles();
   fixTricepsSecondaryTag();
   populateSecondaryMajor();
@@ -823,10 +824,14 @@ const SUB_MUSCLE_BY_NAME = {
   'Incline Dumbbell Curl': 'long head', 'Cable Curl': 'biceps', 'Concentration Curl': 'short head',
   'Spider Curl': 'short head', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
   'Machine Curl': 'short head', 'Bayesian Curl': 'long head', 'Zottman Curl': 'brachialis',
-  // Triceps — long (overhead/stretch) / lateral (pushdowns/pressing)
-  'Tricep Pushdown': 'lateral head', 'Single-Arm Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Overhead Tricep Extension': 'long head',
-  'Skull Crusher': 'long head', 'Close-Grip Bench Press': 'lateral head', 'Tricep Dip': 'lateral head',
-  'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head', 'Cable Overhead Tricep Extension': 'long head',
+  // Triceps — long (overhead/stretch) / lateral (pushdowns/pressing). 'tricep
+  // long head', not bare 'long head' — biceps has its own 'long head' region
+  // and the two collided (same string, two different groups), which broke
+  // REGION_TO_GROUP's resolution and let the "Also works" picker's checkbox
+  // state leak between the two unrelated checkboxes that shared one value.
+  'Tricep Pushdown': 'lateral head', 'Single-Arm Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Overhead Tricep Extension': 'tricep long head',
+  'Skull Crusher': 'tricep long head', 'Close-Grip Bench Press': 'lateral head', 'Tricep Dip': 'lateral head',
+  'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head', 'Cable Overhead Tricep Extension': 'tricep long head',
   'Machine Tricep Extension': 'lateral head', 'Assisted Chin-Up': 'biceps', 'Assisted Pull-Up': 'lats',
   // Legs
   'Back Squat': 'quads', 'Front Squat': 'quads', 'Goblet Squat': 'quads', 'Romanian Deadlift': 'hamstrings',
@@ -916,8 +921,8 @@ function populateMuscleAndMet() {
       const tri = {
         'Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Close-Grip Bench Press': 'lateral head',
         'Tricep Dip': 'lateral head', 'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head',
-        'Machine Tricep Extension': 'lateral head', 'Overhead Tricep Extension': 'long head',
-        'Cable Overhead Tricep Extension': 'long head', 'Skull Crusher': 'long head'
+        'Machine Tricep Extension': 'lateral head', 'Overhead Tricep Extension': 'tricep long head',
+        'Cable Overhead Tricep Extension': 'tricep long head', 'Skull Crusher': 'tricep long head'
       };
       for (const [name, sub] of Object.entries(tri)) reSub.run(sub, name);
     }
@@ -942,7 +947,7 @@ const GROUP_SUB_MUSCLES = {
   back: ['lats', 'upper back', 'lower back', 'traps'],
   shoulders: ['front delt', 'side delt', 'rear delt'],
   biceps: ['biceps', 'long head', 'short head', 'brachialis'],
-  triceps: ['long head', 'lateral head'],
+  triceps: ['tricep long head', 'lateral head'],
   forearms: ['wrist flexors', 'wrist extensors'],
   legs: ['quads', 'hamstrings', 'glutes', 'calves', 'abductors', 'adductors'],
   core: ['abs', 'obliques']
@@ -951,6 +956,24 @@ const REGION_TO_GROUP = {};
 for (const [g, subs] of Object.entries(GROUP_SUB_MUSCLES)) {
   for (const s of subs) REGION_TO_GROUP[s] = g;
 }
+// One-time: 'long head' used to be triceps' region name too, colliding with
+// biceps' own 'long head' (GROUP_SUB_MUSCLES above now uses 'tricep long
+// head' for triceps instead). The collision broke REGION_TO_GROUP's
+// resolution (biceps' entry got silently overwritten by triceps' at object-
+// construction time) and let the "Also works" picker's checkbox state leak
+// between two unrelated checkboxes that happened to share one value —
+// checking "long head" under biceps also checked it under triceps. Renames
+// already-stored rows; unambiguous because muscle_group is explicit on each
+// row (a triceps row with sub_muscle='long head' can only have meant
+// triceps' own long head, never biceps'). Not scoped to created_by_profile_id
+// IS NULL — this corrects a broken/ambiguous value, not a deliberate choice.
+function fixTricepLongHeadCollision() {
+  const FLAG = 'fix_tricep_long_head_collision_v1';
+  if (getMeta(FLAG)) return;
+  db.prepare("UPDATE exercises SET sub_muscle = 'tricep long head' WHERE muscle_group = 'triceps' AND sub_muscle = 'long head'").run();
+  setMeta(FLAG, '1');
+}
+
 // Canonical muscle groups — the only valid `exercises.muscle_group` values.
 // The UI's group dropdown mirrors this list (SUB_MUSCLES in public/utils.js);
 // exported so the API write paths can reject anything else, keeping charts,
