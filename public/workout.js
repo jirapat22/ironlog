@@ -1692,6 +1692,16 @@ async function openSwapPicker(currentExerciseId) {
     } else {
       toast(`Swapped to ${newEx.name}`);
     }
+    // Pull the swapped-in exercise's previous numbers so its card shows real
+    // history instead of "First time" — workoutState.lastByExercise was only
+    // ever fetched for the program day's ORIGINAL exercise list, so a
+    // swapped-in exercise has no entry until this backfills it (previously
+    // only a full page reload re-fetched it, which is what "First time" was
+    // really reporting: no data fetched yet, not no history).
+    try {
+      const m = await API.lastByExercise([newExId]);
+      workoutState.lastByExercise = { ...(workoutState.lastByExercise || {}), ...m };
+    } catch { /* optional — render without prefill */ }
     renderWorkoutView();
   };
 }

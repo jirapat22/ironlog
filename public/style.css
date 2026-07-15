@@ -1316,21 +1316,26 @@ button {
   color: var(--accent);
 }
 
+/* The ⚠️ glyph is a fixed-color emoji — CSS `color` has no visible effect on
+   it, so on/off used to differ only by a subtle opacity change (0.75 vs 1),
+   which read as "not obviously clickable, can't tell if it's on." A solid
+   background fill + border on the "on" state gives it the same unmistakable
+   toggle look as the RIR buttons (.rpe-btn--active) instead. */
 .set-row__form-flag {
-  color: var(--text-dim);
   font-size: 15px;
   padding: 4px 6px;
   border-radius: 6px;
-  opacity: 0.75;
-}
-
-.set-row__form-flag:active {
+  border: 1px solid var(--border);
   background: var(--surface-2);
 }
 
+.set-row__form-flag:active {
+  background: var(--border);
+}
+
 .set-row__form-flag--on {
-  color: var(--danger);
-  opacity: 1;
+  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  border-color: var(--danger);
 }
 
 .set-row__extras {
