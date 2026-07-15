@@ -775,6 +775,7 @@ function seed() {
   populateSecondaryMuscles();
   fixTricepsSecondaryTag();
   populateSecondaryMajor();
+  addMissingSecondaryMuscleTags();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
   auditWeightModeCatalog();
@@ -982,7 +983,8 @@ const SECONDARY_BY_NAME = {
   'Chest-Supported Row': ['lats', 'biceps', 'rear delt'], 'One-Arm Dumbbell Row': ['upper back', 'biceps'],
   'Machine Row': ['lats', 'biceps'], 'Landmine Row': ['upper back', 'biceps'], 'Seal Row': ['lats', 'biceps'],
   'Good Morning': ['hamstrings', 'glutes'], 'Hyperextension': ['glutes', 'hamstrings'],
-  'Face Pull': ['rear delt'],
+  'Reverse Hyperextension': ['glutes', 'hamstrings'],
+  'Face Pull': ['rear delt'], 'Dumbbell Pullover': ['mid chest'],
   // Shoulder presses -> side delt + triceps
   'Overhead Press': ['side delt', 'lateral head'], 'Seated Dumbbell Press': ['side delt', 'lateral head'],
   'Arnold Press': ['side delt', 'lateral head'], 'Machine Shoulder Press': ['side delt', 'lateral head'],
@@ -996,11 +998,15 @@ const SECONDARY_BY_NAME = {
   'Romanian Deadlift': ['glutes', 'lower back'], 'Stiff-Leg Deadlift': ['glutes', 'lower back'],
   'Bulgarian Split Squat': ['glutes', 'hamstrings'], 'Walking Lunge': ['glutes', 'hamstrings'],
   'Reverse Lunge': ['quads', 'hamstrings'], 'Step-Up': ['glutes', 'hamstrings'],
-  'Hip Thrust': ['hamstrings'], 'Cable Pullthrough': ['hamstrings'],
+  'Hip Thrust': ['hamstrings'], 'Cable Pullthrough': ['hamstrings', 'lower back'],
   'Kettlebell Swing': ['hamstrings', 'lower back'], 'Nordic Hamstring Curl': ['glutes'],
   // Core / carries
-  'Hanging Leg Raise': ['obliques'], 'Toes to Bar': ['obliques'], 'Ab Wheel Rollout': ['obliques'],
-  'Mountain Climber': ['obliques'], 'Farmer Carry': ['traps']
+  'Hanging Leg Raise': ['obliques'], 'Toes to Bar': ['obliques', 'lats'], 'Ab Wheel Rollout': ['obliques'],
+  'Mountain Climber': ['obliques'], 'Farmer Carry': ['traps', 'abs'],
+  // Forearms — a curl variant that explicitly works the extensors too (its
+  // own seed notes say "full arm development": supination/pronation through
+  // the rep works both flexor and extensor sides, not just biceps).
+  'Zottman Curl': ['wrist extensors']
 };
 
 // Apply the seed secondaries once. Idempotent via meta flag + the IS NULL guard
@@ -1052,6 +1058,56 @@ function fixTricepsSecondaryTag() {
   });
 }
 
+// One-time: a broader audit found several compound/carry exercises with real
+// secondary-muscle involvement that SECONDARY_BY_NAME was missing entirely
+// (Reverse Hyperextension, Dumbbell Pullover, Zottman Curl) or under-tagging
+// vs. a near-identical exercise that already had the tag (Cable Pullthrough
+// missing lower back that Kettlebell Swing has; Toes to Bar missing lats;
+// Farmer Carry missing abs). populateSecondaryMuscles/populateSecondaryMajor
+// already fired in production, so updating those maps alone doesn't reach
+// existing rows — this merges the new regions in without disturbing any tag
+// a user added since (or any tag on their own custom exercises).
+function addMissingSecondaryMuscleTags() {
+  const FLAG = 'add_missing_secondary_v1';
+  if (getMeta(FLAG)) return;
+  const additions = {
+    'Reverse Hyperextension': ['glutes', 'hamstrings'],
+    'Dumbbell Pullover': ['mid chest'],
+    'Cable Pullthrough': ['lower back'],
+    'Toes to Bar': ['lats'],
+    'Farmer Carry': ['abs'],
+    'Zottman Curl': ['wrist extensors']
+  };
+  const names = Object.keys(additions);
+  const rows = db.prepare(
+    `SELECT id, name, secondary_muscles, secondary_major FROM exercises
+     WHERE name IN (${names.map(() => '?').join(',')}) AND created_by_profile_id IS NULL`
+  ).all(...names);
+  const updMuscles = db.prepare('UPDATE exercises SET secondary_muscles = ? WHERE id = ?');
+  const updMajor = db.prepare('UPDATE exercises SET secondary_major = ? WHERE id = ?');
+  tx(() => {
+    for (const row of rows) {
+      let regions = [];
+      try { regions = row.secondary_muscles ? JSON.parse(row.secondary_muscles) : []; } catch { regions = []; }
+      if (!Array.isArray(regions)) regions = [];
+      for (const r of additions[row.name]) if (!regions.includes(r)) regions.push(r);
+      updMuscles.run(JSON.stringify(regions), row.id);
+
+      // Farmer Carry's 'abs' is also major (see SECONDARY_MAJOR_BY_NAME) — only
+      // it needs a major-list update; every other addition here stays minor
+      // (tag-only), matching how they're classified above.
+      if (row.name === 'Farmer Carry' && row.secondary_major != null) {
+        let major = [];
+        try { major = JSON.parse(row.secondary_major); } catch { major = []; }
+        if (!Array.isArray(major)) major = [];
+        if (!major.includes('abs')) major.push('abs');
+        updMajor.run(JSON.stringify(major), row.id);
+      }
+    }
+    setMeta(FLAG, '1');
+  });
+}
+
 // Which of SECONDARY_BY_NAME's regions get real mechanical loading (the
 // exercise is genuinely a prime-mover-level hit on that region, not just a
 // stabilizer or incidental assist) — these are the only secondary regions
@@ -1072,7 +1128,10 @@ const SECONDARY_MAJOR_BY_NAME = {
   'Sumo Deadlift': ['glutes', 'hamstrings', 'quads'],
   'Rack Pull': ['glutes'],
   'Good Morning': ['hamstrings', 'glutes'],
-  'Farmer Carry': ['traps']
+  // Not just grip/traps — bracing against a heavy loaded carry is a real
+  // core stimulus too, same reasoning as the traps: this is the load doing
+  // the work, not a light stabilizer hit.
+  'Farmer Carry': ['traps', 'abs']
 };
 
 // Apply the major/minor secondary split once. Any seeded exercise with
