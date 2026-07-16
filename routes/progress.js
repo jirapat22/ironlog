@@ -175,17 +175,30 @@ router.get('/muscle-frequency', (req, res) => {
 // is JSON, so this is done in JS rather than pure SQL; DISTINCT collapses
 // multiple sets of the same exercise in one workout to a single row before
 // crediting.
+// `workout_id` narrows this to a single workout's own sets (e.g. "which
+// muscle groups has THIS session already hit" live during a workout)
+// instead of the weekly window — same crediting rule either way, so the
+// live in-workout strip and the 2x/week goal never disagree about what
+// counts.
 router.get('/muscle-coverage', (req, res) => {
+  const workoutId = req.query.workout_id ? Number(req.query.workout_id) : null;
   const tz = Number(req.query.tzOffset);
   const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
-  const rows = db.prepare(
-    `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles, e.secondary_major
-     FROM sets s
-     JOIN exercises e ON e.id = s.exercise_id
-     WHERE s.profile_id = ?
-       AND s.is_warmup = 0
-       AND datetime(s.logged_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')`
-  ).all(req.profileId, mod, mod);
+  const rows = workoutId
+    ? db.prepare(
+        `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles, e.secondary_major
+         FROM sets s
+         JOIN exercises e ON e.id = s.exercise_id
+         WHERE s.profile_id = ? AND s.is_warmup = 0 AND s.workout_id = ?`
+      ).all(req.profileId, workoutId)
+    : db.prepare(
+        `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles, e.secondary_major
+         FROM sets s
+         JOIN exercises e ON e.id = s.exercise_id
+         WHERE s.profile_id = ?
+           AND s.is_warmup = 0
+           AND datetime(s.logged_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')`
+      ).all(req.profileId, mod, mod);
 
   const sessionsByGroup = new Map(); // muscle_group -> Set(workout_id)
   const credit = (group, workoutId) => {

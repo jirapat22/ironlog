@@ -108,6 +108,7 @@ const API = {
   recentWorkouts: (programDayId, n = 3) => api(`/api/workouts/recent/${programDayId}?n=${n}`),
   muscleFrequency: () => api('/api/muscle-frequency'),
   muscleCoverage: () => api(`/api/muscle-coverage?tzOffset=${-new Date().getTimezoneOffset()}`),
+  workoutMuscleCoverage: (workoutId) => api(`/api/muscle-coverage?workout_id=${workoutId}`),
   subMuscleFrequency: () => api('/api/sub-muscle-frequency'),
   workout: (id) => api(`/api/workouts/${id}`),
   workoutSets: (id) => api(`/api/workouts/${id}/sets`),

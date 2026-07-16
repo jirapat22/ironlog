@@ -1284,10 +1284,14 @@ function subGroupToggleHTML(active) {
 // search input `data-picker-search`, then call `setupPickerFilter(pickerEl)`
 // once after rendering. A chip narrows to one muscle group and scrolls it into
 // view; search narrows rows by name; the two compose.
-function pickerChipsHTML(keys) {
+// `activeChip` (a group name, or '' for "All") lets a caller re-render this
+// bar without losing whichever tab was open — callers that rebuild the whole
+// picker (sort/split-by-sub-muscle toggles) used to always regenerate this
+// with "All" active, silently resetting a tab you'd deliberately picked.
+function pickerChipsHTML(keys, activeChip = '') {
   return `<div class="picker-chips" data-picker-chips>
-    <button class="picker-chip picker-chip--active" data-chip="">All</button>
-    ${keys.map((g) => `<button class="picker-chip mg-${escapeHtml(g)}" data-chip="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
+    <button class="picker-chip${activeChip === '' ? ' picker-chip--active' : ''}" data-chip="">All</button>
+    ${keys.map((g) => `<button class="picker-chip mg-${escapeHtml(g)}${activeChip === g ? ' picker-chip--active' : ''}" data-chip="${escapeHtml(g)}">${escapeHtml(g)}</button>`).join('')}
   </div>`;
 }
 

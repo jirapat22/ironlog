@@ -450,6 +450,9 @@ async function renderExerciseLibraryList(sheet) {
   // The muscle-group sectioning itself is untouched by sort; only each
   // section's internal order changes.
   function buildBody() {
+    // Preserve whichever tab was open before this rebuild — see the same
+    // fix in workout.js's swap/add pickers (openSwapPicker's buildList).
+    const prevChip = document.getElementById('ex-lib-body')?.querySelector('.picker-chip--active')?.dataset.chip ?? '';
     const byGroup = {};
     for (const ex of stats) {
       const g = ex.muscle_group || 'other';
@@ -459,6 +462,7 @@ async function renderExerciseLibraryList(sheet) {
     for (const g of Object.keys(byGroup)) byGroup[g] = sortExercisesBy(byGroup[g], exLibSort);
 
     const order = [...new Set([...GROUPS, ...Object.keys(byGroup)])].filter((g) => byGroup[g]);
+    const activeChip = prevChip === '' || order.includes(prevChip) ? prevChip : '';
 
     const rowHTML = (ex, g, showSubTag) => `
       <div class="ex-lib-row ${ex.workout_count === 0 ? 'ex-lib-row--unused' : ''}">
@@ -499,7 +503,7 @@ async function renderExerciseLibraryList(sheet) {
       </div>
       ${exerciseSortHTML(exLibSort)}
       ${subGroupToggleHTML(exLibSubGroup)}
-      ${pickerChipsHTML(order)}
+      ${pickerChipsHTML(order, activeChip)}
       ${html}`;
 
     // Jump-to-group: no search here, so chips just scroll to the group.

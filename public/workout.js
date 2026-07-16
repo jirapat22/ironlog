@@ -427,6 +427,16 @@ async function renderWorkout(retriedAfterMissing = false) {
     localStorage.setItem(LS.activeWorkoutStart, workout.started_at);
 
     renderWorkoutView();
+    // Reopening mid-workout (app relaunch, tab switch back) used to always
+    // show the exercise list from the top, so a long workout meant scrolling
+    // past everything already done to find where you left off. Jump straight
+    // to the first exercise that isn't finished yet — but only when there's
+    // actually prior progress this session, so a freshly-started workout
+    // doesn't get a pointless scroll.
+    if (workoutState.loggedSets.length) {
+      const nextCard = document.querySelector('#exercise-list .exercise-card:not(.exercise-card--complete)');
+      nextCard?.scrollIntoView({ block: 'start' });
+    }
     startStickyTimer();
     acquireWakeLock();
     const primeOnce = () => { primeAudio(); document.removeEventListener('click', primeOnce); };
@@ -482,6 +492,7 @@ function renderWorkoutView() {
       <div class="workout-sticky__time" id="sticky-elapsed">0:00</div>
     </div>
     <div id="rest-sticky" class="rest-sticky hidden"></div>
+    <div id="session-coverage"></div>
     <div id="exercise-list">${bodyHTML}</div>
     <button class="btn btn--ghost btn--block" data-add-workout-ex style="margin-top:12px">+ Add exercise to this workout</button>
     <div class="workout-notes-wrap">
@@ -506,6 +517,32 @@ function renderWorkoutView() {
       persistExerciseList();
     }, { rowSel: '.exercise-card', idKey: 'ex', draggingClass: 'exercise-card--dragging' });
   }
+
+  renderSessionCoverage();
+}
+
+// Live "muscle groups already hit this workout" strip — same primary +
+// major-secondary crediting rule as the 2x/week goal strip on Programs
+// (routes/progress.js's /muscle-coverage, scoped here to just this
+// workout_id instead of the weekly window), so the two never disagree
+// about what counts as hitting a group. Fire-and-forget: called after every
+// full re-render, plus directly after a new set is confirmed/deleted (the
+// in-place DOM patches used there don't otherwise touch this strip).
+async function renderSessionCoverage() {
+  const el = document.getElementById('session-coverage');
+  if (!el || !workoutState?.workout?.id) return;
+  let rows;
+  try { rows = await API.workoutMuscleCoverage(workoutState.workout.id); }
+  catch { return; }
+  const hit = new Set(rows.filter((r) => r.sessions > 0).map((r) => r.muscle_group));
+  if (!hit.size) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="cov-strip">
+      <div class="cov-strip__title">This workout</div>
+      <div class="cov-strip__chips">
+        ${PICKER_GROUP_ORDER.map((g) => `<span class="cov-chip mg-${g}${hit.has(g) ? ' cov-chip--done' : ' cov-chip--zero'}">${g}${hit.has(g) ? ' &#x2713;' : ''}</span>`).join('')}
+      </div>
+    </div>`;
 }
 
 // " · aim 8–12" when the exercise has a target rep range set (either bound
@@ -1264,6 +1301,7 @@ async function confirmSet(row) {
       cascadePrefillSiblings(row, weight, unit, reps);
       moveNextHighlight(exId);
       haptic(30);
+      if (!isWarmup) renderSessionCoverage();
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
       // Newly-confirmed rows are patched in place rather than fully
       // re-rendered via setRowHTML, so the form-flag button (only present in
@@ -1392,6 +1430,7 @@ async function deleteLoggedSet(row) {
     if (overlay) overlay.remove();
     haptic(20);
     toast('Set deleted');
+    renderSessionCoverage();
   } catch (err) { toast(err.message); }
 }
 
@@ -1589,6 +1628,10 @@ async function openSwapPicker(currentExerciseId) {
     </button>`;
 
   function buildList() {
+    // Preserve whichever tab (a muscle group, or "All") was open before this
+    // rebuild — sort/split-by-sub-muscle toggles used to always regenerate
+    // the chip bar with "All" active, silently resetting it.
+    const prevChip = picker.querySelector('.picker-chip--active')?.dataset.chip ?? '';
     const groups = {};
     for (const ex of exercises) {
       if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
@@ -1596,8 +1639,9 @@ async function openSwapPicker(currentExerciseId) {
     }
     for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], workoutPickerSort);
     const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    const activeChip = prevChip === '' || keys.includes(prevChip) ? prevChip : '';
     picker.querySelector('#swap-sort').innerHTML = exerciseSortHTML(workoutPickerSort) + subGroupToggleHTML(workoutPickerSubGroup);
-    picker.querySelector('#swap-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
+    picker.querySelector('#swap-list').innerHTML = pickerChipsHTML(keys, activeChip) + keys.map((g) => `
       <div class="picker-group" data-group="${g}">
         <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
         ${workoutPickerSubGroup
@@ -1607,7 +1651,7 @@ async function openSwapPicker(currentExerciseId) {
             `).join('')
           : groups[g].map((ex) => pickRowHTML(ex, g, true)).join('')}
       </div>`).join('');
-    setupPickerFilter(picker);
+    setupPickerFilter(picker)();
   }
 
   picker.innerHTML = `
@@ -1737,6 +1781,9 @@ async function openWorkoutAddExercisePicker() {
     </button>`;
 
   function buildList() {
+    // Preserve whichever tab (a muscle group, or "All") was open before this
+    // rebuild — see the identical fix/comment in openSwapPicker's buildList.
+    const prevChip = picker.querySelector('.picker-chip--active')?.dataset.chip ?? '';
     const groups = {};
     for (const ex of exercises) {
       if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
@@ -1744,8 +1791,9 @@ async function openWorkoutAddExercisePicker() {
     }
     for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], workoutPickerSort);
     const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
+    const activeChip = prevChip === '' || keys.includes(prevChip) ? prevChip : '';
     picker.querySelector('#wkadd-sort').innerHTML = exerciseSortHTML(workoutPickerSort) + subGroupToggleHTML(workoutPickerSubGroup);
-    picker.querySelector('#wkadd-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
+    picker.querySelector('#wkadd-list').innerHTML = pickerChipsHTML(keys, activeChip) + keys.map((g) => `
       <div class="picker-group" data-group="${g}">
         <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
         ${workoutPickerSubGroup
@@ -1755,7 +1803,7 @@ async function openWorkoutAddExercisePicker() {
             `).join('')
           : groups[g].map((ex) => addRowHTML(ex, g, true)).join('')}
       </div>`).join('');
-    setupPickerFilter(picker);
+    setupPickerFilter(picker)();
   }
 
   picker.innerHTML = `
