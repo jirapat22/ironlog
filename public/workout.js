@@ -485,14 +485,16 @@ function renderWorkoutView() {
     .join('');
 
   root.innerHTML = `
-    <div class="workout-sticky">
-      <div>
-        <div class="workout-sticky__name">${escapeHtml(programDay.day_label)}</div>
+    <div class="workout-top-sticky">
+      <div class="workout-sticky">
+        <div>
+          <div class="workout-sticky__name">${escapeHtml(programDay.day_label)}</div>
+        </div>
+        <div class="workout-sticky__time" id="sticky-elapsed">0:00</div>
       </div>
-      <div class="workout-sticky__time" id="sticky-elapsed">0:00</div>
+      <div id="rest-sticky" class="rest-sticky hidden"></div>
+      <div id="session-coverage"></div>
     </div>
-    <div id="rest-sticky" class="rest-sticky hidden"></div>
-    <div id="session-coverage"></div>
     <div id="exercise-list">${bodyHTML}</div>
     <button class="btn btn--ghost btn--block" data-add-workout-ex style="margin-top:12px">+ Add exercise to this workout</button>
     <div class="workout-notes-wrap">
@@ -1041,6 +1043,12 @@ function wireWorkoutView() {
 
     const row = e.target.closest('.set-row');
     if (!row) return;
+    // A just-logged row's checkmark doubles as an immediate "undo" (see the
+    // data-confirm handler below) — but ONLY for the very next tap, and only
+    // if nothing else about the set has been touched since. Any other
+    // interaction with the row means the tap is a deliberate edit, not a
+    // slip, so the checkmark reverts to its normal "save" behavior.
+    if (!e.target.closest('[data-confirm]')) delete row.dataset.justConfirmed;
 
     const warmupBtn = e.target.closest('[data-toggle-warmup]');
     if (warmupBtn) {
@@ -1085,7 +1093,7 @@ function wireWorkoutView() {
     if (stepBtn) { fireStep(stepBtn, row); updateRowEquiv(row); return; }
 
     const confirm = e.target.closest('[data-confirm]');
-    if (confirm) return confirmSet(row);
+    if (confirm) return row.dataset.justConfirmed === '1' ? deleteLoggedSet(row) : confirmSet(row);
 
     const noteToggle = e.target.closest('[data-toggle-note]');
     if (noteToggle) {
@@ -1139,6 +1147,7 @@ function wireWorkoutView() {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
     const row = input.closest('.set-row');
+    delete row.dataset.justConfirmed;
     markRowTouched(row);
     updateRowEquiv(row);
   };
@@ -1294,6 +1303,7 @@ async function confirmSet(row) {
         is_warmup: isWarmup ? 1 : 0
       });
       row.dataset.setId = res.id;
+      row.dataset.justConfirmed = '1';
       row.classList.add('done');
       row.classList.remove('set-row--next');
       workoutState.loggedSets.push(res);
@@ -1426,6 +1436,7 @@ async function deleteLoggedSet(row) {
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== id);
     row.classList.remove('done', 'swiped');
     row.removeAttribute('data-set-id');
+    delete row.dataset.justConfirmed;
     const overlay = row.querySelector('[data-delete]');
     if (overlay) overlay.remove();
     haptic(20);

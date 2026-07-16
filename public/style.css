@@ -1010,10 +1010,17 @@ button {
 }
 
 /* Workout tab */
-.workout-sticky {
+/* Header, rest timer, and session-coverage strip stick together as one unit
+   so the coverage strip stays visible while scrolling the exercise list —
+   simpler and more robust than giving each a separate sticky top offset. */
+.workout-top-sticky {
   position: sticky;
   top: var(--header-h);
   z-index: 9;
+  background: var(--bg);
+}
+
+.workout-sticky {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1448,11 +1455,8 @@ button {
   gap: 8px;
 }
 
-/* Global rest countdown sticky */
+/* Global rest countdown — sticks as part of .workout-top-sticky (see above) */
 .rest-sticky {
-  position: sticky;
-  top: calc(var(--header-h) + 60px);
-  z-index: 8;
   display: flex;
   align-items: center;
   gap: 10px;
