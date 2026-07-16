@@ -1299,6 +1299,16 @@ async function confirmSet(row) {
           hints?.appendChild(badge);
         }
       }
+      // Same gap as the PR/form-flag ones above: setRowHTML's perArmBadge
+      // only ever renders on a full re-render, so a newly-confirmed set
+      // with a right/left breakdown showed nothing until something else
+      // forced one.
+      if (repsR != null && repsL != null && repsR !== repsL) {
+        const perArmBadge = document.createElement('span');
+        perArmBadge.className = 'set-row__hint';
+        perArmBadge.textContent = fmtReps(reps, repsR, repsL);
+        hints?.appendChild(perArmBadge);
+      }
     }
   } catch (err) {
     toast(err.message);

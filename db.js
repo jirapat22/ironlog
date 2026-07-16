@@ -430,6 +430,29 @@ function migrateMultiUser() {
     db.exec('ALTER TABLE exercises ADD COLUMN created_by_profile_id INTEGER');
   }
 
+  // exercises.classification_customized: set to 1 the moment a PATCH ever
+  // explicitly touches muscle_group, sub_muscle, or equipment on a SEEDED
+  // exercise (routes/exercises.js). Every bulk seed migration below that
+  // reclassifies those three fields (updateGroup, equipmentMigrations,
+  // populateMuscleAndMet's sub_muscle defaults) must skip rows where this is
+  // 1 — otherwise a deliberate edit (including explicitly choosing "whole
+  // muscle", which stores sub_muscle=NULL — indistinguishable from "never
+  // set" without this flag) gets silently reverted on the next server boot,
+  // since those migrations re-run every boot, not just once.
+  if (!columnExists('exercises', 'classification_customized')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN classification_customized INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // personal_records.set_id: which specific set currently holds this PR.
+  // Without it, "is this set a PR" could only be checked by matching
+  // (weight, unit, reps) VALUES — so a later set that merely TIES an
+  // existing record (never overwrites it, per checkAndUpdatePR's strict
+  // improvement check) showed the "New PR" badge too, on every tying
+  // occurrence forever, not just the one that actually set it.
+  if (!columnExists('personal_records', 'set_id')) {
+    db.exec('ALTER TABLE personal_records ADD COLUMN set_id INTEGER');
+  }
+
   // programs.sort_order: user-defined ordering of the program list. NULL falls
   // back to id (insertion order).
   if (!columnExists('programs', 'sort_order')) {
@@ -733,7 +756,7 @@ function seed() {
     'UPDATE exercises SET is_bodyweight = 1, is_assisted = 1 WHERE name = ? AND is_assisted != 1 AND created_by_profile_id IS NULL'
   );
   const updateGroup = db.prepare(
-    'UPDATE exercises SET muscle_group = ? WHERE name = ? AND muscle_group != ? AND created_by_profile_id IS NULL'
+    'UPDATE exercises SET muscle_group = ? WHERE name = ? AND muscle_group != ? AND created_by_profile_id IS NULL AND classification_customized = 0'
   );
   tx(() => {
     for (const row of CANONICAL_EXERCISES) insertExercise.run(...row);
@@ -749,25 +772,29 @@ function seed() {
   // Order matters: more specific patterns first; bodyweight/assisted last to
   // override. created_by_profile_id IS NULL guards every clause — a custom
   // exercise reusing a deleted seed's name must not get silently reclassified.
+  // classification_customized = 0 guards every clause too (the last two had
+  // no equipment condition at all, so they used to re-force bodyweight/
+  // machine back onto a seeded exercise every boot even after a user
+  // deliberately picked something else via the edit UI).
   const equipmentMigrations = [
-    `UPDATE exercises SET equipment = 'cable' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL
+    `UPDATE exercises SET equipment = 'cable' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL AND classification_customized = 0
      AND (name LIKE '%Cable%' OR name LIKE '%Pulldown%' OR name LIKE '%Pushdown%'
           OR name LIKE '%Pullthrough%' OR name LIKE '%Pallof%'
           OR name IN ('Face Pull','Seated Cable Row','Band Pull-Apart','Rope Pushdown',
                       'Seated Cable Lateral Raise','Bayesian Curl','Cable Hammer Curl'))`,
-    `UPDATE exercises SET equipment = 'dumbbell' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL
+    `UPDATE exercises SET equipment = 'dumbbell' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL AND classification_customized = 0
      AND (name LIKE '%Dumbbell%'
           OR name IN ('Lateral Raise','Rear Delt Fly','Arnold Press','Hammer Curl',
                       'Concentration Curl','Overhead Tricep Extension','Tricep Kickback',
                       'Goblet Squat','Farmer Carry','Zottman Curl','Shrug'))`,
-    `UPDATE exercises SET equipment = 'machine' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL
+    `UPDATE exercises SET equipment = 'machine' WHERE equipment = 'barbell' AND created_by_profile_id IS NULL AND classification_customized = 0
      AND (name LIKE '%Machine%' OR name LIKE '%Pec Deck%' OR name LIKE '%Leg Press%'
           OR name LIKE '%Leg Extension%' OR name LIKE '%Leg Curl%' OR name LIKE '%Hack Squat%'
           OR name LIKE '%Hip Abduction%' OR name LIKE '%Hip Adduction%'
           OR name LIKE '%Smith%' OR name IN ('Sissy Squat','Reverse Hyperextension'))`,
     `UPDATE exercises SET equipment = 'bodyweight'
-     WHERE is_bodyweight = 1 AND (is_assisted IS NULL OR is_assisted = 0) AND created_by_profile_id IS NULL`,
-    `UPDATE exercises SET equipment = 'machine' WHERE is_assisted = 1 AND created_by_profile_id IS NULL`
+     WHERE is_bodyweight = 1 AND (is_assisted IS NULL OR is_assisted = 0) AND created_by_profile_id IS NULL AND classification_customized = 0`,
+    `UPDATE exercises SET equipment = 'machine' WHERE is_assisted = 1 AND created_by_profile_id IS NULL AND classification_customized = 0`
   ];
   for (const sql of equipmentMigrations) db.exec(sql);
 
@@ -777,6 +804,8 @@ function seed() {
   fixTricepsSecondaryTag();
   populateSecondaryMajor();
   addMissingSecondaryMuscleTags();
+  fixMissingSecondaryMajorGap();
+  backfillPersonalRecordSetIds();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
   auditWeightModeCatalog();
@@ -888,7 +917,7 @@ function populateMuscleAndMet() {
   // created_by_profile_id IS NULL guards both: a custom exercise reusing a
   // deleted seed's name (globally-unique names make this the only way to
   // collide) must not get silently reclassified.
-  const setSub = db.prepare('UPDATE exercises SET sub_muscle = ? WHERE name = ? AND sub_muscle IS NULL AND created_by_profile_id IS NULL');
+  const setSub = db.prepare('UPDATE exercises SET sub_muscle = ? WHERE name = ? AND sub_muscle IS NULL AND created_by_profile_id IS NULL AND classification_customized = 0');
   const setMet = db.prepare('UPDATE exercises SET met = ? WHERE name = ? AND met = 5 AND created_by_profile_id IS NULL');
   tx(() => {
     for (const [name, sub] of Object.entries(SUB_MUSCLE_BY_NAME)) setSub.run(sub, name);
@@ -907,7 +936,7 @@ function populateMuscleAndMet() {
         'Spider Curl': 'short head', 'Machine Curl': 'short head',
         'Incline Dumbbell Curl': 'long head', 'Bayesian Curl': 'long head'
       };
-      const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL");
+      const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL AND classification_customized = 0");
       for (const [name, sub] of Object.entries(heads)) reSub.run(sub, name);
     }
 
@@ -915,7 +944,7 @@ function populateMuscleAndMet() {
     // once nothing is left in 'arms').
     db.prepare("UPDATE exercises SET muscle_group = 'forearms' WHERE muscle_group = 'arms'").run();
 
-    const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL");
+    const reSub = db.prepare("UPDATE exercises SET sub_muscle = ? WHERE name = ? AND created_by_profile_id IS NULL AND classification_customized = 0");
     // Split seeded triceps by head (were the generic 'triceps'). Gated like biceps.
     if (db.prepare("SELECT 1 FROM exercises WHERE name = 'Tricep Pushdown' AND sub_muscle = 'triceps'").get()) {
       const tri = {
@@ -954,7 +983,18 @@ const GROUP_SUB_MUSCLES = {
 };
 const REGION_TO_GROUP = {};
 for (const [g, subs] of Object.entries(GROUP_SUB_MUSCLES)) {
-  for (const s of subs) REGION_TO_GROUP[s] = g;
+  for (const s of subs) {
+    // Guard against a repeat of the exact bug fixTricepLongHeadCollision
+    // fixed below: a region name reused across two groups silently breaks
+    // this lookup (whichever group is defined later wins) and lets the
+    // "Also works" picker's checkbox state leak between two unrelated
+    // checkboxes that happen to share one value. Fail loudly at boot
+    // instead of silently corrupting data again.
+    if (REGION_TO_GROUP[s] && REGION_TO_GROUP[s] !== g) {
+      throw new Error(`GROUP_SUB_MUSCLES: region "${s}" is used by both "${REGION_TO_GROUP[s]}" and "${g}" — region names must be unique across every group`);
+    }
+    REGION_TO_GROUP[s] = g;
+  }
 }
 // One-time: 'long head' used to be triceps' region name too, colliding with
 // biceps' own 'long head' (GROUP_SUB_MUSCLES above now uses 'tricep long
@@ -1129,6 +1169,45 @@ function addMissingSecondaryMuscleTags() {
     }
     setMeta(FLAG, '1');
   });
+}
+
+// Follow-up to addMissingSecondaryMuscleTags above: that migration gave
+// Reverse Hyperextension, Dumbbell Pullover, and Zottman Curl their FIRST
+// secondary_muscles tags ever, but only explicitly classified Farmer Carry's
+// secondary_major — the other three were left NULL. /muscle-coverage reads
+// secondary_major == NULL as "unclassified, credit every tagged region",
+// which over-credits: Reverse Hyperextension was ticking "legs" coverage,
+// Dumbbell Pullover "chest", Zottman Curl "forearms" — all meant to be
+// tag-only/minor per the comment on that migration ("every other addition
+// here stays minor"), never credited. Harmless no-op for Cable Pullthrough/
+// Toes to Bar/Farmer Carry, which already had an explicit secondary_major
+// before addMissingSecondaryMuscleTags ran.
+function fixMissingSecondaryMajorGap() {
+  const FLAG = 'fix_missing_secondary_major_gap_v1';
+  if (getMeta(FLAG)) return;
+  const names = ['Reverse Hyperextension', 'Dumbbell Pullover', 'Cable Pullthrough', 'Toes to Bar', 'Zottman Curl'];
+  db.prepare(
+    `UPDATE exercises SET secondary_major = '[]'
+     WHERE name IN (${names.map(() => '?').join(',')}) AND created_by_profile_id IS NULL AND secondary_major IS NULL`
+  ).run(...names);
+  setMeta(FLAG, '1');
+}
+
+// One-time: backfill personal_records.set_id for rows that predate that
+// column (every existing PR). Without this they'd stay set_id=NULL forever,
+// and routes/workouts.js's "New PR" tag (which now matches by set_id, not
+// value, so a later tie doesn't re-flag) would never match ANY existing
+// record until the next time it happens to get beaten. recomputePrsForExercise
+// rebuilds each (profile, exercise) pair from the sets table using the exact
+// same tie-breaking rule (oldest occurrence wins), so this is just "run the
+// normal rebuild once for everything that's missing the new column."
+function backfillPersonalRecordSetIds() {
+  const FLAG = 'backfill_pr_set_id_v1';
+  if (getMeta(FLAG)) return;
+  const pairs = db.prepare('SELECT DISTINCT profile_id, exercise_id FROM personal_records WHERE set_id IS NULL').all();
+  const { recomputePrsForExercise } = require('./pr'); // lazy: pr.js requires db.js at its top
+  for (const { profile_id, exercise_id } of pairs) recomputePrsForExercise(profile_id, exercise_id);
+  setMeta(FLAG, '1');
 }
 
 // Which of SECONDARY_BY_NAME's regions get real mechanical loading (the

@@ -12,7 +12,7 @@
 import { LS } from './utils.js';
 import { API } from './api.js';
 
-const SW_VERSION = 'ironlog-v150';
+const SW_VERSION = 'ironlog-v151';
 const SEEN_KEY = 'ironlog.bugReportsSeen';
 const SEEN_WINDOW_MS = 5 * 60 * 1000;
 const OUTBOX_KEY = 'ironlog.bugReportsOutbox';

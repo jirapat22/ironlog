@@ -399,16 +399,23 @@ router.get('/:id/sets', (req, res) => {
         thisBest[s.exercise_id] = { kg, weight: s.weight, unit: s.weight_unit };
       }
     }
+    // started_at alone isn't a safe "strictly before" boundary: SQLite's
+    // datetime('now') is whole-second resolution, so two workouts created
+    // within the same second (a quick cancel-and-restart) get identical
+    // started_at — a plain `<` would silently exclude a real, same-second
+    // predecessor entirely instead of comparing against it. `w.id` (always
+    // strictly increasing) breaks the tie.
     const priorRows = db.prepare(
       `SELECT s.exercise_id, s.weight, s.weight_unit, s.load_multiplier, e.is_bodyweight, e.is_assisted, e.weight_mode,
               w.id AS workout_id, w.bw_kg, w.started_at
        FROM sets s
        JOIN workouts w ON w.id = s.workout_id
        JOIN exercises e ON e.id = s.exercise_id
-       WHERE s.profile_id = ? AND s.is_warmup = 0 AND w.finished_at IS NOT NULL AND w.started_at < ?
+       WHERE s.profile_id = ? AND s.is_warmup = 0 AND w.finished_at IS NOT NULL
+         AND (w.started_at < ? OR (w.started_at = ? AND w.id < ?))
          AND s.exercise_id IN (${exerciseIds.map(() => '?').join(',')})
        ORDER BY w.started_at DESC, w.id DESC`
-    ).all(req.profileId, owned.started_at, ...exerciseIds);
+    ).all(req.profileId, owned.started_at, owned.started_at, owned.id, ...exerciseIds);
     // exercise_id -> up to 2 most recent PRIOR sessions, most-recent-first,
     // each { workoutId, kg, weight, unit, date }. priorRows is already
     // globally ordered by recency, so the first two distinct workout_ids
@@ -441,21 +448,24 @@ router.get('/:id/sets', (req, res) => {
 
   // New-PR tag per SET (not per exercise) — a workout can have multiple sets
   // each holding the record for their OWN rep count (personal_records is
-  // keyed by (exercise_id, reps), not just the single heaviest set).
+  // keyed by (exercise_id, reps), not just the single heaviest set). Matched
+  // by set_id (which set actually holds the record), not by value — matching
+  // by (weight, unit, reps) alone would flag every set that ever TIES a
+  // record, not just the one that originally set it.
   const prRows = exerciseIds.length
     ? db.prepare(
-        `SELECT exercise_id, weight, weight_unit, reps FROM personal_records
-         WHERE profile_id = ? AND exercise_id IN (${exerciseIds.map(() => '?').join(',')})`
+        `SELECT set_id FROM personal_records
+         WHERE profile_id = ? AND exercise_id IN (${exerciseIds.map(() => '?').join(',')}) AND set_id IS NOT NULL`
       ).all(req.profileId, ...exerciseIds)
     : [];
-  const prKeys = new Set(prRows.map((p) => `${p.exercise_id}|${p.weight}|${p.weight_unit}|${p.reps}`));
+  const prSetIds = new Set(prRows.map((p) => p.set_id));
 
   res.json(rows.map((s) => ({
     ...s,
     trend_status: trendStatus[s.exercise_id] || null,
     is_first_time: !!firstTime[s.exercise_id],
     trend_points: trendPoints[s.exercise_id] || null,
-    is_pr: !s.is_warmup && prKeys.has(`${s.exercise_id}|${s.weight}|${s.weight_unit}|${s.reps}`)
+    is_pr: !s.is_warmup && prSetIds.has(s.id)
   })));
 });
 

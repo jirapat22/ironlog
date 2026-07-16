@@ -18,7 +18,7 @@ function recomputePrsForExercise(profileId, exerciseId) {
   const dir = ex?.is_assisted ? 'ASC' : 'DESC';
 
   const best = db.prepare(`
-    SELECT weight, weight_unit, logged_at
+    SELECT id, weight, weight_unit, logged_at
     FROM sets
     WHERE profile_id = ? AND exercise_id = ? AND reps = ? AND is_warmup = 0
     ORDER BY (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END) ${dir},
@@ -28,15 +28,18 @@ function recomputePrsForExercise(profileId, exerciseId) {
 
   const del = db.prepare('DELETE FROM personal_records WHERE profile_id = ? AND exercise_id = ?');
   const ins = db.prepare(`
-    INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at, set_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   tx(() => {
     del.run(profileId, exerciseId);
     for (const { reps } of repRows) {
       const b = best.get(profileId, exerciseId, reps);
-      if (b) ins.run(profileId, exerciseId, b.weight, b.weight_unit, reps, b.logged_at);
+      // Ties resolve to the OLDEST occurrence (logged_at ASC tiebreak above)
+      // — the set that first hit this weight/rep count is "the" record
+      // holder; a later repeat of the same value isn't a new PR.
+      if (b) ins.run(profileId, exerciseId, b.weight, b.weight_unit, reps, b.logged_at, b.id);
     }
   });
 }

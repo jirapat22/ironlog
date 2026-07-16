@@ -107,6 +107,13 @@ router.patch('/:id', (req, res) => {
     return res.status(403).json({ error: 'not your exercise' });
   }
   const fields = ['name', 'muscle_group', 'notes', 'equipment', 'sub_muscle'];
+  // Any of these three being explicitly touched — even to set sub_muscle back
+  // to "whole muscle" (NULL) — means the seed migrations in db.js must never
+  // reclassify this exercise's muscle_group/sub_muscle/equipment again on a
+  // future boot. Without this, a deliberate edit looked identical to "never
+  // set" and got silently reverted every restart.
+  const CLASSIFICATION_FIELDS = new Set(['muscle_group', 'sub_muscle', 'equipment']);
+  let touchesClassification = false;
   const updates = [], values = [];
   for (const f of fields) {
     if (f in (req.body || {})) {
@@ -119,8 +126,12 @@ router.patch('/:id', (req, res) => {
           return res.status(400).json({ error: `muscle_group must be one of: ${MUSCLE_GROUPS.join(', ')}` });
         }
       }
+      if (CLASSIFICATION_FIELDS.has(f)) touchesClassification = true;
       updates.push(`${f} = ?`); values.push(v);
     }
+  }
+  if (touchesClassification) {
+    updates.push('classification_customized = ?'); values.push(1);
   }
   if ('weight_mode' in (req.body || {})) {
     const v = req.body.weight_mode === 'combined' ? 'combined' : 'per_arm';

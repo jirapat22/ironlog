@@ -19,7 +19,7 @@ function parseRepsSides(reps_r, reps_l) {
   return { ok: true, repsR: r, repsL: l };
 }
 
-function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
+function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId) {
   const newKg = toKg(weight, unit);
 
   const ex = db.prepare('SELECT is_bodyweight, is_assisted FROM exercises WHERE id = ?').get(exerciseId);
@@ -67,18 +67,21 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps) {
     .get(profileId, exerciseId, reps);
   if (!existing) {
     db.prepare(
-      `INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).run(profileId, exerciseId, weight, unit, reps);
+      `INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at, set_id)
+       VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`
+    ).run(profileId, exerciseId, weight, unit, reps, setId ?? null);
   } else {
     const existingKg = toKg(existing.weight, existing.weight_unit);
     if (sign * newKg > sign * existingKg) {
       db.prepare(
         `UPDATE personal_records
-         SET weight = ?, weight_unit = ?, achieved_at = datetime('now')
+         SET weight = ?, weight_unit = ?, achieved_at = datetime('now'), set_id = ?
          WHERE id = ?`
-      ).run(weight, unit, existing.id);
+      ).run(weight, unit, setId ?? null, existing.id);
     }
+    // A tie (sign*newKg == sign*existingKg) deliberately leaves set_id
+    // untouched — the ORIGINAL set stays the record holder, this one is
+    // just a repeat, not a new PR.
   }
 
   return beatPreviousBest;
@@ -158,7 +161,7 @@ router.post('/', (req, res) => {
     .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, sides.repsR, sides.repsL, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
-  const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps);
+  const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps, info.lastInsertRowid);
   const row = db.prepare('SELECT * FROM sets WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ ...row, is_new_pr: isNewPR });
 });
