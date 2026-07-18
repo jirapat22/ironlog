@@ -200,6 +200,22 @@ router.get('/muscle-coverage', (req, res) => {
            AND datetime(s.logged_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')`
       ).all(req.profileId, mod, mod);
 
+  // Non-strength activities (HYROX/cardio/etc.) tagged with muscle groups
+  // credit those groups too — same as /sub-muscle-frequency's recency fold
+  // below. Without this, tagging a leg-focused class as "legs" refreshed
+  // "last trained: legs" in one view but never ticked the weekly legs
+  // coverage goal in the other, even though both answer "did I train this."
+  const actRows = workoutId
+    ? db.prepare(
+        `SELECT id AS workout_id, muscle_tags FROM workouts
+         WHERE profile_id = ? AND id = ? AND kind = 'activity' AND muscle_tags IS NOT NULL`
+      ).all(req.profileId, workoutId)
+    : db.prepare(
+        `SELECT id AS workout_id, muscle_tags FROM workouts
+         WHERE profile_id = ? AND kind = 'activity' AND finished_at IS NOT NULL AND muscle_tags IS NOT NULL
+           AND datetime(finished_at, ?) >= datetime(datetime('now', ?), 'weekday 0', '-6 days', 'start of day')`
+      ).all(req.profileId, mod, mod);
+
   const sessionsByGroup = new Map(); // muscle_group -> Set(workout_id)
   const credit = (group, workoutId) => {
     if (!group) return;
@@ -224,6 +240,12 @@ router.get('/muscle-coverage', (req, res) => {
       const g = REGION_TO_GROUP[region];
       if (g && g !== row.muscle_group) credit(g, row.workout_id);
     }
+  }
+  for (const a of actRows) {
+    let groups;
+    try { groups = JSON.parse(a.muscle_tags); } catch { groups = []; }
+    if (!Array.isArray(groups)) continue;
+    for (const g of groups) credit(g, a.workout_id);
   }
   res.json([...sessionsByGroup.entries()].map(([muscle_group, set]) => ({ muscle_group, sessions: set.size })));
 });

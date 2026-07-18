@@ -42,6 +42,12 @@ function releaseWakeLock() {
 // ---------- Draft persistence ----------
 let workoutState = null;
 let stickyTimerHandle = null;
+// Set for the duration of finishWorkout()/cancelWorkout(). Guards two things:
+// re-entrancy on those buttons themselves (a fast double-tap shouldn't fire
+// finish/delete twice), and set-logging actions that could otherwise resolve
+// AFTER workoutState has been nulled out mid-flight (tap a set's checkmark
+// right as Finish is tapped) and throw trying to touch it.
+let workoutEnding = false;
 
 function draftKey(workoutId) { return `ironlog.draft.${workoutId}`; }
 
@@ -251,6 +257,7 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
 
 // ---------- Workout rendering ----------
 async function renderWorkout(retriedAfterMissing = false) {
+  workoutEnding = false;
   const root = $('#view-workout');
   let activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
 
@@ -954,6 +961,45 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   `;
 }
 
+// Rebuilds a logged row's hints (e1RM/per-arm/PR badges) and form-flag
+// button from scratch, matching exactly what setRowHTML would render for
+// the same state. Needed because toggling warmup on an already-logged row
+// flips is_warmup without a full re-render, and setRowHTML gates both the
+// e1RM badge and the form-flag button on !isWarmup.
+function reconcileSetRowBadges(row, logged) {
+  const exId = Number(row.dataset.ex);
+  const ex = workoutState?.programDay?.exercises?.find((x) => x.exercise_id === exId);
+  const isBw = !!ex?.is_bodyweight;
+  const isAssisted = !!ex?.is_assisted;
+  const isWarmup = !!logged.is_warmup;
+
+  let e1rmBadge = '';
+  if (!isWarmup && logged.reps > 0) {
+    const load = loadKg({ weight: logged.weight, weight_unit: logged.weight_unit }, ex);
+    if (load > 0) e1rmBadge = `<span class="set-row__hint">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
+  }
+  const perArmBadge = (logged.reps_r != null && logged.reps_l != null && logged.reps_r !== logged.reps_l)
+    ? `<span class="set-row__hint">${fmtReps(logged.reps, logged.reps_r, logged.reps_l)}</span>`
+    : '';
+  const prBadge = logged.is_new_pr
+    ? `<button class="set-row__pr" data-badge-title="New PR" data-badge-msg="New personal record: ${escapeHtml(fmtSetWeight(logged.weight, logged.weight_unit, isBw, isAssisted))} × ${logged.reps} reps.">&#x1F3C6;</button>`
+    : '';
+  const hints = row.querySelector('.set-row__hints');
+  if (hints) hints.innerHTML = e1rmBadge + perArmBadge + prBadge;
+
+  const existingFormBtn = row.querySelector('[data-toggle-form]');
+  if (!isWarmup && !existingFormBtn) {
+    const formBtn = document.createElement('button');
+    formBtn.className = `set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}`;
+    formBtn.dataset.toggleForm = '1';
+    formBtn.title = "Form broke down on this set — won't count toward progressing next time";
+    formBtn.textContent = '⚠️';
+    row.querySelector('[data-rest]')?.insertAdjacentElement('beforebegin', formBtn);
+  } else if (isWarmup && existingFormBtn) {
+    existingFormBtn.remove();
+  }
+}
+
 function wireWorkoutView() {
   const root = $('#view-workout');
   root.onclick = async (e) => {
@@ -963,6 +1009,9 @@ function wireWorkoutView() {
     if (e.target.closest('[data-finish-workout]')) return finishWorkout();
     if (e.target.closest('[data-cancel-workout]')) return cancelWorkout();
     if (e.target.closest('[data-rest-cancel]')) return cancelRestCountdown();
+
+    const undoBtn = e.target.closest('[data-undo-set]');
+    if (undoBtn) { haptic(20); return undoLastSet(Number(undoBtn.dataset.undoSet)); }
 
     // Card-level controls — must be checked before the set-row guard below
     const howtoBtn = e.target.closest('[data-howto-ex]');
@@ -1057,7 +1106,15 @@ function wireWorkoutView() {
       row.classList.toggle('warmup', nowWarmup);
       warmupBtn.textContent = nowWarmup ? 'W' : row.dataset.set;
       haptic(10);
-      if (row.dataset.setId) API.updateSet(Number(row.dataset.setId), { is_warmup: nowWarmup ? 1 : 0 }).catch(() => {});
+      if (row.dataset.setId) {
+        const setId = Number(row.dataset.setId);
+        API.updateSet(setId, { is_warmup: nowWarmup ? 1 : 0 }).catch(() => {});
+        const logged = workoutState.loggedSets.find((s) => s.id === setId);
+        if (logged) {
+          logged.is_warmup = nowWarmup ? 1 : 0;
+          reconcileSetRowBadges(row, logged);
+        }
+      }
       return;
     }
 
@@ -1134,15 +1191,6 @@ function wireWorkoutView() {
     if (delBtn) return deleteLoggedSet(row);
   };
 
-  // Undo last set — outside set-row guard, so handle separately
-  root.addEventListener('click', async (e) => {
-    const undoBtn = e.target.closest('[data-undo-set]');
-    if (!undoBtn) return;
-    haptic(20);
-    await undoLastSet(Number(undoBtn.dataset.undoSet));
-  }, { capture: false });
-
-
   root.oninput = (e) => {
     const input = e.target.closest('.num-input__field');
     if (!input) return;
@@ -1194,7 +1242,16 @@ function wireWorkoutView() {
   };
   root.ontouchend = () => { touchStartX = null; currentRow = null; };
 
-  attachHoldRepeat(root);
+  // wireWorkoutView() re-runs on every render (add/remove set, swap, equip
+  // change, etc.) against the SAME persistent #view-workout node — only its
+  // innerHTML is replaced. attachHoldRepeat uses addEventListener, which
+  // isn't idempotent like the .onclick/.oninput assignments above, so it
+  // must only ever be wired once or stepper holds fire once per accumulated
+  // listener.
+  if (!root.dataset.holdWired) {
+    root.dataset.holdWired = '1';
+    attachHoldRepeat(root);
+  }
 }
 
 function fireStep(btn, rowCtx) {
@@ -1247,6 +1304,7 @@ function attachHoldRepeat(container) {
 }
 
 async function confirmSet(row) {
+  if (workoutEnding || !workoutState) return;
   const checkBtn = row.querySelector('[data-confirm]');
   if (checkBtn?.disabled) return;
   primeAudio();
@@ -1302,6 +1360,10 @@ async function confirmSet(row) {
         notes: note,
         is_warmup: isWarmup ? 1 : 0
       });
+      // The set was persisted server-side regardless — this only guards
+      // against touching workoutState after Finish/Cancel already nulled it
+      // out while this request was in flight.
+      if (!workoutState) return;
       row.dataset.setId = res.id;
       row.dataset.justConfirmed = '1';
       row.classList.add('done');
@@ -1356,6 +1418,16 @@ async function confirmSet(row) {
         perArmBadge.className = 'set-row__hint';
         perArmBadge.textContent = fmtReps(reps, repsR, repsL);
         hints?.appendChild(perArmBadge);
+      }
+      // Same gap again: setRowHTML always renders the swipe-to-delete
+      // overlay for a logged row, but this patch path skipped it — swiping
+      // a just-confirmed set did nothing until a later full re-render.
+      if (!row.querySelector('[data-delete]')) {
+        const deleteOverlay = document.createElement('div');
+        deleteOverlay.className = 'set-row__delete';
+        deleteOverlay.dataset.delete = '';
+        deleteOverlay.textContent = 'Delete';
+        row.appendChild(deleteOverlay);
       }
     }
   } catch (err) {
@@ -1415,24 +1487,37 @@ async function persistRirChange(row) {
   try { await API.updateSet(setId, { rir }); } catch (err) { toast(err.message); }
 }
 
+// Guards undoLastSet/deleteLoggedSet against a fast double-tap sending two
+// DELETE requests for the same set — the second would 404 (already gone)
+// and surface a confusing error toast despite the delete having succeeded.
+const setsBeingDeleted = new Set();
+
 async function undoLastSet(exId) {
+  if (workoutEnding || !workoutState) return;
   const exSets = workoutState.loggedSets.filter((s) => s.exercise_id === exId);
   if (!exSets.length) return;
   const lastSet = exSets.reduce((a, b) => a.set_number > b.set_number ? a : b);
+  if (setsBeingDeleted.has(lastSet.id)) return;
+  setsBeingDeleted.add(lastSet.id);
   try {
     await API.deleteSet(lastSet.id);
+    if (!workoutState) return;
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== lastSet.id);
     haptic(20);
     toast('Set undone');
     renderWorkoutView();
   } catch (err) { toast(err.message); }
+  finally { setsBeingDeleted.delete(lastSet.id); }
 }
 
 async function deleteLoggedSet(row) {
+  if (!workoutState) return;
   const id = Number(row.dataset.setId);
-  if (!id) return;
+  if (!id || setsBeingDeleted.has(id)) return;
+  setsBeingDeleted.add(id);
   try {
     await API.deleteSet(id);
+    if (!workoutState) return;
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== id);
     row.classList.remove('done', 'swiped');
     row.removeAttribute('data-set-id');
@@ -1443,6 +1528,7 @@ async function deleteLoggedSet(row) {
     toast('Set deleted');
     renderSessionCoverage();
   } catch (err) { toast(err.message); }
+  finally { setsBeingDeleted.delete(id); }
 }
 
 function toggleRestTimer() {
@@ -1767,6 +1853,7 @@ async function openSwapPicker(currentExerciseId) {
       const m = await API.lastByExercise([newExId]);
       workoutState.lastByExercise = { ...(workoutState.lastByExercise || {}), ...m };
     } catch { /* optional — render without prefill */ }
+    if (!workoutState) return; // workout was finished/cancelled while this was in flight
     renderWorkoutView();
   };
 }
@@ -1879,6 +1966,7 @@ async function openWorkoutAddExercisePicker() {
       const m = await API.lastByExercise([exId]);
       workoutState.lastByExercise = { ...(workoutState.lastByExercise || {}), ...m };
     } catch { /* optional — render without prefill */ }
+    if (!workoutState) return; // workout was finished/cancelled while this was in flight
     renderWorkoutView();
   };
 }
@@ -1895,8 +1983,10 @@ function startStickyTimer() {
 }
 
 async function cancelWorkout() {
+  if (workoutEnding) return;
   const ok = await confirmSheet({ title: 'Cancel workout', message: 'Cancel this workout? All logged sets will be deleted.', confirmText: 'Cancel workout', cancelText: 'Keep going', danger: true });
   if (!ok) return;
+  workoutEnding = true;
   const id = workoutState?.workout?.id;
   if (id) {
     clearDraft(id);
@@ -1912,13 +2002,15 @@ async function cancelWorkout() {
 }
 
 async function finishWorkout() {
+  if (workoutEnding) return;
   const id = workoutState?.workout?.id;
   if (!id) return;
   if ((workoutState.loggedSets || []).length === 0) {
     // Nothing logged — discard instead of saving an empty workout that would
     // just clutter History.
+    workoutEnding = true;
     const ok = await confirmSheet({ title: 'Nothing logged', message: 'No sets were logged. Discard this workout?', confirmText: 'Discard', danger: true });
-    if (!ok) return;
+    if (!ok) { workoutEnding = false; return; }
     clearDraft(id);
     try { await API.deleteWorkout(id); } catch { /* sets cascade with the workout */ }
     localStorage.removeItem(LS.activeWorkoutId);
@@ -1931,6 +2023,7 @@ async function finishWorkout() {
     document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
     return;
   }
+  workoutEnding = true;
   try {
     const finishedWorkout = await API.finishWorkout(id);
     if (stickyTimerHandle) clearInterval(stickyTimerHandle);
@@ -2028,6 +2121,7 @@ async function finishWorkout() {
     workoutState = null;
     refreshBadgeFromCalendar();
   } catch (err) {
+    workoutEnding = false;
     toast(err.message);
   }
 }

@@ -50,7 +50,7 @@ router.post('/test', async (req, res) => {
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status === 'rejected' && r.reason?.statusCode === 410) {
-      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(rows[i].endpoint);
+      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND profile_id = ?').run(rows[i].endpoint, rows[i].profile_id);
     }
   }
   const sent = results.filter((r) => r.status === 'fulfilled').length;
@@ -93,7 +93,7 @@ router.post('/rest-timer', (req, res) => {
           )
           .catch((err) => {
             if (err?.statusCode === 410) {
-              db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(row.endpoint);
+              db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND profile_id = ?').run(row.endpoint, row.profile_id);
             }
           })
       )

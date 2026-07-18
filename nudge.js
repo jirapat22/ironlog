@@ -1,6 +1,7 @@
 const { db } = require('./db');
 const push = require('./push');
 const settingsRouter = require('./routes/settings');
+const { sweepExpiredSessions } = require('./accounts');
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const MIN_NUDGE_GAP_HOURS = 20; // don't send more than ~once per day
@@ -100,7 +101,7 @@ async function nudgeProfile(profileId) {
   // Clean up gone subs
   for (let i = 0; i < results.length; i++) {
     if (results[i].status === 'rejected' && results[i].reason?.statusCode === 410) {
-      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(subs[i].endpoint);
+      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND profile_id = ?').run(subs[i].endpoint, subs[i].profile_id);
     }
   }
   setProfileSetting(profileId, 'nudge_last_sent_at', new Date().toISOString().slice(0, 19).replace('T', ' '));
@@ -190,7 +191,7 @@ async function weeklySummaryProfile(profileId) {
   );
   for (let i = 0; i < results.length; i++) {
     if (results[i].status === 'rejected' && results[i].reason?.statusCode === 410) {
-      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(subs[i].endpoint);
+      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND profile_id = ?').run(subs[i].endpoint, subs[i].profile_id);
     }
   }
   setProfileSetting(profileId, 'weekly_summary_last_sent', todayKey);
@@ -201,6 +202,7 @@ async function weeklySummaryProfile(profileId) {
 function tick() {
   runNudgeCheck();
   runWeeklySummary();
+  sweepExpiredSessions();
 }
 
 function start() {

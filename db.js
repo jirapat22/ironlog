@@ -236,60 +236,24 @@ function init() {
   );
 
   // Non-destructive migration: add the column to older DBs that were created
-  // before it existed. SQLite throws if the column is already there, so we
-  // swallow the specific duplicate-column error.
-  try {
-    db.exec('ALTER TABLE exercises ADD COLUMN is_bodyweight INTEGER NOT NULL DEFAULT 0');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE workouts ADD COLUMN feel_rating INTEGER');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE workouts ADD COLUMN calories_burned INTEGER');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE exercises ADD COLUMN is_assisted INTEGER NOT NULL DEFAULT 0');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE sets ADD COLUMN is_warmup INTEGER NOT NULL DEFAULT 0');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE workouts ADD COLUMN bw_kg REAL');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE program_day_exercises ADD COLUMN rest_seconds INTEGER');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec("ALTER TABLE exercises ADD COLUMN equipment TEXT NOT NULL DEFAULT 'barbell'");
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
-  }
-
-  try {
-    db.exec('ALTER TABLE sets ADD COLUMN rir INTEGER');
-  } catch (err) {
-    if (!/duplicate column/i.test(err.message)) throw err;
+  // before it existed. Uses the same columnExists() check migrateMultiUser()
+  // relies on below, rather than string-matching the driver's error message
+  // (node:sqlite is a newer/evolving API — if a future version's wording
+  // ever changes, `!/duplicate column/i.test(...)` would go true for an
+  // already-applied migration and throw on every boot).
+  for (const [table, def] of [
+    ['exercises', 'is_bodyweight INTEGER NOT NULL DEFAULT 0'],
+    ['workouts', 'feel_rating INTEGER'],
+    ['workouts', 'calories_burned INTEGER'],
+    ['exercises', 'is_assisted INTEGER NOT NULL DEFAULT 0'],
+    ['sets', 'is_warmup INTEGER NOT NULL DEFAULT 0'],
+    ['workouts', 'bw_kg REAL'],
+    ['program_day_exercises', 'rest_seconds INTEGER'],
+    ['exercises', "equipment TEXT NOT NULL DEFAULT 'barbell'"],
+    ['sets', 'rir INTEGER']
+  ]) {
+    const column = def.split(' ')[0];
+    if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);
   }
 
   migrateMultiUser();

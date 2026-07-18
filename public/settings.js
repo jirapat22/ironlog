@@ -1,10 +1,7 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, ACCENTS, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
-
-// Keep in sync with the lock-screen palette in app.js.
-const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
 
 async function openSettingsSheet() {
   const sheet = ensureSheet('settings-sheet');
@@ -620,9 +617,14 @@ async function renderExerciseLibraryList(sheet) {
       if (!ok) return;
       try {
         await API.deleteExercise(exId);
-        row.remove();
         haptic(20);
         toast(`Deleted ${name}`);
+        // Full refresh (not row.remove()) — this list is re-rendered from the
+        // `stats` array closed over above on every sort/subgroup toggle, so a
+        // DOM-only removal left the just-deleted exercise reappearing on the
+        // next such toggle within the same sheet session, even though it was
+        // already gone server-side.
+        openExerciseLibrary();
       } catch (err) { toast(err.message); }
     }
   };

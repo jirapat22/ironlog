@@ -1,5 +1,5 @@
 // IronLog — main entry point. Imports all tab modules and handles boot/routing.
-import { $, $$, LS, haptic, isIOS, isStandalone } from './utils.js';
+import { $, $$, LS, haptic, isIOS, isStandalone, ACCENTS } from './utils.js';
 import { API } from './api.js';
 import { refreshBadgeFromCalendar } from './audio.js';
 import { renderWorkout, flushWorkoutNotes } from './workout.js';
@@ -54,8 +54,6 @@ let currentProfile = null;
 let lockBuffer = '';
 let pendingCode = '';   // passcode captured for the create-a-profile flow
 let lockBusy = false;
-
-const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
 
 function renderProfilePill() {
   const pill = $('#profile-pill');

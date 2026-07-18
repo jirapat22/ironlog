@@ -636,12 +636,21 @@ async function openHistoryAddExercisePicker(workoutId) {
   const picker = ensureSheet('history-add-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
   showSheet(picker);
-  let exercises;
-  try { exercises = await API.exerciseStats(); }
-  catch (err) {
+  let exercises, existingSets;
+  try {
+    [exercises, existingSets] = await Promise.all([API.exerciseStats(), API.workoutSets(workoutId)]);
+  } catch (err) {
     picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
   }
+  // Exercise -> next set number for it in THIS workout, so re-adding one
+  // already present continues its numbering instead of colliding on Set 1
+  // (there's no DB constraint stopping two sets from sharing a set_number).
+  const nextSetByExercise = new Map();
+  for (const s of existingSets) {
+    nextSetByExercise.set(s.exercise_id, Math.max(nextSetByExercise.get(s.exercise_id) || 0, s.set_number) + 1);
+  }
+  const inWorkout = new Set(existingSets.map((s) => s.exercise_id));
 
   function buildList() {
     const groups = {};
@@ -650,7 +659,7 @@ async function openHistoryAddExercisePicker(workoutId) {
     const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
     picker.querySelector('#histadd-sort').innerHTML = exerciseSortHTML(historyPickerSort);
     picker.querySelector('#histadd-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `<div class="picker-group" data-group="${g}"><div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-      ${groups[g].map((ex) => `<button class="picker-row" data-histadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}" data-ex-name="${escapeHtml(ex.name)}"><span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span><span class="picker-row__state">+</span></button>`).join('')}
+      ${groups[g].map((ex) => `<button class="picker-row ${inWorkout.has(ex.id) ? 'picker-row--added' : ''}" data-histadd="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}" data-ex-name="${escapeHtml(ex.name)}"><span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span><span class="picker-row__state">${inWorkout.has(ex.id) ? 'added' : '+'}</span></button>`).join('')}
     </div>`).join('');
     setupPickerFilter(picker);
   }
@@ -672,9 +681,10 @@ async function openHistoryAddExercisePicker(workoutId) {
     const pickBtn = e.target.closest('[data-histadd]');
     if (!pickBtn) return;
     const exId = Number(pickBtn.dataset.histadd);
+    if (inWorkout.has(exId)) { toast('Already in this workout — add a set to it instead'); return; }
     const exName = pickBtn.dataset.exName;
     hideSheet(picker);
-    openAddSetSheet(exId, workoutId, 1, exName);
+    openAddSetSheet(exId, workoutId, nextSetByExercise.get(exId) || 1, exName);
   };
 }
 

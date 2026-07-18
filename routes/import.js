@@ -39,11 +39,24 @@ router.post('/', (req, res) => {
     // --- 1. Insert any exercises from the backup that don't already exist
     // (matched by name, case-insensitive). The exercise catalog is shared
     // across profiles, so this just tops up missing entries.
+    // exercises.name is UNIQUE with SQLite's default case-SENSITIVE collation,
+    // but every other place in the app (search, add-exercise dedupe, the
+    // name -> id map built right below) treats exercise names case-
+    // insensitively. Pre-checking against a lowercased set (instead of
+    // relying on INSERT OR IGNORE's exact-case uniqueness) stops a backup
+    // whose casing merely drifted from the current catalog (e.g. re-importing
+    // an older backup after a rename) from silently creating a second,
+    // differently-cased row in the shared, cross-profile catalog.
+    const existingNamesLower = new Set(
+      db.prepare('SELECT name FROM exercises').all().map((r) => r.name.toLowerCase())
+    );
     const insExercise = db.prepare(
       `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment, weight_mode)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
     for (const e of exercises) {
+      const nameLower = String(e.name || '').trim().toLowerCase();
+      if (!nameLower || existingNamesLower.has(nameLower)) continue;
       const equipment = e.equipment || 'barbell';
       const r = insExercise.run(
         e.name,
@@ -60,7 +73,7 @@ router.post('/', (req, res) => {
           ? e.weight_mode
           : (equipment === 'dumbbell' ? 'per_arm' : 'combined')
       );
-      if (r.changes) importedExercises++;
+      if (r.changes) { importedExercises++; existingNamesLower.add(nameLower); }
     }
 
     // --- 2. Build the name → current-id map AFTER any inserts above

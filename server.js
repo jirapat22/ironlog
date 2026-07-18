@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const zlib = require('zlib');
+const compression = require('compression');
 const { init, db } = require('./db');
 const push = require('./push');
 
@@ -71,49 +71,16 @@ app.use((req, res, next) => {
   next();
 });
 
-// Hand-rolled gzip compression. The service worker re-fetches the entire app
-// shell over the network on every cold launch (network-first, see sw.js), so
-// compressing it is worth more here than in a typical app. No `compression`
-// package — this is small enough to own directly and skip the dependency.
-// Brotli was benchmarked and rejected: quality 11 (the ratio worth having)
-// costs ~180ms synchronously per request on the largest asset, which is too
-// slow without an added caching layer.
-const COMPRESSIBLE_TYPE = /^(text\/|application\/javascript|application\/json|application\/manifest\+json|image\/svg\+xml)/;
-app.use((req, res, next) => {
-  if (req.headers.range || !(req.headers['accept-encoding'] || '').includes('gzip')) return next();
-
-  const originalWrite = res.write.bind(res);
-  const originalEnd = res.end.bind(res);
-  const chunks = [];
-
-  res.write = (chunk, ...args) => {
-    if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, args[0] && typeof args[0] === 'string' ? args[0] : 'utf8'));
-    const cb = args[args.length - 1];
-    if (typeof cb === 'function') cb();
-    return true;
-  };
-
-  res.end = (chunk, ...args) => {
-    if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, args[0] && typeof args[0] === 'string' ? args[0] : 'utf8'));
-    const body = Buffer.concat(chunks);
-    const contentType = res.getHeader('Content-Type') || '';
-
-    if (res.getHeader('Content-Encoding') || !COMPRESSIBLE_TYPE.test(contentType) || body.length < 1024) {
-      res.write = originalWrite;
-      res.end = originalEnd;
-      return originalEnd(body);
-    }
-
-    const compressed = zlib.gzipSync(body);
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Length', compressed.length);
-    res.write = originalWrite;
-    res.end = originalEnd;
-    return originalEnd(compressed);
-  };
-
-  next();
-});
+// Gzip compression. The service worker re-fetches the entire app shell over
+// the network on every cold launch (network-first, see sw.js), so
+// compressing it is worth more here than in a typical app. Brotli was
+// benchmarked and rejected: quality 11 (the ratio worth having) costs ~180ms
+// synchronously per request on the largest asset, which is too slow without
+// an added caching layer — `compression`'s default filter/threshold and gzip
+// level match what the previous hand-rolled version did, minus its missing
+// `Vary: Accept-Encoding` header (a cache keyed only by URL could otherwise
+// serve a gzip'd body to a client that never asked for it).
+app.use(compression({ threshold: 1024 }));
 
 // Unauthenticated: uptime probe.
 app.get('/health', (req, res) => {

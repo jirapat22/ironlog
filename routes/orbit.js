@@ -11,10 +11,19 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const { db } = require('../db');
 
 const router = express.Router();
+
+// Constant-time string compare, matching accounts.js's passcode check —
+// plain === on a secret is a textbook timing side-channel.
+function safeEqual(a, b) {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+}
 
 // Fallback kcal/min for workouts with no stored calories (matches plated.js).
 const KCAL_PER_MIN = 4;
@@ -34,7 +43,7 @@ router.use((req, res, next) => {
     (req.headers.authorization || '').replace(/^Bearer\s+/i, '') ||
     ''
   ).trim();
-  if (provided && provided === expected) return next();
+  if (provided && safeEqual(provided, expected)) return next();
   return res.status(401).json({ success: false, error: 'invalid or missing API key' });
 });
 

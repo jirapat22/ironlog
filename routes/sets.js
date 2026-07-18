@@ -134,8 +134,9 @@ router.post('/', (req, res) => {
   if (nWeight < 0) return res.status(400).json({ error: 'weight cannot be negative' });
   if (!Number.isInteger(nReps) || nReps <= 0) return res.status(400).json({ error: 'reps must be a positive whole number' });
   if (!Number.isInteger(nSetNumber) || nSetNumber <= 0) return res.status(400).json({ error: 'set_number must be a positive whole number' });
-  if ((nRpe != null && !Number.isFinite(nRpe)) || (nRir != null && !Number.isFinite(nRir))) {
-    return res.status(400).json({ error: 'rpe and rir must be numbers when provided' });
+  if ((nRpe != null && (!Number.isFinite(nRpe) || nRpe < 0 || nRpe > 10)) ||
+      (nRir != null && (!Number.isFinite(nRir) || nRir < 0 || nRir > 10))) {
+    return res.status(400).json({ error: 'rpe and rir must be numbers between 0 and 10 when provided' });
   }
 
   // The set must attach to a workout owned by the current profile.
@@ -189,6 +190,9 @@ router.patch('/:id', (req, res) => {
       if (f === 'weight' && n < 0) return res.status(400).json({ error: 'weight cannot be negative' });
       if ((f === 'reps' || f === 'set_number') && (!Number.isInteger(n) || n <= 0)) {
         return res.status(400).json({ error: `${f} must be a positive whole number` });
+      }
+      if ((f === 'rpe' || f === 'rir') && (n < 0 || n > 10)) {
+        return res.status(400).json({ error: `${f} must be between 0 and 10` });
       }
     }
   }

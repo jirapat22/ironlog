@@ -57,6 +57,14 @@ function cleanSecondaryMajorList(input, secondaryList) {
   return [...new Set(input.map((r) => String(r).trim()))].filter((r) => allowed.has(r));
 }
 
+// Shared catalog-impact gate: any change that reshapes what every profile
+// sees off a shared/seed exercise (classification, merging it away, its
+// how-to text) requires this code, so one profile can't silently distort
+// muscle-coverage/PR history for everyone else who has ever logged it.
+function checkAdminCode(providedCode) {
+  return String(providedCode ?? '') === (process.env.ADMIN_CODE || '2210');
+}
+
 router.get('/', (req, res) => {
   const rows = db
     .prepare(`SELECT ${SELECT_COLS} FROM exercises ORDER BY muscle_group, name`)
@@ -131,6 +139,12 @@ router.patch('/:id', (req, res) => {
     }
   }
   if (touchesClassification) {
+    // Reclassifying a SHARED exercise changes what muscle-coverage/PRs every
+    // profile that's ever logged it sees — needs the same confirmation as
+    // editing its how-to text below. Your own custom exercise needs no gate.
+    if (existing.created_by_profile_id == null && !checkAdminCode(req.body.admin_code)) {
+      return res.status(403).json({ error: 'admin code required to reclassify a shared exercise' });
+    }
     updates.push('classification_customized = ?'); values.push(1);
   }
   if ('weight_mode' in (req.body || {})) {
@@ -156,8 +170,7 @@ router.patch('/:id', (req, res) => {
   // so casual edits shouldn't rewrite the how-to everyone sees. Code checked
   // server-side (ADMIN_CODE env, defaulting to the owner's chosen 2210).
   if ('instructions' in (req.body || {})) {
-    const code = String(req.body.admin_code ?? '');
-    if (code !== (process.env.ADMIN_CODE || '2210')) {
+    if (!checkAdminCode(req.body.admin_code)) {
       return res.status(403).json({ error: 'admin code required to edit how-to text' });
     }
     const v = req.body.instructions;
@@ -233,6 +246,13 @@ router.post('/:id/merge', (req, res) => {
     if (ex.created_by_profile_id != null && ex.created_by_profile_id !== req.profileId) {
       return res.status(403).json({ error: 'not your exercise' });
     }
+  }
+  // Merging deletes the loser's catalog row and reassigns EVERY profile's
+  // logged sets onto the survivor — if either side is shared/seed (not this
+  // profile's own custom), that's catalog-wide impact, so it needs the same
+  // confirmation as reclassifying/editing a shared exercise.
+  if ([loser, target].some((ex) => ex.created_by_profile_id == null) && !checkAdminCode(req.body && req.body.admin_code)) {
+    return res.status(403).json({ error: 'admin code required to merge a shared exercise' });
   }
 
   const result = mergeExercises(loserId, targetId);

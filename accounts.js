@@ -236,6 +236,15 @@ function deleteProfile(profileId) {
       if (t === 'sets') continue;
       db.prepare(`DELETE FROM ${t} WHERE profile_id = ?`).run(profileId);
     }
+    // exercises is a shared, global catalog keyed by created_by_profile_id,
+    // not one of PER_PROFILE_TABLES. Without this, a deleted profile's custom
+    // exercises keep pointing at an id nothing can ever match again, so every
+    // ownership check ("is this MY exercise?") fails for every remaining
+    // profile forever — the exercise becomes permanently un-editable and
+    // un-deletable by anyone. NULL demotes it to shared/seed-like instead,
+    // which is exactly what created_by_profile_id IS NULL already means
+    // elsewhere in the app.
+    db.prepare('UPDATE exercises SET created_by_profile_id = NULL WHERE created_by_profile_id = ?').run(profileId);
     db.prepare('DELETE FROM sessions WHERE profile_id = ?').run(profileId);
     db.prepare('DELETE FROM profiles WHERE id = ?').run(profileId);
   });
@@ -271,6 +280,15 @@ function deleteSession(token) {
   if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
 }
 
+// getProfileBySession only cleans up a session when that EXACT token is
+// looked up again after expiring — a device that's lost or a profile that
+// simply stops visiting leaves its row forever (harmlessly, since the
+// max-age filter above already excludes it from auth, but unbounded all the
+// same). Called from nudge.js's existing hourly tick.
+function sweepExpiredSessions() {
+  db.prepare(`DELETE FROM sessions WHERE created_at <= datetime('now', ?)`).run(`-${SESSION_MAX_AGE_DAYS} days`);
+}
+
 module.exports = {
   LEGACY_API_KEY,
   ORPHAN_PROFILE_ID,
@@ -292,5 +310,6 @@ module.exports = {
   deleteProfile,
   createSession,
   getProfileBySession,
-  deleteSession
+  deleteSession,
+  sweepExpiredSessions
 };

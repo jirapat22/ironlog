@@ -645,6 +645,11 @@ const SUB_MUSCLES = {
 // Group order + the exercise-form group list both derive from SUB_MUSCLES keys.
 const PICKER_GROUP_ORDER = Object.keys(SUB_MUSCLES);
 
+// Profile accent-color palette — shared by the lock-screen create-profile
+// form (app.js) and the settings accent picker (settings.js), which must
+// stay in sync with each other.
+const ACCENTS = ['#e8643c', '#3ca0e8', '#5ac46a', '#b06cf0', '#f0a92c', '#e8519b', '#2cc4c4', '#8a90a0'];
+
 // Default rep-range goal when an exercise has none set — the double
 // progression window (top every set at 8 → add weight, drop back to 6).
 // Used by the workout progression hint and the Manage Exercises goal chip.
@@ -905,7 +910,25 @@ async function openMergePicker(sourceEx, onMerged) {
       toast(`Merged into ${res.into}`);
       hideSheet(sheet);
       if (onMerged) onMerged();
-    } catch (err) { toast(err.message); }
+    } catch (err) {
+      // Merging a shared/seed exercise reshapes history for every profile
+      // that's logged it, so the server asks for the admin code — reactively
+      // prompt and retry rather than guessing up front whether either side
+      // is shared.
+      if (err.message === 'admin code required to merge a shared exercise') {
+        const code = await promptSheet({ title: 'Admin code', label: 'This merge involves a shared exercise — enter the admin code to continue', confirmText: 'Confirm' });
+        if (!code) return;
+        try {
+          const res = await API.mergeExercise(sourceEx.id, targetId, code.trim());
+          haptic(20);
+          toast(`Merged into ${res.into}`);
+          hideSheet(sheet);
+          if (onMerged) onMerged();
+        } catch (err2) { toast(err2.message); }
+        return;
+      }
+      toast(err.message);
+    }
   };
 }
 
@@ -1165,7 +1188,24 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       haptic(10);
       toast('Saved');
       if (onSaved) onSaved(updated);
-    } catch (err) { toast(err.message); }
+    } catch (err) {
+      // Reclassifying a shared/seed exercise (muscle group/sub-muscle/
+      // equipment) affects every profile's history — the server asks for
+      // the admin code. Prompt reactively and retry rather than guessing up
+      // front whether this exercise is shared.
+      if (err.message === 'admin code required to reclassify a shared exercise') {
+        const code = await promptSheet({ title: 'Admin code', label: 'This exercise is shared — enter the admin code to change its classification', confirmText: 'Confirm' });
+        if (!code) return;
+        try {
+          const updated = await API.updateExercise(ex.id, { ...payload, admin_code: code.trim() });
+          haptic(10);
+          toast('Saved');
+          if (onSaved) onSaved(updated);
+        } catch (err2) { toast(err2.message); }
+        return;
+      }
+      toast(err.message);
+    }
   };
 
   const deleteBtn = containerEl.querySelector('#edit-ex-delete');
@@ -1347,7 +1387,7 @@ export {
   e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail,
   enableDragReorder,
-  PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
+  PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,

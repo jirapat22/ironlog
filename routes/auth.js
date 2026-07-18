@@ -22,6 +22,13 @@ const RATE_MAX = 10;
 
 function checkRateLimit(ip) {
   const now = Date.now();
+  // This endpoint is internet-reachable with no IP allowlist, so it gets
+  // scanned/probed over the app's lifetime — sweep expired entries
+  // opportunistically (not every call — this is a hot-ish path) so the map
+  // doesn't grow unbounded between restarts.
+  if (Math.random() < 0.02) {
+    for (const [k, v] of loginAttempts) if (now > v.resetAt) loginAttempts.delete(k);
+  }
   let entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
