@@ -68,8 +68,7 @@ body {
 .history-card__title,
 .pr-group__name,
 .tdee-main__val,
-.cal-stat__val,
-.bw-current__weight {
+.cal-stat__val {
   font-family: var(--font-display);
   letter-spacing: 0.01em;
 }
@@ -216,7 +215,7 @@ button {
 
 .nav__btn.active {
   color: var(--accent);
-  background: rgba(232, 255, 71, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .nav__icon {
@@ -260,16 +259,6 @@ button {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-}
-
-.badge--accent {
-  background: rgba(232, 255, 71, 0.12);
-  color: var(--accent);
-}
-
-.badge--muscle {
-  background: var(--surface-2);
-  color: var(--text);
 }
 
 .badge--equipment {
@@ -322,7 +311,7 @@ button {
 }
 .equip-option--active {
   border-color: var(--accent);
-  background: rgba(232,255,71,0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .equip-option__label {
   font-size: 15px;
@@ -1063,16 +1052,6 @@ button {
   font-weight: 600;
 }
 
-.overload-banner {
-  background: rgba(232, 255, 71, 0.1);
-  border: 1px solid rgba(232, 255, 71, 0.3);
-  color: var(--accent);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  margin-bottom: 10px;
-}
-
 .set-row {
   display: grid;
   grid-template-columns: 28px 1fr 52px 1fr 44px;
@@ -1154,7 +1133,7 @@ button {
   width: 3px;
   border-radius: 3px;
   background: var(--accent);
-  box-shadow: 0 0 6px rgba(232, 255, 71, 0.6);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .set-row--next .set-row__num {
@@ -1357,25 +1336,6 @@ button {
   display: flex;
 }
 
-.set-row__tools {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.set-row__tools button {
-  color: var(--text-dim);
-  font-size: 13px;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-
-.set-row__tools button:hover {
-  background: var(--surface-2);
-}
-
 .set-row__note {
   width: 100%;
   min-height: 36px;
@@ -1427,7 +1387,7 @@ button {
 
 .rest-timer.running {
   color: var(--accent);
-  border-color: rgba(232, 255, 71, 0.3);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .set-row__delete {
@@ -1462,8 +1422,8 @@ button {
   gap: 10px;
   padding: 10px 14px;
   margin: 0 -4px 14px;
-  background: rgba(232, 255, 71, 0.22);
-  border: 1px solid rgba(232, 255, 71, 0.55);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
   border-radius: var(--radius-sm);
   color: var(--accent);
   font-weight: 600;
@@ -1812,26 +1772,6 @@ button {
   color: var(--text);
 }
 
-.exercise-card__hint {
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: rgba(98, 216, 255, 0.08);
-  border: 1px solid rgba(98, 216, 255, 0.25);
-  color: #c7efff;
-  font-size: 13px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.exercise-card__hint-meta {
-  font-size: 11px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
 .prog-hint {
   margin-bottom: 10px;
   padding: 10px 12px;
@@ -1841,8 +1781,8 @@ button {
 }
 
 .prog-hint--up {
-  background: rgba(232, 255, 71, 0.08);
-  border: 1px solid rgba(232, 255, 71, 0.25);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   color: var(--accent);
 }
 
@@ -1894,8 +1834,8 @@ button {
 }
 
 .prog-hint__badge--up {
-  background: rgba(232, 255, 71, 0.15);
-  border: 1px solid rgba(232, 255, 71, 0.45);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent);
 }
 
@@ -2046,103 +1986,6 @@ button {
   border-style: solid;
   border-color: var(--accent-dim);
   color: var(--accent);
-}
-
-/* Strength standards */
-.std-row {
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-}
-
-.std-row:first-of-type {
-  border-top: none;
-}
-
-.std-row--empty {
-  opacity: 0.5;
-}
-
-.std-row__top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.std-row__name {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.std-row__ratio {
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.std-row__bar {
-  position: relative;
-  height: 8px;
-  margin: 8px 0 6px;
-  background: var(--surface-2);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.std-row__fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 999px;
-  transition: width 0.3s ease-out;
-}
-
-.std-row__tick {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 1px;
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.std-row__meta {
-  font-size: 11px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.std-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-
-.std-header__toggle {
-  display: inline-flex;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px;
-  gap: 2px;
-}
-
-.std-tab {
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  text-transform: uppercase;
-}
-
-.std-tab--active {
-  background: var(--accent);
-  color: #0c0c0c;
 }
 
 .unit-pick {
@@ -2296,20 +2139,6 @@ button {
   cursor: pointer;
 }
 
-.set-row__rpe-badge {
-  position: absolute;
-  top: 2px;
-  right: 56px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--accent);
-  background: rgba(232, 255, 71, 0.15);
-  padding: 1px 6px;
-  border-radius: 999px;
-  letter-spacing: 0.03em;
-  pointer-events: none;
-}
-
 .history-ex__set-rpe {
   color: var(--accent);
   font-weight: 600;
@@ -2335,84 +2164,6 @@ button {
   flex: 1;
   min-width: 80px;
   font-size: 12px;
-}
-
-/* Break projection */
-.break-row {
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-}
-
-.break-row:first-of-type {
-  border-top: none;
-  padding-top: 0;
-}
-
-.break-row--empty {
-  opacity: 0.5;
-}
-
-.break-row__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.break-row__name {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.break-row__meta {
-  display: flex;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.break-row__since {
-  color: var(--text-dim);
-  opacity: 0.8;
-}
-
-.break-cells {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-
-.break-cell {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 6px;
-  text-align: center;
-}
-
-.break-cell__label {
-  font-size: 10px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 700;
-}
-
-.break-cell__val {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 2px 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.break-cell__delta {
-  font-size: 10px;
-  color: #ff8a8a;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Settings sheet */
@@ -2757,7 +2508,7 @@ button {
 
 .tdee-goal--active {
   border-color: var(--accent);
-  background: rgba(232, 255, 71, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .tdee-goal:active {
@@ -2826,11 +2577,6 @@ button {
   color: #FFCA28;
 }
 
-.macro-row--fiber .macro-row__name,
-.macro-row--fiber .macro-row__g {
-  color: #66BB6A;
-}
-
 .macro-bar {
   display: flex;
   height: 6px;
@@ -2847,7 +2593,6 @@ button {
 .macro-bar__fill--protein { background: #1E88E5; }
 .macro-bar__fill--carbs   { background: #FFA726; }
 .macro-bar__fill--fat     { background: #FFCA28; }
-.macro-bar__fill--fiber   { background: #66BB6A; }
 
 /* Radio rows (used in Profile sheet) */
 .radio-group {
@@ -2879,7 +2624,7 @@ button {
 
 .radio-row--active {
   border-color: var(--accent);
-  background: rgba(232, 255, 71, 0.08);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* Stepper (settings) */
@@ -2946,7 +2691,7 @@ button {
 
 .feel-btn--active {
   border-color: var(--accent);
-  background: rgba(232, 255, 71, 0.1);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .feel-btn__emoji {
@@ -3205,41 +2950,6 @@ button {
 
 .order-hint strong {
   color: #f0a92c;
-}
-
-/* Readiness */
-.ready-row {
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-}
-
-.ready-row:first-of-type {
-  border-top: none;
-}
-
-.ready-row__top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.ready-row__name {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.ready-row__label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.ready-row__meta {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 3px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Summary */
@@ -3542,7 +3252,7 @@ button {
 }
 
 .cal-cell--med {
-  background: rgba(232, 255, 71, 0.45);
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .cal-cell--hi {
@@ -3566,18 +3276,6 @@ button {
   justify-content: flex-end;
   font-size: 10px;
   color: var(--text-dim);
-}
-
-/* Legacy class used elsewhere — keep for safety */
-.calendar__cell {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--surface-2);
-}
-
-.calendar__cell.active {
-  background: var(--accent);
 }
 
 /* History */
@@ -3681,8 +3379,8 @@ button {
 }
 
 .history-ex__trend--up {
-  background: rgba(232, 255, 71, 0.15);
-  border: 1px solid rgba(232, 255, 71, 0.45);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent);
 }
 
@@ -3695,14 +3393,6 @@ button {
 .history-ex__set-pr {
   cursor: pointer;
   padding: 0 2px;
-}
-
-/* Muscle group · sub-muscle tag after the exercise name in history */
-.history-ex__muscle {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--text-dim);
-  text-transform: capitalize;
 }
 
 .history-ex__remove {
@@ -3890,7 +3580,7 @@ button {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(232, 255, 71, 0.95);
+  background: color-mix(in srgb, var(--accent) 95%, transparent);
   color: #0c0c0c;
   display: flex;
   align-items: center;
@@ -3984,7 +3674,7 @@ button {
   letter-spacing: 0.03em;
 }
 .note-tag--idea {
-  background: rgba(232, 255, 71, 0.15);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
 }
 .note-tag--bug {
