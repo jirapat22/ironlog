@@ -96,7 +96,7 @@ async function renderPrograms() {
 
     const full = await Promise.all(programs.map((p) => API.program(p.id)));
     root.innerHTML = `<div id="mg-coverage"></div>` +
-      full.map((p) => programCardHTML(p)).join('') +
+      full.map((p, i) => programCardHTML(p, i, full.length)).join('') +
       `<button class="btn btn--ghost btn--block" data-new-program style="margin-top:12px">+ Create program</button>`;
     renderMuscleCoverage(); // fire-and-forget — the strip is decor, never blocks the list
     await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
@@ -230,7 +230,7 @@ async function renderPrograms() {
   }
 }
 
-function programCardHTML(p) {
+function programCardHTML(p, i, total) {
   return `
     <div class="program-card" data-program-id="${p.id}">
       <button class="program-card__header">
@@ -242,8 +242,8 @@ function programCardHTML(p) {
       </button>
       <div class="program-card__body">
         <div class="program-card__actions">
-          <button class="btn btn--ghost btn--sm" data-move-program="up" data-program-id="${p.id}" title="Move up">&#x2191;</button>
-          <button class="btn btn--ghost btn--sm" data-move-program="down" data-program-id="${p.id}" title="Move down">&#x2193;</button>
+          <button class="btn btn--ghost btn--sm" data-move-program="up" data-program-id="${p.id}" title="Move up" ${i === 0 ? 'disabled' : ''}>&#x2191;</button>
+          <button class="btn btn--ghost btn--sm" data-move-program="down" data-program-id="${p.id}" title="Move down" ${i === total - 1 ? 'disabled' : ''}>&#x2193;</button>
           <button class="btn btn--ghost btn--sm" data-dup-program="${p.id}">&#x29C9; Duplicate</button>
           <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Edit</button>
           <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
