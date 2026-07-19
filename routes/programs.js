@@ -45,13 +45,25 @@ router.post('/:id/days', (req, res) => {
   res.status(201).json(row);
 });
 
-// Rename a day
+// Rename a day and/or reposition it within its program (day_order — used to
+// move a day up/down in the list, the same way sort_order repositions programs).
 router.patch('/:id/days/:dayId', (req, res) => {
   const dayId = Number(req.params.dayId);
-  const { day_label } = req.body || {};
-  if (!day_label || !String(day_label).trim()) return res.status(400).json({ error: 'day_label is required' });
+  const { day_label, day_order } = req.body || {};
   if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'day not found' });
-  db.prepare('UPDATE program_days SET day_label = ? WHERE id = ?').run(String(day_label).trim(), dayId);
+  const updates = [], values = [];
+  if ('day_label' in (req.body || {})) {
+    if (!day_label || !String(day_label).trim()) return res.status(400).json({ error: 'day_label is required' });
+    updates.push('day_label = ?'); values.push(String(day_label).trim());
+  }
+  if ('day_order' in (req.body || {})) {
+    const n = Number(day_order);
+    if (!Number.isInteger(n)) return res.status(400).json({ error: 'day_order must be a whole number' });
+    updates.push('day_order = ?'); values.push(n);
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
+  values.push(dayId);
+  db.prepare(`UPDATE program_days SET ${updates.join(', ')} WHERE id = ?`).run(...values);
   res.json(db.prepare('SELECT * FROM program_days WHERE id = ?').get(dayId));
 });
 

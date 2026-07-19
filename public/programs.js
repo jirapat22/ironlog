@@ -122,6 +122,26 @@ async function renderPrograms() {
         return;
       }
 
+      const moveDayBtn = e.target.closest('[data-move-day]');
+      if (moveDayBtn) {
+        e.stopPropagation();
+        const programId = Number(moveDayBtn.dataset.programId);
+        const dayId = Number(moveDayBtn.dataset.dayId);
+        const dir = moveDayBtn.dataset.moveDay === 'up' ? -1 : 1;
+        const program = full.find((p) => p.id === programId);
+        if (!program) return;
+        const idx = program.days.findIndex((d) => d.id === dayId);
+        const swap = idx + dir;
+        if (idx < 0 || swap < 0 || swap >= program.days.length) return;
+        [program.days[idx], program.days[swap]] = [program.days[swap], program.days[idx]];
+        haptic(10);
+        try {
+          await Promise.all(program.days.map((d, i) => API.renameDay(programId, d.id, { day_order: i })));
+          renderPrograms();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
       const dupBtn = e.target.closest('[data-dup-program]');
       if (dupBtn) {
         e.stopPropagation();
@@ -248,14 +268,14 @@ function programCardHTML(p, i, total) {
           <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Edit</button>
           <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
         </div>
-        ${p.days.map((d) => dayCardHTML(d, p.id)).join('')}
+        ${p.days.map((d, i) => dayCardHTML(d, p.id, i, p.days.length)).join('')}
         <button class="btn btn--ghost btn--sm" data-add-day="${p.id}" style="margin-top:8px;width:100%">+ Add day</button>
       </div>
     </div>
   `;
 }
 
-function dayCardHTML(d, programId) {
+function dayCardHTML(d, programId, i, total) {
   const exList = d.exercises.length
     ? d.exercises.map((e) => `<span>${escapeHtml(e.name)} <span style="opacity:.6">${e.target_sets}×${e.target_reps}</span><span class="day-card__ex-last" data-ex-last="${e.exercise_id}"></span></span>`).join(' · ')
     : '<em style="opacity:.5">No exercises yet — tap Edit to add some</em>';
@@ -267,6 +287,8 @@ function dayCardHTML(d, programId) {
       </div>
       <div class="day-card__exercises">${exList}</div>
       <div class="day-card__actions">
+        <button class="btn--icon" data-move-day="up" data-day-id="${d.id}" data-program-id="${programId}" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button class="btn--icon" data-move-day="down" data-day-id="${d.id}" data-program-id="${programId}" title="Move down" ${i === total - 1 ? 'disabled' : ''}>↓</button>
         <button class="btn btn--ghost btn--sm" data-edit-day="${d.id}" data-program-id="${programId}">Edit</button>
         <button class="btn btn--primary btn--sm" data-start-day="${d.id}" style="flex:1">Start workout</button>
         <button class="btn btn--ghost btn--sm" data-delete-day="${d.id}" data-program-id="${programId}" style="color:var(--danger)" title="Delete day">&times;</button>
