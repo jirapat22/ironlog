@@ -82,6 +82,12 @@ async function renderMuscleCoverage() {
 
 async function renderPrograms() {
   const root = $('#view-programs');
+  // A card left expanded (e.g. mid "move day up/down") must stay expanded
+  // across this rebuild — otherwise every in-card action snaps every
+  // expanded program shut, which reads as the whole view reloading.
+  const expandedIds = new Set(
+    [...root.querySelectorAll('.program-card.expanded')].map((el) => el.dataset.programId)
+  );
   root.innerHTML = skeletonBlocks(2);
 
   try {
@@ -98,6 +104,9 @@ async function renderPrograms() {
     root.innerHTML = `<div id="mg-coverage"></div>` +
       full.map((p, i) => programCardHTML(p, i, full.length)).join('') +
       `<button class="btn btn--ghost btn--block" data-new-program style="margin-top:12px">+ Create program</button>`;
+    for (const el of root.querySelectorAll('.program-card')) {
+      if (expandedIds.has(el.dataset.programId)) el.classList.add('expanded');
+    }
     renderMuscleCoverage(); // fire-and-forget — the strip is decor, never blocks the list
     await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
 
