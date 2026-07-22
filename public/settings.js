@@ -140,6 +140,14 @@ async function openSettingsSheet() {
             <label class="btn btn--ghost btn--sm" style="cursor:pointer">Import<input type="file" accept=".json" id="import-file-input" style="display:none"/></label>
           </div>
           <div class="card__subtitle">Export includes all workouts, sets, body weight, PRs and programs. Import merges — duplicate records are skipped safely.</div>
+          <div class="settings-row">
+            <span>Training log (readable)</span>
+            <div style="display:flex;gap:8px">
+              <a class="btn btn--ghost btn--sm" href="/api/export/readable?format=text" download>Text</a>
+              <a class="btn btn--ghost btn--sm" href="/api/export/readable?format=html" target="_blank" rel="noopener">PDF</a>
+            </div>
+          </div>
+          <div class="card__subtitle">A plain-language training log — good for sharing with a coach. "PDF" opens a print-ready page; use your browser's print dialog to save it.</div>
         </div>
 
         ${me ? `
