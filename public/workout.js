@@ -600,7 +600,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const rir = draft?.rir ?? null;
 
     if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
-    rows.push(setRowHTML(ex, i, { w, u, r, rir, logged, isNext: !logged && firstUnloggedSet === i }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rir, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l }));
   }
 
   const trend = pastTrendFor(ex);
@@ -876,7 +876,7 @@ function recommendForNext(ex, lastSets) {
   };
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
+function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, prevRepsL }) {
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
   const showAsEmpty = (isBw || isAssisted) && (w === 0 || w === '' || w == null);
@@ -922,6 +922,11 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
   const isPerArm = ex.weight_mode === 'per_arm' && !isBw;
   const repsR = logged?.reps_r ?? '';
   const repsL = logged?.reps_l ?? '';
+  // Ghost the last session's per-side split into the placeholder (not the
+  // value) so it's visible as a reference without silently carrying last
+  // time's asymmetry into a set the user hasn't entered yet.
+  const repsRPlaceholder = !logged && prevRepsR != null && prevRepsL != null && prevRepsR !== prevRepsL ? String(prevRepsR) : '—';
+  const repsLPlaceholder = !logged && prevRepsR != null && prevRepsL != null && prevRepsR !== prevRepsL ? String(prevRepsL) : '—';
   return `
     <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
@@ -952,8 +957,8 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext }) {
         ${isPerArm ? `
         <div class="set-row__perarm">
           <span class="set-row__perarm-label">Reps differ per side?</span>
-          <label>R <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-r value="${repsR}" placeholder="&mdash;"/></label>
-          <label>L <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-l value="${repsL}" placeholder="&mdash;"/></label>
+          <label>R <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-r value="${repsR}" placeholder="${repsRPlaceholder}"/></label>
+          <label>L <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-l value="${repsL}" placeholder="${repsLPlaceholder}"/></label>
         </div>` : ''}
       </div>
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
