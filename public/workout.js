@@ -142,15 +142,45 @@ function markRowTouched(row) {
   row.removeAttribute('data-pristine');
   const exId = Number(row.dataset.ex);
   const setNum = Number(row.dataset.set);
+  const key = `${exId}-${setNum}`;
   const wIn = row.querySelector('[data-field="weight"] .num-input__field');
   const rIn = row.querySelector('[data-field="reps"] .num-input__field');
   const uBtn = row.querySelector('[data-unit]');
   const rirAttr = row.dataset.rir;
-  workoutState.draft.inputs[`${exId}-${setNum}`] = {
+  const existing = workoutState.draft.inputs[key] || {};
+  workoutState.draft.inputs[key] = {
+    ...existing,
     w: wIn ? wIn.value : '',
     u: uBtn ? uBtn.textContent.trim() : 'kg',
     r: rIn ? rIn.value : '',
     rir: rirAttr === '' || rirAttr == null ? null : Number(rirAttr)
+  };
+  saveDraft(workoutState.workout.id, workoutState.draft);
+}
+
+// Sibling to markRowTouched for the extras-panel fields (note, per-side
+// reps) — kept separate since they live outside .num-input__field and are
+// wired from a different oninput branch. Merges into the same draft.inputs
+// entry (not a straight overwrite) so typing a note doesn't clobber a
+// weight/reps draft already saved for this row, or vice versa. Without this,
+// note/per-side text had no fallback source at all (unlike w/u/r/rir, which
+// can rebuild from prevSet/lastLogged) — any full re-render before the set
+// was confirmed silently discarded whatever was typed.
+function markRowExtrasTouched(row) {
+  if (!row || row.dataset.setId) return;
+  if (!workoutState) return;
+  const exId = Number(row.dataset.ex);
+  const setNum = Number(row.dataset.set);
+  const key = `${exId}-${setNum}`;
+  const noteIn = row.querySelector('[data-note]');
+  const rIn = row.querySelector('[data-reps-r]');
+  const lIn = row.querySelector('[data-reps-l]');
+  const existing = workoutState.draft.inputs[key] || {};
+  workoutState.draft.inputs[key] = {
+    ...existing,
+    note: noteIn ? noteIn.value : (existing.note ?? ''),
+    repsR: rIn ? rIn.value : (existing.repsR ?? ''),
+    repsL: lIn ? lIn.value : (existing.repsL ?? '')
   };
   saveDraft(workoutState.workout.id, workoutState.draft);
 }
@@ -471,6 +501,14 @@ function renderWorkoutView() {
   const root = $('#view-workout');
   const { programDay, last, workout, loggedSets } = workoutState;
 
+  // This full rebuild runs on plenty of actions unrelated to whatever row the
+  // user has open (adding a set on another exercise, skipping a different
+  // one, ...) — without restoring it, the extras panel silently snaps shut
+  // mid-edit even though the note/per-side text itself now survives via draft.
+  const openExtrasKeys = new Set(
+    [...root.querySelectorAll('.set-row.extras-open')].map((el) => `${el.dataset.ex}-${el.dataset.set}`)
+  );
+
   const lastSetsByExercise = {};
   if (last?.sets) {
     for (const s of last.sets) {
@@ -515,6 +553,12 @@ function renderWorkoutView() {
   `;
 
   wireWorkoutView();
+
+  if (openExtrasKeys.size) {
+    for (const row of root.querySelectorAll('.set-row')) {
+      if (openExtrasKeys.has(`${row.dataset.ex}-${row.dataset.set}`)) row.classList.add('extras-open');
+    }
+  }
 
   const exList = document.getElementById('exercise-list');
   if (exList) {
@@ -598,9 +642,16 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const u = logged?.weight_unit ?? draft?.u ?? lastLogged?.weight_unit ?? rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit;
     const r = logged?.reps ?? draft?.r ?? lastLogged?.reps ?? prevSet?.reps ?? prefillReps;
     const rir = draft?.rir ?? null;
+    // Unlogged note/per-side text has nowhere else to live — unlike w/u/r/rir
+    // it has no fallback source (prevSet etc), so without this it silently
+    // evaporates the moment any full re-render happens (adding a set on
+    // another exercise, skipping a different one, ...) before the row is confirmed.
+    const draftNote = draft?.note ?? '';
+    const draftRepsR = draft?.repsR ?? '';
+    const draftRepsL = draft?.repsL ?? '';
 
     if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
-    rows.push(setRowHTML(ex, i, { w, u, r, rir, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rir, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l, draftNote, draftRepsR, draftRepsL }));
   }
 
   const trend = pastTrendFor(ex);
@@ -876,14 +927,14 @@ function recommendForNext(ex, lastSets) {
   };
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, prevRepsL }) {
+function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, prevRepsL, draftNote, draftRepsR, draftRepsL }) {
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
   const showAsEmpty = (isBw || isAssisted) && (w === 0 || w === '' || w == null);
   const wStr = showAsEmpty ? '' : (w === '' ? '' : Number(w));
   const wPlaceholder = isAssisted ? '0 = unassisted' : isBw ? 'BW' : '0';
   const effRir = logged?.rir ?? rir ?? '';
-  const note = logged?.notes ?? '';
+  const note = logged?.notes ?? draftNote ?? '';
   // RIR scale 0–4: 0 = to failure, 1 = 1 left, …, 4 = 4+ left
   const rirButtons = [0, 1, 2, 3, 4]
     .map((n) => `<button class="rpe-btn ${Number(effRir) === n && effRir !== '' ? 'rpe-btn--active' : ''}" data-rir="${n}">${n}</button>`)
@@ -920,8 +971,8 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, pr
   // stays the single "official" number (the weaker side); this is opt-in
   // detail entered/edited via the extras panel, same place as the note.
   const isPerArm = ex.weight_mode === 'per_arm' && !isBw;
-  const repsR = logged?.reps_r ?? '';
-  const repsL = logged?.reps_l ?? '';
+  const repsR = logged?.reps_r ?? draftRepsR ?? '';
+  const repsL = logged?.reps_l ?? draftRepsL ?? '';
   // Ghost the last session's per-side split into the placeholder (not the
   // value) so it's visible as a reference without silently carrying last
   // time's asymmetry into a set the user hasn't entered yet.
@@ -1198,11 +1249,15 @@ function wireWorkoutView() {
 
   root.oninput = (e) => {
     const input = e.target.closest('.num-input__field');
-    if (!input) return;
-    const row = input.closest('.set-row');
-    delete row.dataset.justConfirmed;
-    markRowTouched(row);
-    updateRowEquiv(row);
+    if (input) {
+      const row = input.closest('.set-row');
+      delete row.dataset.justConfirmed;
+      markRowTouched(row);
+      updateRowEquiv(row);
+      return;
+    }
+    const extrasInput = e.target.closest('[data-note], [data-reps-r], [data-reps-l]');
+    if (extrasInput) markRowExtrasTouched(extrasInput.closest('.set-row'));
   };
 
   root.onfocusin = (e) => {
