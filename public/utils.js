@@ -288,13 +288,13 @@ function weightEquiv(weight, unit) {
   return unit === 'lbs' ? `≈ ${+(w * 0.45359237).toFixed(1)} kg` : `≈ ${+(w / 0.45359237).toFixed(1)} lb`;
 }
 
-// "9" normally, or "9 (R9/L7)" when a per-arm set recorded a right/left
+// "9" normally, or "9 (L7/R9)" when a per-arm set recorded a left/right
 // breakdown that actually differs — the plain reps count is always the
 // weaker side already, this just adds the detail when there's one worth
 // showing (repsR === repsL isn't worth cluttering the row with).
 function fmtReps(reps, repsR, repsL) {
   if (repsR == null || repsL == null || repsR === repsL) return String(reps);
-  return `${reps} (R${repsR}/L${repsL})`;
+  return `${reps} (L${repsL}/R${repsR})`;
 }
 
 function fmtSetWeight(weight, unit, isBw, isAssisted) {

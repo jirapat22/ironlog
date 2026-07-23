@@ -957,8 +957,8 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, pr
         ${isPerArm ? `
         <div class="set-row__perarm">
           <span class="set-row__perarm-label">Reps differ per side?</span>
-          <label>R <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-r value="${repsR}" placeholder="${repsRPlaceholder}"/></label>
           <label>L <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-l value="${repsL}" placeholder="${repsLPlaceholder}"/></label>
+          <label>R <input class="set-row__perarm-input" type="text" inputmode="numeric" pattern="[0-9]*" data-reps-r value="${repsR}" placeholder="${repsRPlaceholder}"/></label>
         </div>` : ''}
       </div>
       ${logged ? '<div class="set-row__delete" data-delete>Delete</div>' : ''}
