@@ -102,14 +102,12 @@ function actionToast(msg, actionLabel, onAction, ms = 5000) {
 
 function formatDateShort(iso) {
   if (!iso) return '';
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return new Date(isoToMs(iso)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function daysAgo(iso) {
   if (!iso) return null;
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
-  return Math.floor((Date.now() - d.getTime()) / 86400000);
+  return Math.floor((Date.now() - isoToMs(iso)) / 86400000);
 }
 
 function humanAgo(iso) {
