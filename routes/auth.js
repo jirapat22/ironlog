@@ -43,6 +43,32 @@ function checkRateLimit(ip) {
 }
 
 // ---------------------------------------------------------------------------
+// Global (cross-IP) failed-login lockout. The per-IP limiter above caps any
+// ONE IP at 10 attempts/15min, but a 4-digit PIN's full keyspace (10 000
+// codes) is still crackable by spreading guesses across many source IPs —
+// trivial with cloud egress or IPv6 rotation, and a correct guess there is a
+// full account takeover, not mere noise. This counts only FAILED attempts
+// (a real user's own successful login never contributes) app-wide, so even a
+// distributed attacker is capped at the same total guess budget as a single
+// attacker would be.
+// ---------------------------------------------------------------------------
+const GLOBAL_FAIL_WINDOW_MS = 15 * 60 * 1000;
+const GLOBAL_FAIL_MAX = 20;
+let globalFailures = { count: 0, resetAt: 0 };
+
+function globalLockoutActive() {
+  const now = Date.now();
+  if (now > globalFailures.resetAt) globalFailures = { count: 0, resetAt: now + GLOBAL_FAIL_WINDOW_MS };
+  return globalFailures.count >= GLOBAL_FAIL_MAX;
+}
+
+function recordGlobalLoginFailure() {
+  const now = Date.now();
+  if (now > globalFailures.resetAt) globalFailures = { count: 0, resetAt: now + GLOBAL_FAIL_WINDOW_MS };
+  globalFailures.count++;
+}
+
+// ---------------------------------------------------------------------------
 // Public endpoints (no session required)
 // ---------------------------------------------------------------------------
 
@@ -64,9 +90,13 @@ router.post('/login', (req, res) => {
   if (!checkRateLimit(ip)) {
     return res.status(429).json({ error: 'too many attempts — try again in 15 minutes' });
   }
+  if (globalLockoutActive()) {
+    return res.status(429).json({ error: 'too many failed attempts — try again in 15 minutes' });
+  }
   const { passcode } = req.body || {};
   const profile = accounts.findProfileByPasscode(passcode);
   if (!profile) {
+    recordGlobalLoginFailure();
     return res.status(401).json({ error: 'incorrect passcode' });
   }
   const token = accounts.createSession(profile.id);
