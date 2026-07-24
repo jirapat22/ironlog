@@ -4,6 +4,11 @@ import { assert } from './bugreport.js';
 
 const chartInstances = {};
 let localBwKg = 0; // updated by renderBodyweightSection; used for strength chart & PR timeline
+// Module-level (not function-local) so it survives renderBodyweightSection()
+// re-running — deleting or logging a bodyweight entry both call it again,
+// which used to quietly re-collapse an expanded "show more" list back to
+// the default 4 rows.
+let bwHistoryExpanded = false;
 
 // helper: e1RM for a set, folding in BW when appropriate
 function calcE1RM(set, exercise, bwKg) {
@@ -1006,10 +1011,9 @@ async function renderBodyweightSection() {
       </div>`).join('')}</div>
       ${hasMore ? `<button class="bw-toggle" data-bw-toggle>${expanded ? '&#x25B2; Show less' : `&#x25BC; ${rows.length - SHOW_DEFAULT} more entries`}</button>` : ''}`;
   }
-  let historyExpanded = false;
-  recentEl.innerHTML = renderRecentList(false);
+  recentEl.innerHTML = renderRecentList(bwHistoryExpanded);
   recentEl.onclick = (e) => {
-    if (e.target.closest('[data-bw-toggle]')) { historyExpanded = !historyExpanded; recentEl.innerHTML = renderRecentList(historyExpanded); }
+    if (e.target.closest('[data-bw-toggle]')) { bwHistoryExpanded = !bwHistoryExpanded; recentEl.innerHTML = renderRecentList(bwHistoryExpanded); }
   };
   if (rows.length >= 2) { chartWrap.classList.remove('hidden'); renderBwChart(rows); }
   else chartWrap.classList.add('hidden');
