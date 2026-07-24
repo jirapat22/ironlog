@@ -1298,10 +1298,20 @@ function wireWorkoutView() {
       const value = notesEl.value.trim() || null;
       const current = workoutState.workout.notes || null;
       if (value === current) return;
+      // Set optimistically BEFORE the request resolves — any button in this
+      // view can trigger a full renderWorkoutView() rebuild (add-set-row,
+      // skip, weight-mode flip, ...) synchronously right after this blur
+      // fires, almost certainly before the network round-trip finishes. The
+      // rebuilt textarea reads workoutState.workout.notes, so leaving it
+      // stale until the await resolved made just-typed notes visually
+      // vanish for a moment even though the save was already in flight.
+      workoutState.workout.notes = value;
       try {
         await API.updateWorkout(workoutState.workout.id, { notes: value });
-        workoutState.workout.notes = value;
-      } catch (err) { toast(err.message); }
+      } catch (err) {
+        workoutState.workout.notes = current;
+        toast(err.message);
+      }
     };
   }
 
