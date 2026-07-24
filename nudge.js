@@ -1,4 +1,4 @@
-const { db } = require('./db');
+const { db, effectiveVolumeLoadKgSql } = require('./db');
 const push = require('./push');
 const settingsRouter = require('./routes/settings');
 const { sweepExpiredSessions } = require('./accounts');
@@ -154,12 +154,13 @@ async function weeklySummaryProfile(profileId) {
       COUNT(DISTINCT w.id) as workouts,
       COALESCE(SUM(
         CASE WHEN s.is_warmup = 0
-        THEN (CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) * s.reps
+        THEN ${effectiveVolumeLoadKgSql('s', 'e', 'w')} * s.reps
         ELSE 0 END
       ), 0) as volume_kg,
       COUNT(CASE WHEN s.is_warmup = 0 THEN 1 END) as sets
      FROM workouts w
      LEFT JOIN sets s ON s.workout_id = w.id
+     LEFT JOIN exercises e ON e.id = s.exercise_id
      WHERE w.profile_id = ?
        AND w.finished_at IS NOT NULL
        AND (w.kind IS NULL OR w.kind != 'activity')
