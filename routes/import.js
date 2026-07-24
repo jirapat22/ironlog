@@ -12,13 +12,15 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Invalid backup file (expected version 1)' });
   }
 
-  const { exercises = [], workouts = [], bodyweights = [] } = data;
+  const { exercises = [], programs = [], workouts = [], bodyweights = [] } = data;
   const profileId = req.profileId;
 
   let importedExercises = 0;
+  let importedPrograms = 0;
   let importedWorkouts = 0;
   let importedSets = 0;
   let importedBw = 0;
+  let skippedProgramExercises = 0;
   const affectedExercises = new Set();
 
   // Reject unknown muscle groups up front (before the transaction) rather
@@ -80,9 +82,10 @@ router.post('/', (req, res) => {
     const currentExRows = db.prepare('SELECT id, name FROM exercises').all();
     const exByName = new Map(currentExRows.map((e) => [e.name.toLowerCase(), e.id]));
 
-    // Program days referenced by a backup may not exist in this DB (programs
-    // are shared, not exported per-profile). Keep only valid references so we
-    // never insert a dangling FK.
+    // Program days referenced by a backup may not exist in this DB (a workout
+    // could reference a day from a program that isn't in THIS backup, e.g. an
+    // older/partial export). Keep only valid references so we never insert a
+    // dangling FK.
     const validProgramDays = new Set(
       db.prepare(
         `SELECT pd.id FROM program_days pd JOIN programs p ON p.id = pd.program_id
@@ -90,7 +93,48 @@ router.post('/', (req, res) => {
       ).all(profileId).map((d) => d.id)
     );
 
-    // --- 3. Workouts + sets. IDs are NOT preserved: a backup carries IDs from
+    // --- 3. Programs (+ days, + day exercises). Programs are per-profile, not
+    // shared like exercises, so — matching workouts below — every import
+    // ADDS fresh rows with fresh IDs rather than deduping by name. dayIdRemap
+    // lets the workout loop below relink each workout to ITS OWN freshly
+    // imported day, instead of only matching if the backup's day id happened
+    // to already exist for this profile (which used to be the only path, and
+    // in practice was never true for a real restore-from-scratch).
+    const insProgram = db.prepare(
+      `INSERT INTO programs (profile_id, name, description, sort_order) VALUES (?, ?, ?, ?)`
+    );
+    const insDay = db.prepare(
+      `INSERT INTO program_days (program_id, day_label, day_order) VALUES (?, ?, ?)`
+    );
+    const insPde = db.prepare(
+      `INSERT INTO program_day_exercises
+         (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    const dayIdRemap = new Map();
+
+    for (const p of programs) {
+      const newProgramId = Number(
+        insProgram.run(profileId, p.name, p.description ?? null, p.sort_order ?? null).lastInsertRowid
+      );
+      importedPrograms++;
+
+      for (const d of (p.days || [])) {
+        const newDayId = Number(insDay.run(newProgramId, d.day_label, d.day_order).lastInsertRowid);
+        dayIdRemap.set(d.id, newDayId);
+
+        for (const pde of (d.exercises || [])) {
+          // Resolve by the backup's own exercise table -> name -> current id,
+          // same fallback chain the sets loop below uses.
+          const name = backupExById.get(pde.exercise_id)?.name?.toLowerCase();
+          const exId = name ? exByName.get(name) : null;
+          if (!exId) { skippedProgramExercises++; continue; }
+          insPde.run(newDayId, exId, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds ?? null);
+        }
+      }
+    }
+
+    // --- 4. Workouts + sets. IDs are NOT preserved: a backup carries IDs from
     // a single global sequence, so reusing them could clobber another profile's
     // rows. We let SQLite assign fresh IDs and remap sets onto them.
     const insWorkout = db.prepare(
@@ -99,15 +143,15 @@ router.post('/', (req, res) => {
     );
     const insSet = db.prepare(
       `INSERT INTO sets
-         (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, rpe, rir, notes, is_warmup, logged_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, reps_r, reps_l, rpe, rir, notes, is_warmup, logged_at, load_multiplier)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     for (const w of workouts) {
-      const programDayId =
-        w.program_day_id != null && validProgramDays.has(w.program_day_id)
-          ? w.program_day_id
-          : null;
+      const programDayId = w.program_day_id == null
+        ? null
+        : dayIdRemap.get(w.program_day_id)
+          ?? (validProgramDays.has(w.program_day_id) ? w.program_day_id : null);
       const newWorkoutId = Number(
         insWorkout.run(
           profileId, programDayId,
@@ -134,17 +178,18 @@ router.post('/', (req, res) => {
 
         insSet.run(
           profileId, newWorkoutId, exId, s.set_number,
-          s.weight, s.weight_unit, s.reps,
+          s.weight, s.weight_unit, s.reps, s.reps_r ?? null, s.reps_l ?? null,
           s.rpe ?? null, s.rir ?? null, s.notes ?? null,
           s.is_warmup ? 1 : 0,
-          s.logged_at
+          s.logged_at,
+          s.load_multiplier ?? null
         );
         importedSets++;
         affectedExercises.add(exId);
       }
     }
 
-    // --- 4. Body weights (fresh IDs, scoped to this profile)
+    // --- 5. Body weights (fresh IDs, scoped to this profile)
     const insBw = db.prepare(
       `INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes)
        VALUES (?, ?, ?, ?, ?)`
@@ -161,26 +206,31 @@ router.post('/', (req, res) => {
     catch (err) { reportHandled(err, { profileId, route: 'POST /api/import', step: 'recompute_prs', exerciseId: exId }); }
   }
 
-  // Every workout/bodyweight is inserted fresh under the current profile, so
-  // the only thing that can be "skipped" is a set whose exercise couldn't be
-  // resolved by name or backup ID. Surfaced so a partial import isn't silent.
+  // Every program/workout/bodyweight is inserted fresh under the current
+  // profile, so the only things that can be "skipped" are a set or a program
+  // day's exercise slot whose exercise couldn't be resolved by backup ID.
+  // Surfaced so a partial import isn't silent.
   // NOTE: import always ADDS — re-importing the same backup duplicates rows.
   const totalSets = workouts.reduce((n, w) => n + (w.sets?.length || 0), 0);
   const skipped = {
     workouts: 0,
     sets: Math.max(0, totalSets - importedSets),
-    bodyweights: 0
+    bodyweights: 0,
+    program_exercises: skippedProgramExercises
   };
+  const warnings = [];
+  if (skipped.sets > 0) warnings.push(`${skipped.sets} set(s) were skipped because their exercise could not be matched.`);
+  if (skipped.program_exercises > 0) warnings.push(`${skipped.program_exercises} program exercise slot(s) were skipped because their exercise could not be matched.`);
+  if (warnings.length) warnings.push('Import adds records — re-importing the same backup will create duplicates.');
 
   res.json({
     imported_exercises: importedExercises,
+    imported_programs: importedPrograms,
     imported_workouts: importedWorkouts,
     imported_sets: importedSets,
     imported_bodyweights: importedBw,
     skipped,
-    warning: skipped.sets > 0
-      ? `${skipped.sets} set(s) were skipped because their exercise could not be matched. Import adds records — re-importing the same backup will create duplicates.`
-      : null
+    warning: warnings.length ? warnings.join(' ') : null
   });
 });
 

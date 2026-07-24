@@ -380,10 +380,10 @@ async function openSettingsSheet() {
       try {
         const text = await file.text();
         const json = JSON.parse(text);
-        const ok = await confirmSheet({ title: 'Import backup', message: `Import ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Existing records are preserved.`, confirmText: 'Import' });
+        const ok = await confirmSheet({ title: 'Import backup', message: `Import ${(json.programs || []).length} programs, ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Existing records are preserved.`, confirmText: 'Import' });
         if (!ok) { fileInput.value = ''; return; }
         const result = await api('/api/import', { method: 'POST', body: json, timeoutMs: 60000 });
-        toast(`Imported: ${result.imported_workouts} workouts, ${result.imported_sets} sets, ${result.imported_bodyweights} BW entries`);
+        toast(`Imported: ${result.imported_programs} programs, ${result.imported_workouts} workouts, ${result.imported_sets} sets, ${result.imported_bodyweights} BW entries`);
         fileInput.value = '';
       } catch (err) { toast(`Import failed: ${err.message}`); }
     };
