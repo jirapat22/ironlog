@@ -122,10 +122,7 @@ async function renderPrograms() {
         [full[idx], full[swap]] = [full[swap], full[idx]];
         haptic(10);
         try {
-          // ponytail: rewrite every program's sort_order to its index — N is a
-          // handful, so a per-program PATCH is simpler than a diff and robust
-          // when some rows still have NULL sort_order.
-          await Promise.all(full.map((p, i) => API.updateProgram(p.id, { sort_order: i })));
+          await API.reorderPrograms(full.map((p) => p.id));
           renderPrograms();
         } catch (err) { toast(err.message); }
         return;
@@ -145,7 +142,7 @@ async function renderPrograms() {
         [program.days[idx], program.days[swap]] = [program.days[swap], program.days[idx]];
         haptic(10);
         try {
-          await Promise.all(program.days.map((d, i) => API.renameDay(programId, d.id, { day_order: i })));
+          await API.reorderDays(programId, program.days.map((d) => d.id));
           renderPrograms();
         } catch (err) { toast(err.message); }
         return;
@@ -516,11 +513,8 @@ function renderEditSheet() {
       [exs[idx], exs[swapIdx]] = [exs[swapIdx], exs[idx]];
       renderEditSheet(); haptic(10);
       try {
-        await Promise.all(exs.map((x, i) =>
-          x.order_index !== i
-            ? API.updateDayExercise(programId, dayId, x.id, { order_index: i }).then(() => { x.order_index = i; })
-            : null
-        ));
+        await API.reorderDayExercises(programId, dayId, exs.map((x) => x.id));
+        exs.forEach((x, i) => { x.order_index = i; });
       } catch (err) { toast(err.message); }
     }
   };
@@ -532,18 +526,11 @@ async function persistEditRowOrder() {
   const order = [...container.children].map((r) => Number(r.dataset.pde));
   editDayState.day.exercises.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   refreshOrderHint(); // drag doesn't re-render the sheet — recompute in place
-  const updates = [];
-  for (let i = 0; i < editDayState.day.exercises.length; i++) {
-    const ex = editDayState.day.exercises[i];
-    if (ex.order_index !== i) {
-      updates.push(
-        API.updateDayExercise(editDayState.programId, editDayState.dayId, ex.id, { order_index: i })
-          .then(() => { ex.order_index = i; })
-      );
-    }
-  }
-  try { await Promise.all(updates); haptic(15); }
-  catch (err) { toast(err.message); }
+  try {
+    await API.reorderDayExercises(editDayState.programId, editDayState.dayId, editDayState.day.exercises.map((x) => x.id));
+    editDayState.day.exercises.forEach((ex, i) => { ex.order_index = i; });
+    haptic(15);
+  } catch (err) { toast(err.message); }
 }
 
 // ---------- Exercise picker (programs context only) ----------

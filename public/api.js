@@ -81,6 +81,7 @@ const API = {
   createProgram: (data) => api('/api/programs', { method: 'POST', body: data }),
   addDay: (programId, data) => api(`/api/programs/${programId}/days`, { method: 'POST', body: data }),
   renameDay: (programId, dayId, data) => api(`/api/programs/${programId}/days/${dayId}`, { method: 'PATCH', body: data }),
+  reorderDays: (programId, dayIds) => api(`/api/programs/${programId}/days/reorder`, { method: 'PATCH', body: { day_ids: dayIds } }),
   deleteDay: (programId, dayId) => api(`/api/programs/${programId}/days/${dayId}`, { method: 'DELETE' }),
   updateExercise: (id, data) => api(`/api/exercises/${id}`, { method: 'PATCH', body: data }),
   deleteExercise: (id) => api(`/api/exercises/${id}`, { method: 'DELETE' }),
@@ -100,6 +101,8 @@ const API = {
     api(`/api/programs/${programId}/days/${dayId}/exercises`, { method: 'PUT', body: data }),
   updateDayExercise: (programId, dayId, pdeId, data) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'PATCH', body: data }),
+  reorderDayExercises: (programId, dayId, pdeIds) =>
+    api(`/api/programs/${programId}/days/${dayId}/exercises/reorder`, { method: 'PATCH', body: { pde_ids: pdeIds } }),
   removeDayExercise: (programId, dayId, pdeId) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'DELETE' }),
   lastWorkout: (programDayId) => api(`/api/workouts/last/${programDayId}`),
@@ -140,6 +143,7 @@ const API = {
   deleteBodyweight: (id) => api(`/api/bodyweight/${id}`, { method: 'DELETE' }),
   duplicateProgram: (id, data) => api(`/api/programs/${id}/duplicate`, { method: 'POST', body: data }),
   updateProgram: (id, data) => api(`/api/programs/${id}`, { method: 'PATCH', body: data }),
+  reorderPrograms: (programIds) => api('/api/programs/reorder', { method: 'PATCH', body: { program_ids: programIds } }),
   deleteProgram: (id) => api(`/api/programs/${id}`, { method: 'DELETE' }),
   settings: () => api('/api/settings'),
   updateSettings: (data) => api('/api/settings', { method: 'PUT', body: data }),

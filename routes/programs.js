@@ -45,6 +45,37 @@ router.post('/:id/days', (req, res) => {
   res.status(201).json(row);
 });
 
+// Reorder every day in a program atomically, from a full ordered id list —
+// renumbering server-side in one transaction instead of the client sending N
+// independent day_order PATCHes (the previous approach). N separate writes
+// have no atomicity: a dropped request mid-batch (flaky connection) or two
+// tabs reordering the same program concurrently can each partially apply,
+// leaving two days sharing a day_order that only surfaces as a silent
+// reshuffle on next load. Registered BEFORE the /:dayId route below —
+// otherwise Express would match "reorder" as a :dayId param first.
+router.patch('/:id/days/reorder', (req, res) => {
+  const programId = Number(req.params.id);
+  if (!ownsProgram(req.profileId, programId)) return res.status(404).json({ error: 'program not found' });
+
+  const dayIds = (req.body && req.body.day_ids || []).map(Number);
+  if (!dayIds.length || dayIds.some((id) => !Number.isInteger(id))) {
+    return res.status(400).json({ error: 'day_ids must be a non-empty array of ids' });
+  }
+
+  const currentIds = db.prepare('SELECT id FROM program_days WHERE program_id = ?').all(programId).map((r) => r.id);
+  // Must be exactly the same SET of ids (order aside) — a mismatch means the
+  // client's list is stale (a day was added/removed since it loaded), and
+  // blindly renumbering off it would silently drop or duplicate a position.
+  const sameSet = currentIds.length === dayIds.length && new Set(currentIds).size === new Set(dayIds).size &&
+    dayIds.every((id) => currentIds.includes(id));
+  if (!sameSet) return res.status(409).json({ error: 'day list is out of date — reload and try again' });
+
+  const upd = db.prepare('UPDATE program_days SET day_order = ? WHERE id = ?');
+  tx(() => { dayIds.forEach((id, i) => upd.run(i, id)); });
+
+  res.json({ reordered: true });
+});
+
 // Rename a day and/or reposition it within its program (day_order — used to
 // move a day up/down in the list, the same way sort_order repositions programs).
 router.patch('/:id/days/:dayId', (req, res) => {
@@ -117,6 +148,27 @@ router.post('/:id/duplicate', (req, res) => {
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'internal server error' });
   }
+});
+
+// Reorder every program for this profile atomically, from a full ordered id
+// list — same rationale as the day/exercise reorder endpoints: N independent
+// sort_order PATCHes have no atomicity. Registered BEFORE the /:id route
+// below — otherwise Express would match "reorder" as an :id param first.
+router.patch('/reorder', (req, res) => {
+  const programIds = (req.body && req.body.program_ids || []).map(Number);
+  if (!programIds.length || programIds.some((id) => !Number.isInteger(id))) {
+    return res.status(400).json({ error: 'program_ids must be a non-empty array of ids' });
+  }
+
+  const currentIds = db.prepare('SELECT id FROM programs WHERE profile_id = ?').all(req.profileId).map((r) => r.id);
+  const sameSet = currentIds.length === programIds.length && new Set(currentIds).size === new Set(programIds).size &&
+    programIds.every((id) => currentIds.includes(id));
+  if (!sameSet) return res.status(409).json({ error: 'program list is out of date — reload and try again' });
+
+  const upd = db.prepare('UPDATE programs SET sort_order = ? WHERE id = ?');
+  tx(() => { programIds.forEach((id, i) => upd.run(i, id)); });
+
+  res.json({ reordered: true });
 });
 
 // Rename / update a program
@@ -285,6 +337,32 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
     )
     .all(dayId);
   res.json({ day_id: dayId, exercises: rows });
+});
+
+// Reorder every exercise slot within a day atomically, from a full ordered
+// id list — same rationale as the day-reorder endpoint above: N independent
+// order_index PATCHes have no atomicity, so a dropped request mid-batch or
+// two tabs reordering the same day concurrently can leave two slots sharing
+// an order_index. Registered BEFORE the /:pdeId route below — otherwise
+// Express would match "reorder" as a :pdeId param first.
+router.patch('/:programId/days/:dayId/exercises/reorder', (req, res) => {
+  const dayId = Number(req.params.dayId);
+  if (!ownsDay(req.profileId, dayId)) return res.status(404).json({ error: 'day not found' });
+
+  const pdeIds = (req.body && req.body.pde_ids || []).map(Number);
+  if (!pdeIds.length || pdeIds.some((id) => !Number.isInteger(id))) {
+    return res.status(400).json({ error: 'pde_ids must be a non-empty array of ids' });
+  }
+
+  const currentIds = db.prepare('SELECT id FROM program_day_exercises WHERE program_day_id = ?').all(dayId).map((r) => r.id);
+  const sameSet = currentIds.length === pdeIds.length && new Set(currentIds).size === new Set(pdeIds).size &&
+    pdeIds.every((id) => currentIds.includes(id));
+  if (!sameSet) return res.status(409).json({ error: 'exercise list is out of date — reload and try again' });
+
+  const upd = db.prepare('UPDATE program_day_exercises SET order_index = ? WHERE id = ?');
+  tx(() => { pdeIds.forEach((id, i) => upd.run(i, id)); });
+
+  res.json({ reordered: true });
 });
 
 // Update a program day exercise (sets, reps, swap exercise, reorder)
