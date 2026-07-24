@@ -180,7 +180,11 @@ async function renderHistory() {
         if (!ok) return;
         try {
           await API.deleteWorkout(Number(card.dataset.id));
-          renderHistory();
+          // Remove just this card — matching the long-press delete path below
+          // — rather than renderHistory()'s full rebuild, which collapsed
+          // every OTHER expanded card as a side effect of deleting one.
+          card.remove();
+          haptic(30);
         } catch (err) { toast(err.message); }
         return;
       }
