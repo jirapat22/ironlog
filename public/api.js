@@ -106,6 +106,7 @@ const API = {
   removeDayExercise: (programId, dayId, pdeId) =>
     api(`/api/programs/${programId}/days/${dayId}/exercises/${pdeId}`, { method: 'DELETE' }),
   lastWorkout: (programDayId) => api(`/api/workouts/last/${programDayId}`),
+  lastByDay: (programDayIds) => api('/api/workouts/last-by-day', { method: 'POST', body: { program_day_ids: programDayIds } }),
   lastByExercise: (exerciseIds) => api('/api/workouts/last-by-exercise', { method: 'POST', body: { exercise_ids: exerciseIds } }),
   removeWorkoutExercise: (workoutId, exerciseId) => api(`/api/workouts/${workoutId}/exercises/${exerciseId}`, { method: 'DELETE' }),
   recentWorkouts: (programDayId, n = 3) => api(`/api/workouts/recent/${programDayId}?n=${n}`),

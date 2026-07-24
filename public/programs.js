@@ -108,7 +108,16 @@ async function renderPrograms() {
       if (expandedIds.has(el.dataset.programId)) el.classList.add('expanded');
     }
     renderMuscleCoverage(); // fire-and-forget — the strip is decor, never blocks the list
-    await Promise.all(full.flatMap((p) => p.days.map((d) => decorateLastTrained(d.id))));
+    // One batched request for every day's "last trained" hint instead of one
+    // GET per day (N+1 — a handful of programs easily meant 15-20 concurrent
+    // requests just to paint this tab).
+    const allDayIds = full.flatMap((p) => p.days.map((d) => d.id));
+    if (allDayIds.length) {
+      try {
+        const lastByDay = await API.lastByDay(allDayIds);
+        for (const dayId of allDayIds) applyLastTrained(dayId, lastByDay[dayId]);
+      } catch { /* best-effort decoration */ }
+    }
 
     root.onclick = async (e) => {
       const moveBtn = e.target.closest('[data-move-program]');
@@ -303,30 +312,30 @@ function dayCardHTML(d, programId, i, total) {
   `;
 }
 
-async function decorateLastTrained(dayId) {
-  try {
-    const last = await API.lastWorkout(dayId);
-    const el = document.querySelector(`[data-last="${dayId}"]`);
-    if (el) el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
-    if (!last?.sets?.length) return;
+// Pure DOM-paint step, given an already-fetched `last` workout (or null) for
+// this day — the fetch itself is now batched at the call site instead of one
+// request per day.
+function applyLastTrained(dayId, last) {
+  const el = document.querySelector(`[data-last="${dayId}"]`);
+  if (el) el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
+  if (!last?.sets?.length) return;
 
-    // Best non-warmup set per exercise (heaviest, ties broken by more reps) —
-    // gives a load to plan from before the user even taps Start.
-    const bestByEx = new Map();
-    for (const s of last.sets) {
-      if (s.is_warmup) continue;
-      const cur = bestByEx.get(s.exercise_id);
-      if (!cur || s.weight > cur.weight || (s.weight === cur.weight && s.reps > cur.reps)) {
-        bestByEx.set(s.exercise_id, s);
-      }
+  // Best non-warmup set per exercise (heaviest, ties broken by more reps) —
+  // gives a load to plan from before the user even taps Start.
+  const bestByEx = new Map();
+  for (const s of last.sets) {
+    if (s.is_warmup) continue;
+    const cur = bestByEx.get(s.exercise_id);
+    if (!cur || s.weight > cur.weight || (s.weight === cur.weight && s.reps > cur.reps)) {
+      bestByEx.set(s.exercise_id, s);
     }
-    const dayCard = document.querySelector(`[data-day-id="${dayId}"]`);
-    if (!dayCard) return;
-    for (const [exId, s] of bestByEx) {
-      const lastEl = dayCard.querySelector(`[data-ex-last="${exId}"]`);
-      if (lastEl) lastEl.textContent = ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}`;
-    }
-  } catch { /* ignore */ }
+  }
+  const dayCard = document.querySelector(`[data-day-id="${dayId}"]`);
+  if (!dayCard) return;
+  for (const [exId, s] of bestByEx) {
+    const lastEl = dayCard.querySelector(`[data-ex-last="${exId}"]`);
+    if (lastEl) lastEl.textContent = ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}`;
+  }
 }
 
 // ---------- Edit Program Day ----------

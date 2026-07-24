@@ -12,6 +12,12 @@ if (!fs.existsSync(dir)) {
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
+// Safe specifically BECAUSE of WAL: a crash can lose the most recent commit
+// (fsync'd less aggressively) but can never corrupt the database, unlike
+// synchronous=NORMAL without WAL. Railway's volume is network-attached
+// storage, so the default FULL (fsync on every commit) adds real latency to
+// every set log/edit — this is the standard, documented-safe trade for that.
+db.exec('PRAGMA synchronous = NORMAL');
 
 function tx(fn) {
   db.exec('BEGIN');

@@ -166,6 +166,35 @@ router.get('/recent/:programDayId', (req, res) => {
   res.json(workouts);
 });
 
+// Batched version of GET /last/:programDayId — the Programs tab used to fire
+// one request per program day (N+1: ~15-20 concurrent GETs for a typical
+// handful of programs) just to show "last trained" + best-set hints. One
+// round trip for the whole tab instead, mirroring the existing
+// /last-by-exercise batching pattern below.
+router.post('/last-by-day', (req, res) => {
+  const ids = Array.isArray(req.body?.program_day_ids)
+    ? [...new Set(req.body.program_day_ids.map(Number).filter(Number.isFinite))]
+    : [];
+  const out = {};
+  const findLast = db.prepare(
+    `SELECT * FROM workouts
+     WHERE program_day_id = ? AND profile_id = ? AND finished_at IS NOT NULL
+     ORDER BY finished_at DESC LIMIT 1`
+  );
+  const getSets = db.prepare(
+    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.is_bodyweight, e.is_assisted, e.equipment, s.is_warmup
+     FROM sets s JOIN exercises e ON e.id = s.exercise_id
+     WHERE s.workout_id = ?
+     ORDER BY s.exercise_id, s.set_number`
+  );
+  for (const dayId of ids) {
+    const w = findLast.get(dayId, req.profileId);
+    if (w) w.sets = getSets.all(w.id);
+    out[dayId] = w || null;
+  }
+  res.json(out);
+});
+
 router.get('/last/:programDayId', (req, res) => {
   const pdid = Number(req.params.programDayId);
   const workout = db
