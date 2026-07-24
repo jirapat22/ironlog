@@ -1305,7 +1305,16 @@ function mergeExercises(loserId, survivorId) {
         .run(...fill.map((f) => loser[f]), survivor.id);
     }
 
-    movedSets = db.prepare('UPDATE sets SET exercise_id = ? WHERE exercise_id = ?').run(survivor.id, loser.id).changes;
+    // Reset load_multiplier to the SURVIVOR's weight_mode, same as
+    // moveExerciseSessions does — the loser's sets carry a snapshot from
+    // whatever mode THEY were logged under, which silently disagrees with
+    // every volume query once they're re-parented onto the survivor's id
+    // (survivor.weight_mode is what every future load/volume calc will
+    // treat this exercise_id as; a stale multiplier from the loser's mode
+    // under/over-reports history under the merged identity forever).
+    const survivorMult = survivor.weight_mode === 'per_arm' ? 2 : 1;
+    movedSets = db.prepare('UPDATE sets SET exercise_id = ?, load_multiplier = ? WHERE exercise_id = ?')
+      .run(survivor.id, survivorMult, loser.id).changes;
 
     // A program day can't hold both (unique program_day_id+exercise_id) — drop
     // the loser slot where the day already has the survivor, otherwise repoint.
