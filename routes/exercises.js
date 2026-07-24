@@ -1,7 +1,22 @@
 const express = require('express');
+const crypto = require('crypto');
 const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx, mergeExercises, moveExerciseSessions } = require('../db');
 
 const router = express.Router();
+
+// Fallback admin code when ADMIN_CODE isn't set in the environment. A fixed
+// literal here would be readable by anyone with repo access, defeating the
+// whole point of the gate — instead generate a random one for this process
+// and print it once at boot, so the actual code is never something anyone
+// could learn from source alone. Set ADMIN_CODE in the environment to pin
+// a stable code across restarts instead of getting a new one each deploy.
+const FALLBACK_ADMIN_CODE = process.env.ADMIN_CODE ? null : crypto.randomBytes(3).toString('hex');
+if (FALLBACK_ADMIN_CODE) {
+  console.warn(
+    `[exercises] ADMIN_CODE not set — using a generated one-time code for shared-exercise edits this session: ${FALLBACK_ADMIN_CODE}\n` +
+    '  Set ADMIN_CODE in the environment to use a stable code instead.'
+  );
+}
 
 const SELECT_COLS =
   'id, name, muscle_group, sub_muscle, secondary_muscles, secondary_major, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override, rep_min, rep_max';
@@ -62,7 +77,7 @@ function cleanSecondaryMajorList(input, secondaryList) {
 // how-to text) requires this code, so one profile can't silently distort
 // muscle-coverage/PR history for everyone else who has ever logged it.
 function checkAdminCode(providedCode) {
-  return String(providedCode ?? '') === (process.env.ADMIN_CODE || '2210');
+  return String(providedCode ?? '') === (process.env.ADMIN_CODE || FALLBACK_ADMIN_CODE);
 }
 
 router.get('/', (req, res) => {
