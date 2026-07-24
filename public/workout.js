@@ -54,11 +54,11 @@ function draftKey(workoutId) { return `ironlog.draft.${workoutId}`; }
 function loadDraft(workoutId) {
   try {
     const raw = localStorage.getItem(draftKey(workoutId));
-    if (!raw) return { setCounts: {}, inputs: {} };
+    if (!raw) return { setCounts: {}, inputs: {}, pendingEdits: {} };
     const parsed = JSON.parse(raw);
-    return { setCounts: parsed.setCounts || {}, inputs: parsed.inputs || {}, exerciseOrder: parsed.exerciseOrder, exerciseList: parsed.exerciseList, skipped: parsed.skipped || {} };
+    return { setCounts: parsed.setCounts || {}, inputs: parsed.inputs || {}, pendingEdits: parsed.pendingEdits || {}, exerciseOrder: parsed.exerciseOrder, exerciseList: parsed.exerciseList, skipped: parsed.skipped || {} };
   } catch {
-    return { setCounts: {}, inputs: {}, skipped: {} };
+    return { setCounts: {}, inputs: {}, pendingEdits: {}, skipped: {} };
   }
 }
 
@@ -136,19 +136,34 @@ function updateRowEquiv(row) {
   eqEl.textContent = weightHintText(w, u, ex);
 }
 
+// Picks which draft bucket a row's in-progress edits belong in: an already
+// LOGGED row (has a set id) gets workoutState.draft.pendingEdits, keyed by
+// set id — a still-unconfirmed row gets draft.inputs, keyed by exercise+set
+// number (matching the pre-existing convention). Without routing logged rows
+// somewhere, editing a mistyped weight/reps/note on a saved set had nowhere
+// to live: typing a correction but tapping something on a DIFFERENT exercise
+// before hitting the checkmark triggers a full renderWorkoutView() rebuild,
+// which reads straight from the stale server-saved `logged.*` values and
+// silently reverts the correction with zero warning.
+function draftEntryFor(row) {
+  if (row.dataset.setId) {
+    if (!workoutState.draft.pendingEdits) workoutState.draft.pendingEdits = {};
+    return { store: workoutState.draft.pendingEdits, key: row.dataset.setId };
+  }
+  const key = `${Number(row.dataset.ex)}-${Number(row.dataset.set)}`;
+  return { store: workoutState.draft.inputs, key };
+}
+
 function markRowTouched(row) {
-  if (!row || row.dataset.setId) return;
-  if (!workoutState) return;
+  if (!row || !workoutState) return;
   row.removeAttribute('data-pristine');
-  const exId = Number(row.dataset.ex);
-  const setNum = Number(row.dataset.set);
-  const key = `${exId}-${setNum}`;
   const wIn = row.querySelector('[data-field="weight"] .num-input__field');
   const rIn = row.querySelector('[data-field="reps"] .num-input__field');
   const uBtn = row.querySelector('[data-unit]');
   const rirAttr = row.dataset.rir;
-  const existing = workoutState.draft.inputs[key] || {};
-  workoutState.draft.inputs[key] = {
+  const { store, key } = draftEntryFor(row);
+  const existing = store[key] || {};
+  store[key] = {
     ...existing,
     w: wIn ? wIn.value : '',
     u: uBtn ? uBtn.textContent.trim() : 'kg',
@@ -160,23 +175,17 @@ function markRowTouched(row) {
 
 // Sibling to markRowTouched for the extras-panel fields (note, per-side
 // reps) — kept separate since they live outside .num-input__field and are
-// wired from a different oninput branch. Merges into the same draft.inputs
-// entry (not a straight overwrite) so typing a note doesn't clobber a
-// weight/reps draft already saved for this row, or vice versa. Without this,
-// note/per-side text had no fallback source at all (unlike w/u/r/rir, which
-// can rebuild from prevSet/lastLogged) — any full re-render before the set
-// was confirmed silently discarded whatever was typed.
+// wired from a different oninput branch. Merges into the same draft entry
+// (not a straight overwrite) so typing a note doesn't clobber a weight/reps
+// draft already saved for this row, or vice versa.
 function markRowExtrasTouched(row) {
-  if (!row || row.dataset.setId) return;
-  if (!workoutState) return;
-  const exId = Number(row.dataset.ex);
-  const setNum = Number(row.dataset.set);
-  const key = `${exId}-${setNum}`;
+  if (!row || !workoutState) return;
   const noteIn = row.querySelector('[data-note]');
   const rIn = row.querySelector('[data-reps-r]');
   const lIn = row.querySelector('[data-reps-l]');
-  const existing = workoutState.draft.inputs[key] || {};
-  workoutState.draft.inputs[key] = {
+  const { store, key } = draftEntryFor(row);
+  const existing = store[key] || {};
+  store[key] = {
     ...existing,
     note: noteIn ? noteIn.value : (existing.note ?? ''),
     repsR: rIn ? rIn.value : (existing.repsR ?? ''),
@@ -637,21 +646,27 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     if (isSkipped && !logged) continue;
     const prevSet = lastSets.find((s) => s.set_number === i) || prevReference;
     const draft = drafts[key];
+    // An in-progress, not-yet-saved correction to an ALREADY-logged set —
+    // e.g. you notice a mistyped weight and start fixing it. Must win over
+    // `logged.*` (the last server-saved value) or the correction silently
+    // reverts the instant any unrelated full re-render happens before you
+    // tap the checkmark to actually save it.
+    const pendingEdit = logged ? (workoutState.draft.pendingEdits || {})[logged.id] : null;
 
-    const w = logged?.weight ?? draft?.w ?? lastLogged?.weight ?? rec?.recWeight ?? prevSet?.weight ?? prefillWeight;
-    const u = logged?.weight_unit ?? draft?.u ?? lastLogged?.weight_unit ?? rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit;
-    const r = logged?.reps ?? draft?.r ?? lastLogged?.reps ?? prevSet?.reps ?? prefillReps;
-    const rir = draft?.rir ?? null;
+    const w = pendingEdit?.w ?? logged?.weight ?? draft?.w ?? lastLogged?.weight ?? rec?.recWeight ?? prevSet?.weight ?? prefillWeight;
+    const u = pendingEdit?.u ?? logged?.weight_unit ?? draft?.u ?? lastLogged?.weight_unit ?? rec?.recUnit ?? prevSet?.weight_unit ?? prefillUnit;
+    const r = pendingEdit?.r ?? logged?.reps ?? draft?.r ?? lastLogged?.reps ?? prevSet?.reps ?? prefillReps;
+    const rir = pendingEdit?.rir ?? logged?.rir ?? draft?.rir ?? null;
     // Unlogged note/per-side text has nowhere else to live — unlike w/u/r/rir
     // it has no fallback source (prevSet etc), so without this it silently
     // evaporates the moment any full re-render happens (adding a set on
     // another exercise, skipping a different one, ...) before the row is confirmed.
-    const draftNote = draft?.note ?? '';
-    const draftRepsR = draft?.repsR ?? '';
-    const draftRepsL = draft?.repsL ?? '';
+    const note = pendingEdit?.note ?? logged?.notes ?? draft?.note ?? '';
+    const repsR = pendingEdit?.repsR ?? logged?.reps_r ?? draft?.repsR ?? '';
+    const repsL = pendingEdit?.repsL ?? logged?.reps_l ?? draft?.repsL ?? '';
 
     if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
-    rows.push(setRowHTML(ex, i, { w, u, r, rir, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l, draftNote, draftRepsR, draftRepsL }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l }));
   }
 
   const trend = pastTrendFor(ex);
@@ -927,14 +942,16 @@ function recommendForNext(ex, lastSets) {
   };
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, prevRepsL, draftNote, draftRepsR, draftRepsL }) {
+function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL: repsLVal, logged, isNext, prevRepsR, prevRepsL }) {
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
   const showAsEmpty = (isBw || isAssisted) && (w === 0 || w === '' || w == null);
   const wStr = showAsEmpty ? '' : (w === '' ? '' : Number(w));
   const wPlaceholder = isAssisted ? '0 = unassisted' : isBw ? 'BW' : '0';
-  const effRir = logged?.rir ?? rir ?? '';
-  const note = logged?.notes ?? draftNote ?? '';
+  // rir/note are already fully resolved by the caller (pendingEdit > logged
+  // > draft), so this row always reflects any in-progress unsaved correction
+  // rather than the stale server-saved value.
+  const effRir = rir ?? '';
   // RIR scale 0–4: 0 = to failure, 1 = 1 left, …, 4 = 4+ left
   const rirButtons = [0, 1, 2, 3, 4]
     .map((n) => `<button class="rpe-btn ${Number(effRir) === n && effRir !== '' ? 'rpe-btn--active' : ''}" data-rir="${n}">${n}</button>`)
@@ -971,8 +988,8 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, logged, isNext, prevRepsR, pr
   // stays the single "official" number (the weaker side); this is opt-in
   // detail entered/edited via the extras panel, same place as the note.
   const isPerArm = ex.weight_mode === 'per_arm' && !isBw;
-  const repsR = logged?.reps_r ?? draftRepsR ?? '';
-  const repsL = logged?.reps_l ?? draftRepsL ?? '';
+  const repsR = repsRVal ?? '';
+  const repsL = repsLVal ?? '';
   // Ghost the last session's per-side split into the placeholder (not the
   // value) so it's visible as a reference without silently carrying last
   // time's asymmetry into a set the user hasn't entered yet.
@@ -1407,7 +1424,20 @@ async function confirmSet(row) {
   if (checkBtn) checkBtn.disabled = true;
   try {
     if (row.dataset.setId) {
-      await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir, notes: note });
+      const updated = await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir, notes: note });
+      // This was the only confirmSet path that never wrote its result back
+      // into workoutState.loggedSets — the DOM row looked right immediately
+      // (it's just left alone here, not re-rendered), but a LATER full
+      // re-render (renderWorkoutView(), triggered by an unrelated action
+      // like adding a set on a different exercise) rebuilds every row from
+      // workoutState, so the edit silently reverted to its stale pre-edit
+      // value even though the server already had the correct one.
+      const setIdx = workoutState.loggedSets.findIndex((s) => s.id === Number(row.dataset.setId));
+      if (setIdx !== -1) workoutState.loggedSets[setIdx] = updated;
+      // The correction is now the server-saved value too — drop the pending
+      // draft so a stale copy doesn't linger and override a FUTURE edit.
+      if (workoutState.draft.pendingEdits) delete workoutState.draft.pendingEdits[row.dataset.setId];
+      saveDraft(workoutState.workout.id, workoutState.draft);
       row.classList.remove('editing');
       haptic(20);
       toast('Updated');
@@ -1579,6 +1609,8 @@ async function deleteLoggedSet(row) {
     await API.deleteSet(id);
     if (!workoutState) return;
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== id);
+    if (workoutState.draft.pendingEdits) delete workoutState.draft.pendingEdits[id];
+    saveDraft(workoutState.workout.id, workoutState.draft);
     row.classList.remove('done', 'swiped');
     row.removeAttribute('data-set-id');
     delete row.dataset.justConfirmed;
