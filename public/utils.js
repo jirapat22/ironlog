@@ -31,6 +31,42 @@ function haptic(ms = 30) {
   if (navigator.vibrate) navigator.vibrate(ms);
 }
 
+// ---------- Admin code (shared-exercise edits) ----------
+// Cached in localStorage so a returning admin isn't re-prompted every single
+// time they merge/reclassify/edit-how-to on a shared exercise — these are
+// rare but repeated actions, and re-typing the same code each time (with no
+// memory across sessions) was annoying enough to be worth persisting.
+const ADMIN_CODE_KEY = 'ironlog.adminCode';
+function getCachedAdminCode() {
+  try { return localStorage.getItem(ADMIN_CODE_KEY) || null; } catch { return null; }
+}
+function setCachedAdminCode(code) {
+  try { localStorage.setItem(ADMIN_CODE_KEY, code); } catch { /* ignore */ }
+}
+function clearCachedAdminCode() {
+  try { localStorage.removeItem(ADMIN_CODE_KEY); } catch { /* ignore */ }
+}
+
+// Retries `attempt(code)` against an admin-gated endpoint, trying a cached
+// code first. If that's stale/wrong (or nothing was cached), prompts once
+// and retries with what's entered, caching it on success so future calls
+// skip the prompt. Returns the attempt's result, or undefined if the user
+// cancelled the prompt — callers treat that as "do nothing", matching the
+// existing cancel behavior at each call site.
+async function retryWithAdminCode(attempt, promptOpts) {
+  const cached = getCachedAdminCode();
+  if (cached) {
+    try { return await attempt(cached); }
+    catch { clearCachedAdminCode(); /* stale — fall through to a fresh prompt */ }
+  }
+  const code = await promptSheet(promptOpts);
+  if (!code) return undefined;
+  const trimmed = code.trim();
+  const result = await attempt(trimmed);
+  setCachedAdminCode(trimmed);
+  return result;
+}
+
 // Shared AudioContext — created lazily, kept alive so audio policy doesn't
 // block playback when the beep fires from a setInterval (no recent user gesture).
 let audioCtx = null;
@@ -914,10 +950,12 @@ async function openMergePicker(sourceEx, onMerged) {
       // prompt and retry rather than guessing up front whether either side
       // is shared.
       if (err.message === 'admin code required to merge a shared exercise') {
-        const code = await promptSheet({ title: 'Admin code', label: 'This merge involves a shared exercise — enter the admin code to continue', confirmText: 'Confirm' });
-        if (!code) return;
         try {
-          const res = await API.mergeExercise(sourceEx.id, targetId, code.trim());
+          const res = await retryWithAdminCode(
+            (code) => API.mergeExercise(sourceEx.id, targetId, code),
+            { title: 'Admin code', label: 'This merge involves a shared exercise — enter the admin code to continue', confirmText: 'Confirm' }
+          );
+          if (!res) return;
           haptic(20);
           toast(`Merged into ${res.into}`);
           hideSheet(sheet);
@@ -1145,14 +1183,19 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   };
 
   // How-to editing is admin-gated (the catalog is shared across profiles).
-  // The code is only collected here; the server verifies it on save.
+  // The code is only collected here; the server verifies it on save (see
+  // the save handler below, which clears the cache if it turns out wrong).
   let howtoAdminCode = null;
   containerEl.querySelector('#edit-ex-howto-unlock').onclick = async () => {
-    const code = await promptSheet({ title: 'Admin code', label: 'Enter the admin code to edit how-to text', confirmText: 'Unlock' });
-    if (!code) return;
+    let code = getCachedAdminCode();
+    if (!code) {
+      code = await promptSheet({ title: 'Admin code', label: 'Enter the admin code to edit how-to text', confirmText: 'Unlock' });
+      if (!code) return;
+      code = code.trim();
+    }
     let current = '';
     try { current = (await API.exercise(ex.id)).instructions || ''; } catch { /* keep empty */ }
-    howtoAdminCode = code.trim();
+    howtoAdminCode = code;
     containerEl.querySelector('#edit-ex-howto-wrap').innerHTML = `
       <label class="form-label">How-to text (admin)</label>
       <textarea class="input" id="edit-ex-howto" rows="6" placeholder="Step-by-step instructions shown by the ? button">${escapeHtml(current)}</textarea>`;
@@ -1183,19 +1226,32 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     }
     try {
       const updated = await API.updateExercise(ex.id, payload);
+      // The how-to code just used is confirmed correct by this success — cache
+      // it so the next how-to edit (or reclassify/merge, same code) skips the prompt.
+      if (howtoAdminCode) setCachedAdminCode(howtoAdminCode);
       haptic(10);
       toast('Saved');
       if (onSaved) onSaved(updated);
     } catch (err) {
+      // A cached code we already sent (via howtoAdminCode) turned out wrong —
+      // clear it so the next "Unlock" tap re-prompts instead of silently
+      // reusing the same bad value.
+      if (err.message === 'admin code required to edit how-to text' && howtoAdminCode) {
+        clearCachedAdminCode();
+        toast('Wrong admin code — tap Unlock to try again');
+        return;
+      }
       // Reclassifying a shared/seed exercise (muscle group/sub-muscle/
       // equipment) affects every profile's history — the server asks for
       // the admin code. Prompt reactively and retry rather than guessing up
       // front whether this exercise is shared.
       if (err.message === 'admin code required to reclassify a shared exercise') {
-        const code = await promptSheet({ title: 'Admin code', label: 'This exercise is shared — enter the admin code to change its classification', confirmText: 'Confirm' });
-        if (!code) return;
         try {
-          const updated = await API.updateExercise(ex.id, { ...payload, admin_code: code.trim() });
+          const updated = await retryWithAdminCode(
+            (code) => API.updateExercise(ex.id, { ...payload, admin_code: code }),
+            { title: 'Admin code', label: 'This exercise is shared — enter the admin code to change its classification', confirmText: 'Confirm' }
+          );
+          if (!updated) return;
           haptic(10);
           toast('Saved');
           if (onSaved) onSaved(updated);
