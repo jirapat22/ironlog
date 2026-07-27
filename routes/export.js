@@ -198,7 +198,12 @@ router.get('/readable', (req, res) => {
     'Content-Disposition',
     `attachment; filename="ironlog-training-log-${new Date().toISOString().slice(0, 10)}.txt"`
   );
-  res.send(renderText(workouts));
+  // A UTF-8 BOM — without it, Windows text editors (Notepad included) can
+  // silently fall back to the system ANSI codepage instead of UTF-8, mangling
+  // every non-ASCII character this file uses (em dash, middle dot, minus
+  // sign for assisted-exercise weights) into mojibake. The HTML variant
+  // doesn't need this since the browser trusts the charset header/meta tag.
+  res.send('﻿' + renderText(workouts));
 });
 
 router.get('/', (req, res) => {
