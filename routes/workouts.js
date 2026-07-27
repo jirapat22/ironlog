@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, effectiveVolumeLoadKgSql } = require('../db');
+const { db, tx, effectiveVolumeLoadKgSql } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
@@ -64,6 +64,35 @@ router.post('/activity', (req, res) => {
   res.status(201).json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid));
 });
 
+// Closes every unfinished (non-activity) workout for this profile using ITS
+// OWN last logged set + 10 minutes — the same heuristic sweepStaleWorkouts()
+// uses on boot — rather than leaving them open indefinitely. Starting a new
+// workout previously just overwrote the client's local "active workout"
+// pointer, silently orphaning whatever was still open: the old one sat
+// unfinished until something eventually closed it (a manual Finish tap
+// days later, or the next server restart's sweep), and either path stamps
+// finished_at with whatever moment THAT happens to be — producing a
+// "54h 8min" session that has nothing to do with actual training time.
+// Doing it here, at the moment a new workout starts, keeps the closed-out
+// duration meaningful regardless of when the user gets around to it.
+function closeStaleWorkouts(profileId) {
+  const stale = db.prepare(
+    `SELECT w.id, MAX(s.logged_at) as last_set, COUNT(s.id) as n
+     FROM workouts w LEFT JOIN sets s ON s.workout_id = w.id
+     WHERE w.profile_id = ? AND w.finished_at IS NULL AND (w.kind IS NULL OR w.kind != 'activity')
+     GROUP BY w.id`
+  ).all(profileId);
+  if (!stale.length) return;
+  const close = db.prepare("UPDATE workouts SET finished_at = datetime(?, '+10 minutes') WHERE id = ?");
+  const drop = db.prepare('DELETE FROM workouts WHERE id = ?');
+  tx(() => {
+    for (const w of stale) {
+      if (w.n > 0) close.run(w.last_set, w.id);
+      else drop.run(w.id);
+    }
+  });
+}
+
 router.post('/', (req, res) => {
   const { program_day_id } = req.body || {};
   if (program_day_id) {
@@ -73,6 +102,7 @@ router.post('/', (req, res) => {
     ).get(program_day_id, req.profileId);
     if (!day) return res.status(404).json({ error: 'program day not found' });
   }
+  closeStaleWorkouts(req.profileId);
   const info = db
     .prepare('INSERT INTO workouts (program_day_id, profile_id) VALUES (?, ?)')
     .run(program_day_id || null, req.profileId);
