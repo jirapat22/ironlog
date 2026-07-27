@@ -13,10 +13,29 @@ function fmtDate(iso) {
   return new Date(toMs(iso)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function fmtDuration(startIso, endIso) {
-  const mins = Math.max(0, Math.round((toMs(endIso || startIso) - toMs(startIso)) / 60000));
+function fmtDurationMs(startMs, endMs) {
+  const mins = Math.max(0, Math.round((endMs - startMs) / 60000));
   if (mins < 60) return `${mins} min`;
   return `${Math.floor(mins / 60)}h ${mins % 60}min`;
+}
+
+// A workout can sit open long after training actually stopped (forgotten,
+// not explicitly finished) — finished_at then reflects whenever it got
+// closed out, not real training time, and the raw gap can read as
+// "54h 8min". If the gap between the LAST logged set and finished_at is
+// implausible for someone still actively training, report the duration up
+// to that last set instead — the readable export is for a coach, and a
+// multi-day "session" is more confusing than informative.
+const STALE_GAP_MS = 2 * 60 * 60 * 1000; // 2 hours
+function sessionDuration(w) {
+  if (!w.finished_at) return null;
+  const startMs = toMs(w.started_at);
+  let endMs = toMs(w.finished_at);
+  if (w.sets && w.sets.length) {
+    const lastSetMs = Math.max(...w.sets.map((s) => toMs(s.logged_at)));
+    if (endMs - lastSetMs > STALE_GAP_MS) endMs = lastSetMs;
+  }
+  return fmtDurationMs(startMs, endMs);
 }
 
 function fmtSetWeight(weight, unit, isBodyweight, isAssisted) {
@@ -46,10 +65,12 @@ function setLine(s) {
   const wt = fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted);
   let str = `${wt} x ${s.reps}`;
   if (s.is_warmup) return `${str} (warmup)`;
-  const extras = [];
-  if (s.rpe != null) extras.push(`RPE ${s.rpe}`);
-  if (s.rir != null) extras.push(`RIR ${s.rir}`);
-  return extras.length ? `${str} (${extras.join(', ')})` : str;
+  // sets.rpe is vestigial — the live workout UI only ever writes rir, never
+  // rpe (that column's only current writer is the per-ACTIVITY rpe field,
+  // a different scale entirely). Old rows carry a leftover rpe, frequently
+  // 0, which reads as a real "RPE 0/10" rating to a coach if shown here.
+  if (s.rir != null) return `${str} (RIR ${s.rir})`;
+  return str;
 }
 
 function readableWorkouts(profileId) {
@@ -89,7 +110,7 @@ function renderText(workouts) {
 
   for (const w of workouts) {
     const title = [fmtDate(w.started_at), w.day_label].filter(Boolean).join(' — ');
-    const header = `${title} (${w.finished_at ? fmtDuration(w.started_at, w.finished_at) : 'in progress'})`;
+    const header = `${title} (${w.finished_at ? sessionDuration(w) : 'in progress'})`;
     lines.push('='.repeat(64), header, '='.repeat(64));
 
     if (w.kind === 'activity') {
@@ -122,7 +143,7 @@ function renderText(workouts) {
 function renderHtml(workouts) {
   const sections = workouts.map((w) => {
     const title = [fmtDate(w.started_at), w.day_label].filter(Boolean).join(' — ');
-    const dur = w.finished_at ? fmtDuration(w.started_at, w.finished_at) : 'in progress';
+    const dur = w.finished_at ? sessionDuration(w) : 'in progress';
 
     let body;
     if (w.kind === 'activity') {
