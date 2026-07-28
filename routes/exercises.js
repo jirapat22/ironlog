@@ -19,7 +19,7 @@ if (FALLBACK_ADMIN_CODE) {
 }
 
 const SELECT_COLS =
-  'id, name, muscle_group, sub_muscle, secondary_muscles, secondary_major, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override, rep_min, rep_max';
+  'id, name, muscle_group, sub_muscle, secondary_muscles, secondary_major, notes, is_bodyweight, is_assisted, equipment, weight_mode, step_override, rep_min, rep_max, bar_weight_kg';
 
 // Optional target-rep bound: null/'' clears it; otherwise a whole number 1-100.
 // Returns { ok, value } so callers can 400 on bad input instead of coercing.
@@ -109,7 +109,7 @@ router.get('/stats', (req, res) => {
   const rows = db.prepare(`
     SELECT
       e.id, e.name, e.muscle_group, e.sub_muscle, e.secondary_muscles, e.secondary_major,
-      e.notes, e.equipment, e.is_bodyweight, e.is_assisted, e.weight_mode, e.step_override, e.rep_min, e.rep_max,
+      e.notes, e.equipment, e.is_bodyweight, e.is_assisted, e.weight_mode, e.step_override, e.rep_min, e.rep_max, e.bar_weight_kg,
       COUNT(DISTINCT s.workout_id) AS workout_count,
       MAX(w.started_at)            AS last_used_at,
       (SELECT COUNT(*) FROM program_day_exercises pde WHERE pde.exercise_id = e.id) AS program_count
@@ -180,6 +180,18 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'step_override must be a positive number' });
     }
     updates.push('step_override = ?'); values.push(v);
+  }
+  // bar_weight_kg: optional, display-only (the plate-breakdown hint while
+  // logging) — never affects what's stored for a set or any volume/PR math.
+  // Not admin-gated even on a shared exercise: unlike weight_mode/notes, it
+  // can't disagree with anyone's history since nothing derives FROM it.
+  if ('bar_weight_kg' in (req.body || {})) {
+    const raw = req.body.bar_weight_kg;
+    const v = (raw === null || raw === '') ? null : Number(raw);
+    if (v != null && (!Number.isFinite(v) || v <= 0)) {
+      return res.status(400).json({ error: 'bar_weight_kg must be a positive number' });
+    }
+    updates.push('bar_weight_kg = ?'); values.push(v);
   }
   // How-to text edits are admin-gated: the catalog is shared across profiles,
   // so casual edits shouldn't rewrite the how-to everyone sees. Code checked

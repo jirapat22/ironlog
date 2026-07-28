@@ -563,7 +563,7 @@ router.get('/:id', (req, res) => {
 
   // Include exercise metadata so the client can rebuild mid-workout added exercise cards
   const sets = db.prepare(
-    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.sub_muscle, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.rep_min, e.rep_max
+    `SELECT s.*, e.name as exercise_name, e.muscle_group, e.sub_muscle, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.rep_min, e.rep_max, e.bar_weight_kg
      FROM sets s
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.workout_id = ?

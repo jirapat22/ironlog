@@ -122,6 +122,16 @@ function weightHintText(w, u, ex) {
   if (ex && ex.weight_mode === 'per_arm' && !ex.is_bodyweight && Number.isFinite(wn) && wn > 0) {
     return `= ${+(wn * 2).toFixed(1)} ${u} total`;
   }
+  // Plate breakdown — opt-in per exercise (bar_weight_kg set on the Edit
+  // Exercise screen). Purely explanatory: never changes what's stored for
+  // the set, only how the entered TOTAL is broken down into bar + plates.
+  // Hidden below bar weight (loading in progress, or nothing configured)
+  // rather than showing a confusing negative per-side number.
+  if (ex && ex.equipment === 'barbell' && ex.bar_weight_kg != null && Number.isFinite(wn) && wn > 0) {
+    const barInUnit = u === 'lbs' ? fromKg(ex.bar_weight_kg, 'lbs') : ex.bar_weight_kg;
+    const perSide = (wn - barInUnit) / 2;
+    if (perSide > 0) return `= ${+perSide.toFixed(1)} ${u}/side + ${+barInUnit.toFixed(1)} ${u} bar`;
+  }
   return workoutState?.showEquiv ? weightEquiv(w, u) : '';
 }
 
@@ -403,6 +413,7 @@ async function renderWorkout(retriedAfterMissing = false) {
           weight_mode: s.weight_mode || 'per_arm',
           rep_min: s.rep_min ?? null,
           rep_max: s.rep_max ?? null,
+          bar_weight_kg: s.bar_weight_kg ?? null,
           target_sets: Math.max(...workoutState.loggedSets.filter(x => x.exercise_id === s.exercise_id).map(x => x.set_number)),
           target_reps: s.reps,
           order_index: workoutState.programDay.exercises.length + extraById.size
@@ -439,7 +450,8 @@ async function renderWorkout(retriedAfterMissing = false) {
           equipment: fresh.equipment || e.equipment,
           weight_mode: fresh.weight_mode || 'per_arm',
           rep_min: fresh.rep_min ?? null,
-          rep_max: fresh.rep_max ?? null
+          rep_max: fresh.rep_max ?? null,
+          bar_weight_kg: fresh.bar_weight_kg ?? null
         };
       });
       const inList = new Set(list.map((e) => e.exercise_id));
@@ -1798,6 +1810,7 @@ function exerciseCatalogFields(ex) {
     weight_mode: ex.weight_mode || 'combined',
     rep_min: ex.rep_min ?? null,
     rep_max: ex.rep_max ?? null,
+    bar_weight_kg: ex.bar_weight_kg ?? null,
     notes: ex.notes || null
   };
 }

@@ -1140,6 +1140,11 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         </select>
         <label class="form-label" style="margin-top:14px">Custom weight step (kg, optional)</label>
         <input class="input" type="number" step="0.5" min="0" id="edit-ex-step" value="${ex.step_override != null ? ex.step_override : ''}" placeholder="Default for ${ex.equipment || 'this equipment'}"/>
+        <div id="edit-ex-barweight-wrap" style="${ex.equipment === 'barbell' ? '' : 'display:none'}">
+          <label class="form-label" style="margin-top:14px">Bar weight (kg, optional)</label>
+          <input class="input" type="number" step="0.5" min="0" id="edit-ex-barweight" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
+          <div class="card__subtitle">Shows a plate breakdown next to the weight field while logging — doesn't change how weight is stored.</div>
+        </div>
         <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
         <div class="rep-range-inputs">
           <input class="input" type="number" min="1" max="100" step="1" id="edit-ex-repmin" value="${ex.rep_min ?? ''}" placeholder="min"/>
@@ -1178,8 +1183,10 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   // natural default (dumbbell = per arm, everything else = total) — the user
   // can still override it before saving, e.g. a single-arm cable pushdown.
   const weightModeSel = containerEl.querySelector('#edit-ex-weightmode');
+  const barWeightWrap = containerEl.querySelector('#edit-ex-barweight-wrap');
   containerEl.querySelector('#edit-ex-equipment').onchange = (e) => {
     weightModeSel.value = e.target.value === 'dumbbell' ? 'per_arm' : 'combined';
+    barWeightWrap.style.display = e.target.value === 'barbell' ? '' : 'none';
   };
 
   // How-to editing is admin-gated (the catalog is shared across profiles).

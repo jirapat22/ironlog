@@ -323,6 +323,14 @@ function migrateMultiUser() {
   if (!columnExists('exercises', 'step_override')) {
     db.exec('ALTER TABLE exercises ADD COLUMN step_override REAL');
   }
+  // bar_weight_kg: optional, e.g. a 20kg Olympic bar vs a lighter EZ-curl or
+  // trap bar. NULL (the default for every existing row too — nothing backfills
+  // this) means "not configured", so no plate-breakdown hint shows while
+  // logging. Purely a display aid — it never changes what gets stored for a
+  // set or any volume/PR math, only how the entered weight is EXPLAINED.
+  if (!columnExists('exercises', 'bar_weight_kg')) {
+    db.exec('ALTER TABLE exercises ADD COLUMN bar_weight_kg REAL');
+  }
 
   // rep_min/rep_max: optional per-exercise target rep range ("working range"),
   // set when creating/editing an exercise and shown as an "aim X–Y" hint on
@@ -1304,7 +1312,7 @@ function mergeExercises(loserId, survivorId) {
     // Carry over customization the survivor doesn't already have — a blank
     // rep range/instructions/step/notes on the keeper shouldn't silently
     // discard something the user set on the exercise being removed.
-    const fields = ['rep_min', 'rep_max', 'instructions', 'step_override', 'notes'];
+    const fields = ['rep_min', 'rep_max', 'instructions', 'step_override', 'bar_weight_kg', 'notes'];
     const fill = fields.filter((f) => survivor[f] == null && loser[f] != null);
     if (fill.length) {
       db.prepare(`UPDATE exercises SET ${fill.map((f) => `${f} = ?`).join(', ')} WHERE id = ?`)
