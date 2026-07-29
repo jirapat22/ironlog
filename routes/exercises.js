@@ -137,6 +137,7 @@ router.patch('/:id', (req, res) => {
   // set" and got silently reverted every restart.
   const CLASSIFICATION_FIELDS = new Set(['muscle_group', 'sub_muscle', 'equipment']);
   let touchesClassification = false;
+  let classificationChanged = false;
   const updates = [], values = [];
   for (const f of fields) {
     if (f in (req.body || {})) {
@@ -149,7 +150,10 @@ router.patch('/:id', (req, res) => {
           return res.status(400).json({ error: `muscle_group must be one of: ${MUSCLE_GROUPS.join(', ')}` });
         }
       }
-      if (CLASSIFICATION_FIELDS.has(f)) touchesClassification = true;
+      if (CLASSIFICATION_FIELDS.has(f)) {
+        touchesClassification = true;
+        if (v !== existing[f]) classificationChanged = true;
+      }
       updates.push(`${f} = ?`); values.push(v);
     }
   }
@@ -157,7 +161,12 @@ router.patch('/:id', (req, res) => {
     // Reclassifying a SHARED exercise changes what muscle-coverage/PRs every
     // profile that's ever logged it sees — needs the same confirmation as
     // editing its how-to text below. Your own custom exercise needs no gate.
-    if (existing.created_by_profile_id == null && !checkAdminCode(req.body.admin_code)) {
+    // Gated on an actual VALUE change, not mere presence: the edit form always
+    // resubmits muscle_group/sub_muscle/equipment alongside unrelated fields
+    // (e.g. bar_weight_kg, explicitly NOT meant to be gated), so presence-only
+    // gating forced the admin code on every save of a shared exercise, even
+    // when nothing about its classification was actually changing.
+    if (classificationChanged && existing.created_by_profile_id == null && !checkAdminCode(req.body.admin_code)) {
       return res.status(403).json({ error: 'admin code required to reclassify a shared exercise' });
     }
     updates.push('classification_customized = ?'); values.push(1);

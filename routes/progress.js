@@ -279,20 +279,34 @@ router.get('/sub-muscle-frequency', (req, res) => {
   for (const r of rows) byKey.set(`${r.muscle_group}|${r.sub_muscle}`, r);
 
   const secRaw = db.prepare(
-    `SELECT e.secondary_muscles AS secs, MAX(w.started_at) AS last_at
+    `SELECT e.secondary_muscles AS secs, e.secondary_major AS major, MAX(w.started_at) AS last_at
      FROM sets s
      JOIN workouts  w ON w.id = s.workout_id AND w.finished_at IS NOT NULL
      JOIN exercises e ON e.id = s.exercise_id
      WHERE s.profile_id = ? AND s.is_warmup = 0 AND e.secondary_muscles IS NOT NULL
-     GROUP BY e.secondary_muscles`
+     GROUP BY e.secondary_muscles, e.secondary_major`
   ).all(req.profileId);
 
+  // Same secondary_major gate as /muscle-coverage (see its comment) — only
+  // prime-mover-level regions refresh recency here too, otherwise e.g. a
+  // chest press's sub-threshold triceps/delt tags showed those groups as
+  // freshly "trained" here while the weekly coverage goal correctly ignored
+  // them, so the two views of "did I train this" disagreed.
   const secLast = new Map(); // region -> latest started_at (UTC string, lexically comparable)
   for (const row of secRaw) {
     let regions;
     try { regions = JSON.parse(row.secs); } catch { regions = []; }
     if (!Array.isArray(regions)) continue;
+    let creditable;
+    if (row.major == null) {
+      creditable = new Set(regions); // unclassified: fall back to full credit
+    } else {
+      let major = [];
+      try { major = JSON.parse(row.major); } catch { major = []; }
+      creditable = new Set(Array.isArray(major) ? major : []);
+    }
     for (const region of regions) {
+      if (!creditable.has(region)) continue;
       const prev = secLast.get(region);
       if (!prev || row.last_at > prev) secLast.set(region, row.last_at);
     }

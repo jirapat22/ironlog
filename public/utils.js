@@ -1221,11 +1221,16 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       return toast('Custom step must be a positive number');
     }
     const step_override = stepRaw ? Number(stepRaw) : null;
+    const barWeightRaw = containerEl.querySelector('#edit-ex-barweight').value.trim();
+    if (barWeightRaw && (!Number.isFinite(Number(barWeightRaw)) || Number(barWeightRaw) <= 0)) {
+      return toast('Bar weight must be a positive number');
+    }
+    const bar_weight_kg = barWeightRaw ? Number(barWeightRaw) : null;
     const repRange = readRepRangeInputs(containerEl, '#edit-ex-repmin', '#edit-ex-repmax');
     if (!repRange.ok) return toast(repRange.error);
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
-    const payload = { name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment, weight_mode, step_override, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
+    const payload = { name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment, weight_mode, step_override, bar_weight_kg, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
     const howtoEl = containerEl.querySelector('#edit-ex-howto');
     if (howtoEl && howtoAdminCode !== null) {
       payload.instructions = howtoEl.value.trim() || null;
