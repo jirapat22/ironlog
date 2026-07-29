@@ -1245,7 +1245,15 @@ function wireWorkoutView() {
       return;
     }
 
-    const rirBtn = e.target.closest('[data-rir]');
+    // Must be scoped to the pill buttons specifically (button[data-rir]) —
+    // the set-row div also carries a data-rir attribute (its current value,
+    // for state tracking), and a bare `[data-rir]` selector matches that too.
+    // That collision meant ANY unhandled click inside a row (e.g. tapping
+    // into the weight/reps input to type a number) resolved to the row
+    // itself here, read its own (initially empty) data-rir via Number(''),
+    // which JS evaluates to 0, and wrote that back — silently defaulting
+    // every set's RIR to "0 / to failure" on first touch.
+    const rirBtn = e.target.closest('button[data-rir]');
     if (rirBtn) {
       const val = Number(rirBtn.dataset.rir);
       row.dataset.rir = String(val);
