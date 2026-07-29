@@ -229,10 +229,15 @@ function showUpdateBanner(worker) {
     <span class="update-banner__text">A new version is ready</span>
     <button class="update-banner__btn" id="update-refresh">Refresh</button>`;
   document.body.appendChild(banner);
+  // Reserves clearance at the bottom of the scrollable view so the banner
+  // never sits on top of content down there (e.g. the Finish workout
+  // button) — see body.has-update-banner in style.css.
+  document.body.classList.add('has-update-banner');
   banner.querySelector('#update-refresh').onclick = () => {
     updateAccepted = true;
     worker.postMessage({ type: 'skip-waiting' });
     banner.remove();
+    document.body.classList.remove('has-update-banner');
   };
 }
 

@@ -24,6 +24,10 @@
   --radius: 9px;
   --radius-sm: 6px;
   --nav-h: 68px;
+  /* Reserved extra clearance when the update banner is showing (see
+     body.has-update-banner below) — its own height plus the gap above the
+     nav it's anchored to. */
+  --update-banner-h: 80px;
   /* Includes the top safe-area inset (Dynamic Island / notch) so sticky
      sub-headers that offset from the main header stay aligned with it. */
   --header-h: calc(56px + env(safe-area-inset-top));
@@ -119,6 +123,15 @@ button {
   /* Reserve room for the fixed bottom nav + the home-indicator safe area,
      counted once here (see body). */
   padding: 0 16px calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+
+/* The update banner floats above the nav with no dismiss but "Refresh" —
+   without this, whatever content naturally scrolls to the bottom (e.g. the
+   Finish workout button) ends up partly behind it, unreachable even at max
+   scroll, since the banner's height was never counted in .app's own
+   clearance above. */
+body.has-update-banner .app {
+  padding-bottom: calc(var(--nav-h) + var(--update-banner-h) + env(safe-area-inset-bottom));
 }
 
 .app__header {
