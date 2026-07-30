@@ -826,10 +826,14 @@ const SUB_MUSCLE_BY_NAME = {
   'Rear Delt Fly': 'rear delt', 'Reverse Pec Deck': 'rear delt', 'Upright Row': 'side delt',
   'Landmine Press': 'front delt', 'Seated Cable Lateral Raise': 'side delt', 'Band Pull-Apart': 'rear delt',
   'External Rotation': 'rear delt', 'Y-T-W Raise': 'rear delt',
-  // Biceps
-  'Barbell Curl': 'biceps', 'Dumbbell Curl': 'biceps', 'Hammer Curl': 'brachialis', 'Preacher Curl': 'short head',
-  'Incline Dumbbell Curl': 'long head', 'Cable Curl': 'biceps', 'Concentration Curl': 'short head',
-  'Spider Curl': 'short head', 'EZ Bar Curl': 'biceps', 'Cable Hammer Curl': 'brachialis',
+  // Biceps — Barbell/Dumbbell/Cable/EZ Bar Curl have no real single-head bias,
+  // so they're deliberately absent here: sub_muscle stays NULL ("whole
+  // muscle"), not the muscle_group name repeated as a fake sub-region (that
+  // used to show a redundant "BICEPS · BICEPS" badge everywhere — see the
+  // one-time cleanup in populateMuscleAndMet for existing DBs seeded that way).
+  'Hammer Curl': 'brachialis', 'Preacher Curl': 'short head',
+  'Incline Dumbbell Curl': 'long head', 'Concentration Curl': 'short head',
+  'Spider Curl': 'short head', 'Cable Hammer Curl': 'brachialis',
   'Machine Curl': 'short head', 'Bayesian Curl': 'long head', 'Zottman Curl': 'brachialis',
   // Triceps — long (overhead/stretch) / lateral (pushdowns/pressing). 'tricep
   // long head', not bare 'long head' — biceps has its own 'long head' region
@@ -839,7 +843,7 @@ const SUB_MUSCLE_BY_NAME = {
   'Tricep Pushdown': 'lateral head', 'Single-Arm Tricep Pushdown': 'lateral head', 'Rope Pushdown': 'lateral head', 'Overhead Tricep Extension': 'tricep long head',
   'Skull Crusher': 'tricep long head', 'Close-Grip Bench Press': 'lateral head', 'Tricep Dip': 'lateral head',
   'Tricep Kickback': 'lateral head', 'Diamond Push-Up': 'lateral head', 'Cable Overhead Tricep Extension': 'tricep long head',
-  'Machine Tricep Extension': 'lateral head', 'Assisted Chin-Up': 'biceps', 'Assisted Pull-Up': 'lats',
+  'Machine Tricep Extension': 'lateral head', 'Assisted Pull-Up': 'lats',
   // Legs
   'Back Squat': 'quads', 'Front Squat': 'quads', 'Goblet Squat': 'quads', 'Romanian Deadlift': 'hamstrings',
   'Stiff-Leg Deadlift': 'hamstrings', 'Leg Press': 'quads', 'Hack Squat': 'quads',
@@ -941,6 +945,13 @@ function populateMuscleAndMet() {
     // Drop sub-muscles since removed from the taxonomy (an earlier deploy may
     // have set them): Farmer Carry's 'grip' and the unused triceps 'medial head'.
     db.prepare("UPDATE exercises SET sub_muscle = NULL WHERE sub_muscle IN ('grip', 'medial head') AND created_by_profile_id IS NULL").run();
+    // Same cleanup for biceps' whole-muscle curls (Barbell/Dumbbell/Cable/EZ
+    // Bar Curl, Assisted Chin-Up): these were seeded with sub_muscle set to
+    // the muscle_group name itself ('biceps') as a stand-in for "no specific
+    // head bias" — but NULL already means that, and the repeated string
+    // produced a redundant "BICEPS · BICEPS" badge everywhere the pair is
+    // shown. 'biceps' as a sub_muscle value never means anything else.
+    db.prepare("UPDATE exercises SET sub_muscle = NULL WHERE sub_muscle = 'biceps' AND created_by_profile_id IS NULL AND classification_customized = 0").run();
   });
 }
 
