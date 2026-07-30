@@ -55,11 +55,15 @@ const ACTIVITY_MET = {
   run: 10,
   row: 8.5,
   hyrox: 8,
+  hiit: 8.5,
+  boxing: 9,
   class: 8,
   cycle: 7.5,
   cardio: 7.5,
   swim: 8,
-  walk: 4
+  stairmaster: 9,
+  walk: 4,
+  pilates: 3
 };
 const ACTIVITY_MET_DEFAULT = 6; // unknown / "other"
 

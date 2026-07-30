@@ -2,7 +2,7 @@ import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
-import { saveAsTemplate, openActivitySheet } from './workout.js';
+import { saveAsTemplate, openActivitySheet, ACTIVITY_TYPES } from './workout.js';
 import { reportHandled } from './bugreport.js';
 
 // ---------- HISTORY tab ----------
@@ -417,10 +417,11 @@ async function refreshHistoryCard(workoutId) {
   } catch (err) { toast(err.message); }
 }
 
-const ACTIVITY_LABELS = {
-  hyrox: 'HYROX', run: 'Run', cycle: 'Cycle', row: 'Row', swim: 'Swim',
-  walk: 'Walk', cardio: 'Cardio', class: 'Class', other: 'Activity'
-};
+// Derived from workout.js's single ACTIVITY_TYPES list rather than its own
+// copy — a hardcoded duplicate here had silently fallen out of sync with it
+// before (new types added to the log form didn't get a real label here,
+// just the 'other' fallback).
+const ACTIVITY_LABELS = Object.fromEntries(ACTIVITY_TYPES);
 
 function historyCardHTML(w) {
   const started = new Date(w.started_at.replace(' ', 'T') + 'Z');

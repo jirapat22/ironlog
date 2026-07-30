@@ -215,9 +215,44 @@ function getSetCount(ex) {
 
 // ---------- Log a non-strength activity (class / run / cardio) ----------
 const ACTIVITY_TYPES = [
-  ['hyrox', 'HYROX'], ['run', 'Run'], ['cycle', 'Cycle'], ['row', 'Row'],
-  ['swim', 'Swim'], ['walk', 'Walk'], ['cardio', 'Cardio'], ['class', 'Class'], ['other', 'Other']
+  ['hyrox', 'HYROX'], ['hiit', 'HIIT'], ['boxing', 'Boxing'], ['pilates', 'Pilates'],
+  ['run', 'Run'], ['cycle', 'Cycle'], ['row', 'Row'], ['swim', 'Swim'], ['walk', 'Walk'],
+  ['stairmaster', 'StairMaster'], ['cardio', 'Cardio'], ['class', 'Class'], ['other', 'Other']
 ];
+
+// Only these are naturally distance-tracked — hidden for everything else (a
+// HIIT circuit, boxing round, Pilates class etc. don't have a "distance").
+const DISTANCE_TYPES = new Set(['run', 'cycle', 'row', 'swim', 'walk']);
+
+// Three effort levels instead of a raw 6-10 pick. The actual complaint was
+// that precisely ranking "was that a 7 or an 8" is more decision than it's
+// worth — the calorie multiplier only spans 0.8-1.04 across the whole range
+// anyway (see calories.js), so collapsing to three representative values
+// loses little. Still stored as the same 6-10 RPE number calories.js expects.
+const RPE_OPTIONS = [[6, 'Easy'], [8, 'Moderate'], [10, 'Hard']];
+function closestRpeOption(rpe) {
+  if (rpe == null) return null;
+  return RPE_OPTIONS.map(([n]) => n).reduce((a, b) => Math.abs(b - rpe) < Math.abs(a - rpe) ? b : a);
+}
+
+// One-tap starting point for "muscles worked" — the typical prime movers for
+// each activity, so a HIIT or boxing class doesn't need 4-5 individual chip
+// taps every time. Applied when a type is picked on a NEW log; never
+// overrides an edit of an already-saved activity (existingTags wins there).
+const ACTIVITY_DEFAULT_MUSCLES = {
+  hyrox: ['legs', 'core', 'back', 'shoulders'],
+  hiit: ['legs', 'core', 'shoulders', 'chest'],
+  boxing: ['shoulders', 'core', 'biceps', 'triceps'],
+  pilates: ['core'],
+  run: ['legs', 'core'],
+  cycle: ['legs', 'core'],
+  row: ['back', 'legs', 'core'],
+  swim: ['shoulders', 'back', 'core', 'legs'],
+  walk: ['legs'],
+  stairmaster: ['legs', 'core'],
+  cardio: ['legs', 'core'],
+  class: ['legs', 'core', 'shoulders']
+};
 
 // `existing` (a workout row with kind='activity') switches this into edit
 // mode: prefills every field and PATCHes instead of POSTing on save. Editing
@@ -229,28 +264,33 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
     `<button class="act-chip ${active ? 'act-chip--on' : ''}" data-${attr}="${val}">${escapeHtml(label)}</button>`;
   let existingTags = [];
   if (existing) { try { existingTags = JSON.parse(existing.muscle_tags || '[]'); } catch { existingTags = []; } }
+  const initialType = existing ? existing.activity_type : ACTIVITY_TYPES[0][0];
+  const initialMuscles = existing ? existingTags : (ACTIVITY_DEFAULT_MUSCLES[initialType] || []);
+  const activeRpe = existing ? closestRpeOption(existing.rpe) : null;
   sheet.innerHTML = `
     <div class="sheet__inner">
       <div class="sheet__head"><button class="btn--icon" data-close-sheet>←</button><div class="sheet__title">${existing ? 'Edit activity' : 'Log activity'}</div><span style="width:40px"></span></div>
       <div class="sheet__body">
         <label class="form-label">Type</label>
-        <div class="act-chips">${ACTIVITY_TYPES.map(([v, l]) => chip(v, l, 'act-type', existing ? existing.activity_type === v : v === ACTIVITY_TYPES[0][0])).join('')}</div>
+        <div class="act-chips">${ACTIVITY_TYPES.map(([v, l]) => chip(v, l, 'act-type', v === initialType)).join('')}</div>
 
         <label class="form-label" style="margin-top:16px">Duration (minutes)</label>
         <input class="input" id="act-dur" type="text" inputmode="numeric" placeholder="e.g. 45" value="${existing ? existing.duration_min : ''}"/>
 
         <label class="form-label" style="margin-top:16px">How hard? <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
-        <div class="card__subtitle" style="margin:-4px 0 8px">RPE, 6 = easy session, 10 = max effort — a different scale than the RIR on your strength sets.</div>
-        <div class="act-chips">${[6, 7, 8, 9, 10].map((n) => chip(n, 'RPE ' + n, 'act-rpe', existing?.rpe === n)).join('')}</div>
+        <div class="card__subtitle" style="margin:-4px 0 8px">How it felt — a different scale than the RIR on your strength sets.</div>
+        <div class="act-chips">${RPE_OPTIONS.map(([n, label]) => chip(n, label, 'act-rpe', activeRpe === n)).join('')}</div>
 
-        <label class="form-label" style="margin-top:16px">Distance <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
-        <div class="set-edit__row">
-          <input class="input" id="act-dist" type="text" inputmode="decimal" placeholder="e.g. 5.2" style="flex:1" value="${existing?.distance ?? ''}"/>
-          <button class="unit-toggle kg" id="act-dist-unit">${existing?.distance_unit || 'km'}</button>
+        <div id="act-distance-wrap" class="${DISTANCE_TYPES.has(initialType) ? '' : 'hidden'}">
+          <label class="form-label" style="margin-top:16px">Distance <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
+          <div class="set-edit__row">
+            <input class="input" id="act-dist" type="text" inputmode="decimal" placeholder="e.g. 5.2" style="flex:1" value="${existing?.distance ?? ''}"/>
+            <button class="unit-toggle kg" id="act-dist-unit">${existing?.distance_unit || 'km'}</button>
+          </div>
         </div>
 
         <label class="form-label" style="margin-top:16px">Muscles worked <span style="color:var(--text-dim);font-weight:400">· keeps recovery honest</span></label>
-        <div class="act-chips">${PICKER_GROUP_ORDER.map((g) => chip(g, g, 'act-mg', existingTags.includes(g))).join('')}</div>
+        <div class="act-chips">${PICKER_GROUP_ORDER.map((g) => chip(g, g, 'act-mg', initialMuscles.includes(g))).join('')}</div>
 
         <label class="form-label" style="margin-top:16px">Notes</label>
         <input class="input" id="act-notes" placeholder="Optional" value="${escapeHtml(existing?.notes || '')}"/>
@@ -263,7 +303,16 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
   sheet.onclick = async (e) => {
     if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
     const t = e.target.closest('[data-act-type]');
-    if (t) { sheet.querySelectorAll('[data-act-type]').forEach((b) => b.classList.toggle('act-chip--on', b === t)); return; }
+    if (t) {
+      sheet.querySelectorAll('[data-act-type]').forEach((b) => b.classList.toggle('act-chip--on', b === t));
+      const type = t.dataset.actType;
+      sheet.querySelector('#act-distance-wrap').classList.toggle('hidden', !DISTANCE_TYPES.has(type));
+      if (!existing) {
+        const defaults = ACTIVITY_DEFAULT_MUSCLES[type] || [];
+        sheet.querySelectorAll('[data-act-mg]').forEach((b) => b.classList.toggle('act-chip--on', defaults.includes(b.dataset.actMg)));
+      }
+      return;
+    }
     const r = e.target.closest('[data-act-rpe]');
     if (r) { const on = r.classList.contains('act-chip--on'); sheet.querySelectorAll('[data-act-rpe]').forEach((b) => b.classList.remove('act-chip--on')); if (!on) r.classList.add('act-chip--on'); return; }
     const mg = e.target.closest('[data-act-mg]');
@@ -277,7 +326,9 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
       const activity_type = sheet.querySelector('[data-act-type].act-chip--on')?.dataset.actType || 'other';
       const rpeEl = sheet.querySelector('[data-act-rpe].act-chip--on');
       const rpe = rpeEl ? Number(rpeEl.dataset.actRpe) : null;
-      const distVal = parseFloat(document.getElementById('act-dist').value || '');
+      // Ignore a stale typed value left over from a distance-tracked type the
+      // user switched away from — the field's hidden but its input isn't cleared.
+      const distVal = DISTANCE_TYPES.has(activity_type) ? parseFloat(document.getElementById('act-dist').value || '') : NaN;
       const distance = Number.isFinite(distVal) && distVal > 0 ? distVal : null;
       const distance_unit = distance != null ? document.getElementById('act-dist-unit').textContent.trim() : null;
       const muscle_tags = [...sheet.querySelectorAll('[data-act-mg].act-chip--on')].map((b) => b.dataset.actMg);
@@ -2385,5 +2436,5 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
 export {
   renderWorkout, workoutState, flushWorkoutNotes,
   userBwKg, syncUserBodyweight, loadKg, e1RMForSet,
-  saveAsTemplate, openActivitySheet
+  saveAsTemplate, openActivitySheet, ACTIVITY_TYPES
 };
