@@ -564,7 +564,7 @@ function renderSetEditSheet() {
         </div>
         <label class="form-label" style="margin-top:14px">RIR <span style="color:var(--text-dim);font-weight:400">· reps in reserve</span></label>
         <div class="rpe-group rpe-group--wide" id="se-rir-group">
-          ${[0,1,2,3,4].map((n) => `<button class="rpe-btn ${Number(s.rir) === n ? 'rpe-btn--active' : ''}" data-se-rir="${n}">${n}</button>`).join('')}
+          ${[0,1,2,3,4].map((n) => `<button class="rpe-btn ${s.rir != null && Number(s.rir) === n ? 'rpe-btn--active' : ''}" data-se-rir="${n}">${n}</button>`).join('')}
           <button class="rpe-btn rpe-btn--clear ${s.rir == null ? 'rpe-btn--active' : ''}" data-se-rir="">none</button>
         </div>
         <label class="form-label" style="margin-top:14px">Notes</label>
