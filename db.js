@@ -256,7 +256,11 @@ function init() {
     ['workouts', 'bw_kg REAL'],
     ['program_day_exercises', 'rest_seconds INTEGER'],
     ['exercises', "equipment TEXT NOT NULL DEFAULT 'barbell'"],
-    ['sets', 'rir INTEGER']
+    ['sets', 'rir INTEGER'],
+    // Superset pairing: NULL by default (no pairing). Always mutual when set
+    // — A.superset_with = B.id implies B.superset_with = A.id — maintained
+    // by the dedicated pairing endpoint below, never by the plain PATCH.
+    ['program_day_exercises', 'superset_with INTEGER']
   ]) {
     const column = def.split(' ')[0];
     if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);

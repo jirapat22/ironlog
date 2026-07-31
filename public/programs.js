@@ -390,13 +390,17 @@ function renderEditSheet() {
   const sheet = document.getElementById('edit-sheet');
   const { day, programId, dayId } = editDayState;
 
-  const rows = day.exercises.map((e, i) => `
-    <div class="edit-row" data-pde="${e.id}">
+  const rows = day.exercises.map((e, i) => {
+    const partner = e.superset_with != null ? day.exercises.find((x) => x.id === e.superset_with) : null;
+    const canPair = !partner && i < day.exercises.length - 1;
+    return `
+    <div class="edit-row${partner ? ' edit-row--paired' : ''}" data-pde="${e.id}">
       <div class="edit-row__main">
         <button class="edit-row__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
         <div class="edit-row__head-text">
           <div class="edit-row__name">${escapeHtml(e.name)}</div>
           <div class="edit-row__muscle">${muscleTagHTML(e.muscle_group, e.sub_muscle)}${e.notes ? ` ${escapeHtml(e.notes)}` : ''}</div>
+          ${partner ? `<div class="edit-row__superset-tag">&#x26D3; Superset with ${escapeHtml(partner.name)}</div>` : ''}
         </div>
       </div>
       <div class="edit-row__controls">
@@ -422,10 +426,12 @@ function renderEditSheet() {
       <div class="edit-row__actions">
         <button class="btn--icon" data-move="up" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
         <button class="btn--icon" data-move="down" title="Move down" ${i === day.exercises.length - 1 ? 'disabled' : ''}>↓</button>
+        <button class="btn--icon${partner ? ' btn--icon-active' : ''}" data-toggle-superset title="${partner ? 'Unlink superset' : 'Superset with the next exercise'}" ${!partner && !canPair ? 'disabled' : ''}>&#x26D3;</button>
         <button class="btn--icon" data-swap-slot title="Swap for another exercise">&#x21C4;</button>
         <button class="btn--icon btn--icon-danger" data-remove title="Remove">×</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   sheet.innerHTML = `
     <div class="sheet__inner">
@@ -496,6 +502,34 @@ function renderEditSheet() {
       return;
     }
 
+    // Superset toggle — pairs with whatever's currently the NEXT row (or, if
+    // already paired, unlinks regardless of whether the pair is still
+    // adjacent after a later reorder). Re-pairing a slot that was linked to
+    // something else breaks that old link server-side; nothing to mirror
+    // here beyond the two rows involved, so just re-render from scratch.
+    if (e.target.closest('[data-toggle-superset]')) {
+      const exs = editDayState.day.exercises;
+      const current = exs.find((x) => x.id === pdeId);
+      const pairWith = current.superset_with != null ? null : exs[exs.findIndex((x) => x.id === pdeId) + 1]?.id ?? null;
+      try {
+        await API.pairDayExercise(programId, dayId, pdeId, pairWith);
+        const oldPartnerId = current.superset_with;
+        current.superset_with = pairWith;
+        if (oldPartnerId != null) { const old = exs.find((x) => x.id === oldPartnerId); if (old) old.superset_with = null; }
+        if (pairWith != null) {
+          const newPartner = exs.find((x) => x.id === pairWith);
+          if (newPartner.superset_with != null && newPartner.superset_with !== pdeId) {
+            const bumped = exs.find((x) => x.id === newPartner.superset_with);
+            if (bumped) bumped.superset_with = null;
+          }
+          newPartner.superset_with = pdeId;
+        }
+        haptic(10);
+        renderEditSheet();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+
     // Swap this slot's exercise for another — opens the picker in swap mode.
     // Sets/reps/rest and position stay; only the exercise changes.
     if (e.target.closest('[data-swap-slot]')) return openPicker({ swapPde: pdeId });
@@ -506,6 +540,10 @@ function renderEditSheet() {
       if (!ok) return;
       try {
         await API.removeDayExercise(programId, dayId, pdeId);
+        // The server also clears the removed slot's partner's superset_with
+        // (a pair can't have one half gone) -- mirror that here too, or the
+        // partner would keep showing "paired" with a now-nonexistent exercise.
+        for (const x of editDayState.day.exercises) if (x.superset_with === pdeId) x.superset_with = null;
         editDayState.day.exercises = editDayState.day.exercises.filter((x) => x.id !== pdeId);
         renderEditSheet(); haptic(20);
       } catch (err) { toast(err.message); }

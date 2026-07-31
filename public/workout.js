@@ -744,8 +744,16 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
 
   const hasLoggedSets = workoutState.loggedSets.some((s) => s.exercise_id === ex.exercise_id);
 
+  // Superset pairing is PDE-level (ex.id, not ex.exercise_id) — only resolvable
+  // for program-day exercises still carrying their PDE id (mid-workout adds
+  // and quick-workout entries don't, so partner is null there, same as if
+  // nothing were paired).
+  const supersetPartner = ex.superset_with != null
+    ? workoutState.programDay.exercises.find((x) => x.id === ex.superset_with)
+    : null;
+
   return `
-    <div class="${cardClasses}" data-ex="${ex.exercise_id}">
+    <div class="${cardClasses}${supersetPartner ? ' exercise-card--paired' : ''}" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
         <button class="exercise-card__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
         <div>
@@ -754,6 +762,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
             ${ex.is_assisted ? ' <span class="badge badge--assisted">ASSISTED</span>' : ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}
           </div>
           <div class="card__subtitle">${target} × ${ex.target_reps}${repRangeLabel(ex)}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
+          ${supersetPartner ? `<div class="exercise-card__superset-tag">&#x26D3; Superset with ${escapeHtml(supersetPartner.name)} — go straight into it, rest after both</div>` : ''}
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-howto-ex="${ex.exercise_id}" title="How to do this exercise">?</button>

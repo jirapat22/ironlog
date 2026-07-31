@@ -646,12 +646,30 @@ body.has-update-banner .app {
   color: var(--danger);
 }
 
+.btn--icon-active {
+  background: var(--accent);
+  color: #0c0c0c;
+  border-color: var(--accent);
+}
+
 .edit-row {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 12px;
   margin-bottom: 10px;
+}
+
+/* Paired (superset) rows get an accent left-edge so the two linked slots
+   read as a connected unit rather than two unrelated exercises. */
+.edit-row--paired {
+  border-left: 3px solid var(--accent);
+}
+
+.edit-row__superset-tag {
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 4px;
 }
 
 .edit-row__main {
@@ -1966,6 +1984,16 @@ body.has-update-banner .app {
 
 .exercise-card--complete {
   border-color: rgba(158, 255, 168, 0.4);
+}
+
+.exercise-card--paired {
+  border-left: 3px solid var(--accent);
+}
+
+.exercise-card__superset-tag {
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 4px;
 }
 
 .exercise-card__drag {

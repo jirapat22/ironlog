@@ -220,7 +220,7 @@ router.get('/days/:dayId', (req, res) => {
   if (!day) return res.status(404).json({ error: 'program day not found' });
 
   day.exercises = db.prepare(`
-    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds, pde.superset_with,
            e.id as exercise_id, e.name, e.muscle_group, e.sub_muscle, e.notes, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.step_override, e.rep_min, e.rep_max, e.bar_weight_kg
     FROM program_day_exercises pde
     JOIN exercises e ON e.id = pde.exercise_id
@@ -241,7 +241,7 @@ router.get('/:id', (req, res) => {
     .all(id);
 
   const dayExStmt = db.prepare(`
-    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+    SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds, pde.superset_with,
            e.id as exercise_id, e.name, e.muscle_group, e.sub_muscle, e.notes, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.step_override, e.rep_min, e.rep_max, e.bar_weight_kg
     FROM program_day_exercises pde
     JOIN exercises e ON e.id = pde.exercise_id
@@ -287,7 +287,7 @@ router.post('/:programId/days/:dayId/exercises', (req, res) => {
 
   const row = db
     .prepare(
-      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds, pde.superset_with,
               e.id as exercise_id, e.name, e.muscle_group, e.sub_muscle, e.notes, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.step_override, e.rep_min, e.rep_max, e.bar_weight_kg
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id
@@ -328,7 +328,7 @@ router.put('/:programId/days/:dayId/exercises', (req, res) => {
 
   const rows = db
     .prepare(
-      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds, pde.superset_with,
               e.id as exercise_id, e.name, e.muscle_group, e.sub_muscle, e.notes, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.step_override, e.rep_min, e.rep_max, e.bar_weight_kg
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id
@@ -394,7 +394,7 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
 
   const row = db
     .prepare(
-      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds,
+      `SELECT pde.id, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds, pde.superset_with,
               e.id as exercise_id, e.name, e.muscle_group, e.sub_muscle, e.notes, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, e.step_override, e.rep_min, e.rep_max, e.bar_weight_kg
        FROM program_day_exercises pde
        JOIN exercises e ON e.id = pde.exercise_id
@@ -404,11 +404,52 @@ router.patch('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   res.json(row);
 });
 
+// Pair (or unpair) two exercise slots as a superset — done back-to-back
+// during logging, no rest between them. Kept as its own endpoint rather than
+// a plain field on the PATCH above so the pairing always stays mutual: never
+// possible to end up with A.superset_with = B while B.superset_with points
+// elsewhere or is NULL. Re-pairing either side first breaks whatever it was
+// previously paired with, since a slot can only be in one pair at a time.
+router.patch('/:programId/days/:dayId/exercises/:pdeId/superset', (req, res) => {
+  const pdeId = Number(req.params.pdeId);
+  const dayId = Number(req.params.dayId);
+  const existing = db.prepare('SELECT * FROM program_day_exercises WHERE id = ?').get(pdeId);
+  if (!existing || !ownsPde(req.profileId, pdeId)) return res.status(404).json({ error: 'entry not found' });
+
+  const pairWith = req.body?.pair_with != null ? Number(req.body.pair_with) : null;
+  if (pairWith === pdeId) return res.status(400).json({ error: 'cannot pair an exercise with itself' });
+
+  let target = null;
+  if (pairWith != null) {
+    target = db.prepare('SELECT * FROM program_day_exercises WHERE id = ? AND program_day_id = ?').get(pairWith, dayId);
+    if (!target) return res.status(404).json({ error: 'pairing target not found in this day' });
+  }
+
+  tx(() => {
+    // Clear whatever this slot (and, if pairing, the target slot) was
+    // previously paired with, so no dangling one-sided link survives.
+    if (existing.superset_with != null) {
+      db.prepare('UPDATE program_day_exercises SET superset_with = NULL WHERE id = ?').run(existing.superset_with);
+    }
+    if (target && target.superset_with != null) {
+      db.prepare('UPDATE program_day_exercises SET superset_with = NULL WHERE id = ?').run(target.superset_with);
+    }
+    db.prepare('UPDATE program_day_exercises SET superset_with = ? WHERE id = ?').run(pairWith, pdeId);
+    if (target) db.prepare('UPDATE program_day_exercises SET superset_with = ? WHERE id = ?').run(pdeId, target.id);
+  });
+
+  res.json({ paired: pairWith });
+});
+
 // Remove an exercise from a program day
 router.delete('/:programId/days/:dayId/exercises/:pdeId', (req, res) => {
   const pdeId = Number(req.params.pdeId);
   if (!ownsPde(req.profileId, pdeId)) return res.status(404).json({ error: 'entry not found' });
-  db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(pdeId);
+  tx(() => {
+    // A removed exercise can't stay half of a pair — clear its partner's side too.
+    db.prepare('UPDATE program_day_exercises SET superset_with = NULL WHERE superset_with = ?').run(pdeId);
+    db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(pdeId);
+  });
   res.json({ deleted: true });
 });
 
