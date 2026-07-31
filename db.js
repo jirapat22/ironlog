@@ -792,6 +792,7 @@ function seed() {
   mergeLegCurlIntoSeated();
   sweepStaleWorkouts();
   cleanupRemovedPrograms();
+  cleanupRemovedProgramsV2();
   setDefaultRepTargets();
   setDefaultSetsTo2();
   // NOTE: programs are no longer seeded globally here — each profile gets its
@@ -1589,6 +1590,23 @@ function cleanupRemovedPrograms() {
   });
 }
 
+// Second wave, same reasoning and cascade/history behavior as above — split
+// out under its own flag since removed_programs_v1 already tripped on
+// existing DBs and wouldn't fire again for a name added to that list now.
+// '5/3/1 (BBB)' promised real 5/3/1 (a training max + weekly wave
+// percentages) but was only ever a fixed 3x5 / 5x10 preset under that name.
+const REMOVED_PROGRAM_NAMES_V2 = ['5/3/1 (BBB)'];
+
+function cleanupRemovedProgramsV2() {
+  const FLAG = 'removed_programs_v2';
+  if (getMeta(FLAG)) return;
+  const del = db.prepare('DELETE FROM programs WHERE name = ?');
+  tx(() => {
+    for (const name of REMOVED_PROGRAM_NAMES_V2) del.run(name);
+    setMeta(FLAG, '1');
+  });
+}
+
 const CANONICAL_PROGRAMS = [
   {
     name: 'Push / Pull / Legs',
@@ -1670,44 +1688,6 @@ const CANONICAL_PROGRAMS = [
           ['Bulgarian Split Squat', 3, 10],
           ['Seated Leg Curl', 3, 12],
           ['Seated Calf Raise', 4, 15]
-        ]
-      }
-    ]
-  },
-  {
-    name: '5/3/1 (BBB)',
-    description: '4-day strength template — main lift + Boring But Big volume work',
-    days: [
-      {
-        label: 'OHP Day',
-        exercises: [
-          ['Overhead Press', 3, 5],
-          ['Chin-Up', 5, 10],
-          ['Tricep Pushdown', 3, 12]
-        ]
-      },
-      {
-        label: 'Deadlift Day',
-        exercises: [
-          ['Deadlift', 3, 5],
-          ['Barbell Row', 5, 10],
-          ['Hanging Leg Raise', 3, 12]
-        ]
-      },
-      {
-        label: 'Bench Day',
-        exercises: [
-          ['Bench Press', 3, 5],
-          ['Pull-Up', 5, 10],
-          ['Dumbbell Curl', 3, 12]
-        ]
-      },
-      {
-        label: 'Squat Day',
-        exercises: [
-          ['Back Squat', 3, 5],
-          ['Romanian Deadlift', 5, 10],
-          ['Standing Calf Raise', 3, 15]
         ]
       }
     ]
