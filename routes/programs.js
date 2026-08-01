@@ -135,11 +135,23 @@ router.post('/:id/duplicate', (req, res) => {
         'INSERT INTO program_day_exercises (program_day_id, exercise_id, target_sets, target_reps, order_index, rest_seconds) VALUES (?, ?, ?, ?, ?, ?)'
       );
 
+      // Superset pairing is by PDE id, which is fresh per copy — carry it
+      // over in a second pass once every old id has a new one, rather than
+      // dropping it (the INSERT above has no superset_with column at all).
+      const oldToNewPdeId = new Map();
+      const pairsToRestore = []; // [newId, oldSupersetWith]
       for (const d of days) {
         const newDayId = Number(insertDay.run(programId, d.day_label, d.day_order).lastInsertRowid);
         for (const e of srcEx.all(d.id)) {
-          insertEx.run(newDayId, e.exercise_id, e.target_sets, e.target_reps, e.order_index, e.rest_seconds ?? null);
+          const newPdeId = Number(insertEx.run(newDayId, e.exercise_id, e.target_sets, e.target_reps, e.order_index, e.rest_seconds ?? null).lastInsertRowid);
+          oldToNewPdeId.set(e.id, newPdeId);
+          if (e.superset_with != null) pairsToRestore.push([newPdeId, e.superset_with]);
         }
+      }
+      const setSuperset = db.prepare('UPDATE program_day_exercises SET superset_with = ? WHERE id = ?');
+      for (const [newPdeId, oldPartnerId] of pairsToRestore) {
+        const newPartnerId = oldToNewPdeId.get(oldPartnerId);
+        if (newPartnerId != null) setSuperset.run(newPartnerId, newPdeId);
       }
       return programId;
     });
