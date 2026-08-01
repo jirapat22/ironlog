@@ -55,7 +55,24 @@ let lockBuffer = '';
 let pendingCode = '';   // passcode captured for the create-a-profile flow
 let lockBusy = false;
 
+// Muted variant for the handful of border/outline rules that use --accent-dim
+// instead of the full accent (a solid-color border reads too loud there).
+function darkenHex(hex, amount = 0.4) {
+  const n = parseInt(hex.slice(1), 16);
+  const scale = (shift) => Math.round(((n >> shift) & 255) * (1 - amount)).toString(16).padStart(2, '0');
+  return `#${scale(16)}${scale(8)}${scale(0)}`;
+}
+
 function renderProfilePill() {
+  // The chosen accent colour is otherwise cosmetic for this one pill alone —
+  // every other var(--accent)/var(--accent-dim) usage across the app (nav,
+  // buttons, badges, PR flash, ...) stays the hardcoded CSS default unless
+  // the custom properties themselves get updated here too.
+  if (currentProfile) {
+    const accent = currentProfile.accent_color || '#e8643c';
+    document.documentElement.style.setProperty('--accent', accent);
+    document.documentElement.style.setProperty('--accent-dim', darkenHex(accent));
+  }
   const pill = $('#profile-pill');
   if (!pill) return;
   if (currentProfile) {
