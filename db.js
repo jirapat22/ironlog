@@ -1351,8 +1351,15 @@ function mergeExercises(loserId, survivorId) {
     const loserSlots = db.prepare('SELECT id, program_day_id FROM program_day_exercises WHERE exercise_id = ?').all(loser.id);
     for (const slot of loserSlots) {
       const clash = db.prepare('SELECT 1 FROM program_day_exercises WHERE program_day_id = ? AND exercise_id = ?').get(slot.program_day_id, survivor.id);
-      if (clash) db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(slot.id);
-      else db.prepare('UPDATE program_day_exercises SET exercise_id = ? WHERE id = ?').run(survivor.id, slot.id);
+      if (clash) {
+        // Same rule as removing an exercise from a day (routes/programs.js) —
+        // a deleted slot can't stay half of a superset pair, or its partner
+        // is left pointing at a PDE id that no longer exists.
+        db.prepare('UPDATE program_day_exercises SET superset_with = NULL WHERE superset_with = ?').run(slot.id);
+        db.prepare('DELETE FROM program_day_exercises WHERE id = ?').run(slot.id);
+      } else {
+        db.prepare('UPDATE program_day_exercises SET exercise_id = ? WHERE id = ?').run(survivor.id, slot.id);
+      }
     }
 
     // Clear PRs for both — rebuilt fresh below rather than reconciling two

@@ -112,6 +112,13 @@ router.post('/', (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?)`
     );
     const dayIdRemap = new Map();
+    // Superset pairing is by PDE id, which isn't preserved across an import
+    // (fresh ids, same as days/workouts) — remap it in a second pass once
+    // every backup id that got inserted has a new one. A partner that was
+    // skipped (exercise couldn't be resolved) just leaves the pairing dropped,
+    // same as if it were never there.
+    const pdeIdRemap = new Map();
+    const supersetPending = []; // [newPdeId, oldSupersetWithId]
 
     for (const p of programs) {
       const newProgramId = Number(
@@ -129,9 +136,18 @@ router.post('/', (req, res) => {
           const name = backupExById.get(pde.exercise_id)?.name?.toLowerCase();
           const exId = name ? exByName.get(name) : null;
           if (!exId) { skippedProgramExercises++; continue; }
-          insPde.run(newDayId, exId, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds ?? null);
+          const newPdeId = Number(
+            insPde.run(newDayId, exId, pde.target_sets, pde.target_reps, pde.order_index, pde.rest_seconds ?? null).lastInsertRowid
+          );
+          pdeIdRemap.set(pde.id, newPdeId);
+          if (pde.superset_with != null) supersetPending.push([newPdeId, pde.superset_with]);
         }
       }
+    }
+    const setSuperset = db.prepare('UPDATE program_day_exercises SET superset_with = ? WHERE id = ?');
+    for (const [newPdeId, oldPartnerId] of supersetPending) {
+      const newPartnerId = pdeIdRemap.get(oldPartnerId);
+      if (newPartnerId != null) setSuperset.run(newPartnerId, newPdeId);
     }
 
     // --- 4. Workouts + sets. IDs are NOT preserved: a backup carries IDs from
