@@ -172,6 +172,41 @@ async function renderHistory() {
         return;
       }
 
+      // Quick toggle right on the card — reuses the same PATCH the full Edit
+      // sheet uses, just re-sends every other field as-is (fetched fresh
+      // rather than trusting the rendered text) so this one flip doesn't
+      // require opening the whole form.
+      const toggleWorkoutBtn = e.target.closest('[data-toggle-counts-workout]');
+      if (toggleWorkoutBtn) {
+        e.stopPropagation();
+        const card = toggleWorkoutBtn.closest('.history-card');
+        const id = Number(card.dataset.id);
+        const nowOn = !toggleWorkoutBtn.classList.contains('toggle--on');
+        toggleWorkoutBtn.classList.toggle('toggle--on', nowOn);
+        toggleWorkoutBtn.setAttribute('aria-pressed', String(nowOn));
+        haptic(10);
+        try {
+          const workout = await API.workout(id);
+          let tags = [];
+          try { tags = JSON.parse(workout.muscle_tags || '[]'); } catch { tags = []; }
+          await API.updateActivity(id, {
+            activity_type: workout.activity_type,
+            duration_min: workout.duration_min,
+            rpe: workout.rpe,
+            distance: workout.distance,
+            distance_unit: workout.distance_unit,
+            muscle_tags: tags,
+            notes: workout.notes,
+            counts_as_workout: nowOn
+          });
+        } catch (err) {
+          toggleWorkoutBtn.classList.toggle('toggle--on', !nowOn);
+          toggleWorkoutBtn.setAttribute('aria-pressed', String(!nowOn));
+          toast(err.message);
+        }
+        return;
+      }
+
       const delWorkoutBtn = e.target.closest('[data-delete-workout]');
       if (delWorkoutBtn) {
         e.stopPropagation();
@@ -274,6 +309,12 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
           ${workout.calories_burned ? `<div class="history-activity__line"><span>Calories</span><strong>~${workout.calories_burned} kcal</strong></div>` : ''}
           ${tags.length ? `<div class="history-activity__line"><span>Worked</span><strong>${tags.map(escapeHtml).join(', ')}</strong></div>` : ''}
         </div>
+        <label class="settings-row" style="margin-top:8px">
+          <span>Count this as a workout</span>
+          <button class="toggle ${workout.counts_as_workout ? 'toggle--on' : ''}" data-toggle-counts-workout aria-pressed="${!!workout.counts_as_workout}">
+            <span class="toggle__dot"></span>
+          </button>
+        </label>
         <label class="form-label" style="margin-top:12px">Notes</label>
         <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(workout.notes || '')}" placeholder="How did it go?">${escapeHtml(workout.notes || '')}</textarea>
         <div style="display:flex;gap:8px;margin-top:10px">
