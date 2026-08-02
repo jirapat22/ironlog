@@ -795,6 +795,7 @@ function seed() {
   addMissingSecondaryMuscleTags();
   fixMissingSecondaryMajorGap();
   broadenSecondaryCreditsV2();
+  narrowSecondaryMajorV3();
   backfillPersonalRecordSetIds();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
@@ -1250,6 +1251,14 @@ function backfillPersonalRecordSetIds() {
 // session and stays minor (tag-only). Only cross-group regions matter here;
 // same-group ones (e.g. a squat's glutes, already under `legs`) are a no-op
 // for coverage either way.
+// Brachialis and wrist-flexor credit below is further limited to free-weight
+// equipment (barbell/dumbbell/bodyweight) — cable, machine, and assisted
+// variants (Lat Pulldown, Seated Cable Row, Machine Row/Curl, Assisted Pull-
+// Up/Chin-Up, Cable Curl, Bayesian Curl) still carry the tag (SECONDARY_
+// BY_NAME) but were narrowed back out of major: user feedback after the
+// first broadening pass was that crediting literally every grip variant,
+// including machine-assisted ones, over-counted relative to the free-weight
+// case actually doing the loading. Traps' broader list is unaffected.
 const SECONDARY_MAJOR_BY_NAME = {
   'Deadlift': ['glutes', 'hamstrings', 'traps', 'wrist flexors'],
   'Sumo Deadlift': ['glutes', 'hamstrings', 'quads', 'traps', 'wrist flexors'],
@@ -1260,19 +1269,21 @@ const SECONDARY_MAJOR_BY_NAME = {
   // the work, not a light stabilizer hit.
   'Farmer Carry': ['traps', 'abs', 'wrist flexors'],
   'Pull-Up': ['brachialis', 'wrist flexors'], 'Chin-Up': ['brachialis', 'wrist flexors'],
-  'Assisted Pull-Up': ['brachialis', 'wrist flexors'], 'Assisted Chin-Up': ['brachialis', 'wrist flexors'],
-  'Lat Pulldown': ['brachialis', 'wrist flexors'], 'Wide-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
-  'Close-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
   'Barbell Row': ['traps', 'brachialis', 'wrist flexors'], 'Pendlay Row': ['traps', 'brachialis', 'wrist flexors'],
-  'T-Bar Row': ['traps', 'brachialis', 'wrist flexors'], 'Seated Cable Row': ['traps', 'brachialis', 'wrist flexors'],
+  'T-Bar Row': ['traps', 'brachialis', 'wrist flexors'],
   'Chest-Supported Row': ['traps', 'brachialis', 'wrist flexors'], 'One-Arm Dumbbell Row': ['traps', 'brachialis', 'wrist flexors'],
-  'Machine Row': ['traps', 'brachialis', 'wrist flexors'], 'Landmine Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Landmine Row': ['traps', 'brachialis', 'wrist flexors'],
   'Seal Row': ['traps', 'brachialis', 'wrist flexors'],
+  // Cable/machine — kept in the "also works" tag list, dropped from major:
+  'Seated Cable Row': ['traps'], 'Machine Row': ['traps'],
+  'Assisted Pull-Up': [], 'Assisted Chin-Up': [],
+  'Lat Pulldown': [], 'Wide-Grip Lat Pulldown': [], 'Close-Grip Lat Pulldown': [],
   'Upright Row': ['traps'],
-  'Barbell Curl': ['brachialis'], 'Dumbbell Curl': ['brachialis'], 'Cable Curl': ['brachialis'],
+  'Barbell Curl': ['brachialis'], 'Dumbbell Curl': ['brachialis'],
   'EZ Bar Curl': ['brachialis'], 'Preacher Curl': ['brachialis'], 'Concentration Curl': ['brachialis'],
-  'Spider Curl': ['brachialis'], 'Incline Dumbbell Curl': ['brachialis'], 'Machine Curl': ['brachialis'],
-  'Bayesian Curl': ['brachialis']
+  'Spider Curl': ['brachialis'], 'Incline Dumbbell Curl': ['brachialis'],
+  // Cable/machine curls — tag stays, major dropped:
+  'Cable Curl': [], 'Machine Curl': [], 'Bayesian Curl': []
 };
 
 // Apply the major/minor secondary split once. Any seeded exercise with
@@ -1357,6 +1368,42 @@ function broadenSecondaryCreditsV2() {
         JSON.stringify(mergeArr(row.secondary_major, additions)),
         row.id
       );
+    }
+    setMeta(FLAG, '1');
+  });
+}
+
+// User feedback on the pass above: crediting brachialis/wrist-flexor "last
+// trained" on literally every grip variant — including cable/machine/
+// assisted ones — over-counted versus what the free-weight version of the
+// same movement actually loads. Narrows major credit back to barbell/
+// dumbbell/bodyweight equipment only; the cable/machine/assisted exercises
+// below KEEP their secondary_muscles tag (still shown as "also works"),
+// only secondary_major loses the region so it stops earning recency credit.
+// Traps' broader list was left alone — only brachialis/wrist flexors were
+// called out as too generous.
+const SECONDARY_MAJOR_REMOVE_V3 = {
+  'Cable Curl': ['brachialis'], 'Machine Curl': ['brachialis'], 'Bayesian Curl': ['brachialis'],
+  'Assisted Pull-Up': ['brachialis', 'wrist flexors'], 'Assisted Chin-Up': ['brachialis', 'wrist flexors'],
+  'Lat Pulldown': ['brachialis', 'wrist flexors'], 'Wide-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
+  'Close-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
+  'Seated Cable Row': ['brachialis', 'wrist flexors'], 'Machine Row': ['brachialis', 'wrist flexors']
+};
+
+function narrowSecondaryMajorV3() {
+  const FLAG = 'secondary_major_narrow_v3';
+  if (getMeta(FLAG)) return;
+  const getEx = db.prepare('SELECT id, secondary_major FROM exercises WHERE name = ? AND created_by_profile_id IS NULL');
+  const upd = db.prepare('UPDATE exercises SET secondary_major = ? WHERE id = ?');
+  tx(() => {
+    for (const [name, removals] of Object.entries(SECONDARY_MAJOR_REMOVE_V3)) {
+      const row = getEx.get(name);
+      if (!row) continue;
+      let arr = [];
+      try { arr = JSON.parse(row.secondary_major || '[]'); } catch { arr = []; }
+      if (!Array.isArray(arr)) arr = [];
+      const removeSet = new Set(removals);
+      upd.run(JSON.stringify(arr.filter((r) => !removeSet.has(r))), row.id);
     }
     setMeta(FLAG, '1');
   });
