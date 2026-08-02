@@ -794,6 +794,7 @@ function seed() {
   populateSecondaryMajor();
   addMissingSecondaryMuscleTags();
   fixMissingSecondaryMajorGap();
+  broadenSecondaryCreditsV2();
   backfillPersonalRecordSetIds();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
@@ -1034,18 +1035,30 @@ const SECONDARY_BY_NAME = {
   'Chest Dip': ['front delt', 'lateral head'], 'Assisted Dip': ['front delt', 'lateral head'],
   'Push-Up': ['front delt', 'lateral head'], 'Close-Grip Bench Press': ['mid chest', 'front delt'],
   'Diamond Push-Up': ['mid chest', 'front delt'], 'Tricep Dip': ['lower chest', 'front delt'],
-  // Back pulls
-  'Deadlift': ['glutes', 'hamstrings', 'traps', 'upper back'],
-  'Sumo Deadlift': ['glutes', 'hamstrings', 'quads', 'traps'],
-  'Rack Pull': ['lower back', 'glutes', 'lats'],
-  'Pull-Up': ['biceps', 'upper back', 'rear delt'], 'Chin-Up': ['biceps', 'upper back'],
-  'Assisted Pull-Up': ['biceps', 'upper back'], 'Assisted Chin-Up': ['lats', 'upper back'],
-  'Lat Pulldown': ['biceps', 'upper back'], 'Wide-Grip Lat Pulldown': ['biceps', 'upper back'],
-  'Close-Grip Lat Pulldown': ['biceps', 'upper back'],
-  'Barbell Row': ['lats', 'biceps', 'rear delt'], 'Pendlay Row': ['lats', 'biceps', 'rear delt'],
-  'T-Bar Row': ['lats', 'biceps', 'rear delt'], 'Seated Cable Row': ['lats', 'biceps', 'rear delt'],
-  'Chest-Supported Row': ['lats', 'biceps', 'rear delt'], 'One-Arm Dumbbell Row': ['upper back', 'biceps'],
-  'Machine Row': ['lats', 'biceps'], 'Landmine Row': ['upper back', 'biceps'], 'Seal Row': ['lats', 'biceps'],
+  // Back pulls — brachialis (elbow-flexor synergist on any pull, not just a
+  // dedicated Hammer Curl) and wrist flexors (isometric grip endurance under
+  // load) apply to every one of these; traps only added where scapular
+  // retraction is doing real work (rows, the hip-hinge holds below), not the
+  // vertical-pull family where lats/rhomboids dominate instead.
+  'Deadlift': ['glutes', 'hamstrings', 'traps', 'upper back', 'wrist flexors'],
+  'Sumo Deadlift': ['glutes', 'hamstrings', 'quads', 'traps', 'wrist flexors'],
+  'Rack Pull': ['lower back', 'glutes', 'lats', 'wrist flexors'],
+  'Pull-Up': ['biceps', 'upper back', 'rear delt', 'brachialis', 'wrist flexors'],
+  'Chin-Up': ['biceps', 'upper back', 'brachialis', 'wrist flexors'],
+  'Assisted Pull-Up': ['biceps', 'upper back', 'brachialis', 'wrist flexors'],
+  'Assisted Chin-Up': ['lats', 'upper back', 'brachialis', 'wrist flexors'],
+  'Lat Pulldown': ['biceps', 'upper back', 'brachialis', 'wrist flexors'],
+  'Wide-Grip Lat Pulldown': ['biceps', 'upper back', 'brachialis', 'wrist flexors'],
+  'Close-Grip Lat Pulldown': ['biceps', 'upper back', 'brachialis', 'wrist flexors'],
+  'Barbell Row': ['lats', 'biceps', 'rear delt', 'traps', 'brachialis', 'wrist flexors'],
+  'Pendlay Row': ['lats', 'biceps', 'rear delt', 'traps', 'brachialis', 'wrist flexors'],
+  'T-Bar Row': ['lats', 'biceps', 'rear delt', 'traps', 'brachialis', 'wrist flexors'],
+  'Seated Cable Row': ['lats', 'biceps', 'rear delt', 'traps', 'brachialis', 'wrist flexors'],
+  'Chest-Supported Row': ['lats', 'biceps', 'rear delt', 'traps', 'brachialis', 'wrist flexors'],
+  'One-Arm Dumbbell Row': ['upper back', 'biceps', 'traps', 'brachialis', 'wrist flexors'],
+  'Machine Row': ['lats', 'biceps', 'traps', 'brachialis', 'wrist flexors'],
+  'Landmine Row': ['upper back', 'biceps', 'traps', 'brachialis', 'wrist flexors'],
+  'Seal Row': ['lats', 'biceps', 'traps', 'brachialis', 'wrist flexors'],
   'Good Morning': ['hamstrings', 'glutes'], 'Hyperextension': ['glutes', 'hamstrings'],
   'Reverse Hyperextension': ['glutes', 'hamstrings'],
   'Face Pull': ['rear delt'], 'Dumbbell Pullover': ['mid chest'],
@@ -1066,11 +1079,19 @@ const SECONDARY_BY_NAME = {
   'Kettlebell Swing': ['hamstrings', 'lower back'], 'Nordic Hamstring Curl': ['glutes'],
   // Core / carries
   'Hanging Leg Raise': ['obliques'], 'Toes to Bar': ['obliques', 'lats'], 'Ab Wheel Rollout': ['obliques'],
-  'Mountain Climber': ['obliques'], 'Farmer Carry': ['traps', 'abs'],
+  'Mountain Climber': ['obliques'], 'Farmer Carry': ['traps', 'abs', 'wrist flexors'],
   // Forearms — a curl variant that explicitly works the extensors too (its
   // own seed notes say "full arm development": supination/pronation through
   // the rep works both flexor and extensor sides, not just biceps).
-  'Zottman Curl': ['wrist extensors']
+  'Zottman Curl': ['wrist extensors'],
+  // Brachialis is a real elbow-flexor synergist on every curl grip, not just
+  // the neutral/pronated ones that bias it enough to be the PRIMARY sub-
+  // muscle (Hammer/Cable Hammer/Zottman, in SUB_MUSCLE_BY_NAME) — these
+  // supinated-grip variants still load it meaningfully as a secondary.
+  'Barbell Curl': ['brachialis'], 'Dumbbell Curl': ['brachialis'], 'Cable Curl': ['brachialis'],
+  'EZ Bar Curl': ['brachialis'], 'Preacher Curl': ['brachialis'], 'Concentration Curl': ['brachialis'],
+  'Spider Curl': ['brachialis'], 'Incline Dumbbell Curl': ['brachialis'], 'Machine Curl': ['brachialis'],
+  'Bayesian Curl': ['brachialis']
 };
 
 // Apply the seed secondaries once. Idempotent via meta flag + the IS NULL guard
@@ -1215,26 +1236,43 @@ function backfillPersonalRecordSetIds() {
 // exercise is genuinely a prime-mover-level hit on that region, not just a
 // stabilizer or incidental assist) — these are the only secondary regions
 // that count toward the parent muscle_group's 2x/week coverage credit
-// (routes/progress.js /muscle-coverage). Anything in SECONDARY_BY_NAME but
-// absent here still shows as an "also works" tag and still feeds recency —
-// it just doesn't earn a coverage tick for that group.
+// (routes/progress.js /muscle-coverage) AND toward that region's own "last
+// trained" recency in the Muscle Detail view (/sub-muscle-frequency, same
+// gate). Anything in SECONDARY_BY_NAME but absent here still shows as an
+// "also works" tag but earns neither — pure information, no credit.
 //
 // Rule of thumb applied: a heavy hip-hinge/loaded-carry crossing into a
 // different group (deadlift's hamstrings/glutes, farmer carry's traps) is
-// major. Everything else that crosses groups — arm assist on presses/pulls,
-// deltoid/back stabilization, isometric bracing during squats/hinges — is
-// sub-threshold vs. a dedicated session and stays minor (tag-only). Only
-// cross-group regions matter here; same-group ones (e.g. a squat's glutes,
-// already under `legs`) are a no-op for coverage either way.
+// major, as is a genuine elbow-flexor/grip synergist under real load (any
+// pull's brachialis/wrist flexors; a row's scapular-retraction traps hit).
+// Everything else that crosses groups — deltoid/back stabilization,
+// isometric bracing during squats/hinges — is sub-threshold vs. a dedicated
+// session and stays minor (tag-only). Only cross-group regions matter here;
+// same-group ones (e.g. a squat's glutes, already under `legs`) are a no-op
+// for coverage either way.
 const SECONDARY_MAJOR_BY_NAME = {
-  'Deadlift': ['glutes', 'hamstrings'],
-  'Sumo Deadlift': ['glutes', 'hamstrings', 'quads'],
-  'Rack Pull': ['glutes'],
+  'Deadlift': ['glutes', 'hamstrings', 'traps', 'wrist flexors'],
+  'Sumo Deadlift': ['glutes', 'hamstrings', 'quads', 'traps', 'wrist flexors'],
+  'Rack Pull': ['glutes', 'wrist flexors'],
   'Good Morning': ['hamstrings', 'glutes'],
   // Not just grip/traps — bracing against a heavy loaded carry is a real
   // core stimulus too, same reasoning as the traps: this is the load doing
   // the work, not a light stabilizer hit.
-  'Farmer Carry': ['traps', 'abs']
+  'Farmer Carry': ['traps', 'abs', 'wrist flexors'],
+  'Pull-Up': ['brachialis', 'wrist flexors'], 'Chin-Up': ['brachialis', 'wrist flexors'],
+  'Assisted Pull-Up': ['brachialis', 'wrist flexors'], 'Assisted Chin-Up': ['brachialis', 'wrist flexors'],
+  'Lat Pulldown': ['brachialis', 'wrist flexors'], 'Wide-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
+  'Close-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
+  'Barbell Row': ['traps', 'brachialis', 'wrist flexors'], 'Pendlay Row': ['traps', 'brachialis', 'wrist flexors'],
+  'T-Bar Row': ['traps', 'brachialis', 'wrist flexors'], 'Seated Cable Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Chest-Supported Row': ['traps', 'brachialis', 'wrist flexors'], 'One-Arm Dumbbell Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Machine Row': ['traps', 'brachialis', 'wrist flexors'], 'Landmine Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Seal Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Upright Row': ['traps'],
+  'Barbell Curl': ['brachialis'], 'Dumbbell Curl': ['brachialis'], 'Cable Curl': ['brachialis'],
+  'EZ Bar Curl': ['brachialis'], 'Preacher Curl': ['brachialis'], 'Concentration Curl': ['brachialis'],
+  'Spider Curl': ['brachialis'], 'Incline Dumbbell Curl': ['brachialis'], 'Machine Curl': ['brachialis'],
+  'Bayesian Curl': ['brachialis']
 };
 
 // Apply the major/minor secondary split once. Any seeded exercise with
@@ -1256,6 +1294,70 @@ function populateSecondaryMajor() {
       `UPDATE exercises SET secondary_major = '[]'
        WHERE secondary_major IS NULL AND secondary_muscles IS NOT NULL AND created_by_profile_id IS NULL`
     ).run();
+    setMeta(FLAG, '1');
+  });
+}
+
+// User-requested broadening: brachialis, traps, and wrist flexors were only
+// ever credited by their own dedicated isolation move (Hammer Curl, Shrug/
+// Rack Pull, Wrist Curl) or, for traps, Farmer Carry — so a puller doing
+// plenty of rows and pull-ups but no dedicated arm/grip work saw those
+// regions as permanently "never trained" in the Muscle Detail view despite
+// real load every session. Adds the regions below as BOTH a secondary tag
+// and major (real "last trained" credit, not just an informational "also
+// works" label) on the exercises where that's a genuine synergist hit, not
+// a token stabilizer one. SECONDARY_BY_NAME/SECONDARY_MAJOR_BY_NAME above
+// already reflect this for fresh installs; this is the one-time catch-up
+// for exercises an earlier boot already seeded (those functions only ever
+// fill a NULL column, so a later addition to the source maps doesn't reach
+// an already-populated row on its own).
+//
+// Scoped to just these exercises (not a blanket re-merge of the whole
+// SECONDARY_BY_NAME/SECONDARY_MAJOR_BY_NAME maps) so it can't silently
+// re-add a tag a user deliberately removed via the "Also works" picker on
+// an exercise this wave never touches.
+const SECONDARY_CREDIT_ADD_V2 = {
+  'Deadlift': ['traps', 'wrist flexors'], 'Sumo Deadlift': ['traps', 'wrist flexors'],
+  'Rack Pull': ['wrist flexors'], 'Farmer Carry': ['wrist flexors'],
+  'Pull-Up': ['brachialis', 'wrist flexors'], 'Chin-Up': ['brachialis', 'wrist flexors'],
+  'Assisted Pull-Up': ['brachialis', 'wrist flexors'], 'Assisted Chin-Up': ['brachialis', 'wrist flexors'],
+  'Lat Pulldown': ['brachialis', 'wrist flexors'], 'Wide-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
+  'Close-Grip Lat Pulldown': ['brachialis', 'wrist flexors'],
+  'Barbell Row': ['traps', 'brachialis', 'wrist flexors'], 'Pendlay Row': ['traps', 'brachialis', 'wrist flexors'],
+  'T-Bar Row': ['traps', 'brachialis', 'wrist flexors'], 'Seated Cable Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Chest-Supported Row': ['traps', 'brachialis', 'wrist flexors'], 'One-Arm Dumbbell Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Machine Row': ['traps', 'brachialis', 'wrist flexors'], 'Landmine Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Seal Row': ['traps', 'brachialis', 'wrist flexors'],
+  'Upright Row': ['traps'], // already a secondary tag; this wave only upgrades it to major
+  'Barbell Curl': ['brachialis'], 'Dumbbell Curl': ['brachialis'], 'Cable Curl': ['brachialis'],
+  'EZ Bar Curl': ['brachialis'], 'Preacher Curl': ['brachialis'], 'Concentration Curl': ['brachialis'],
+  'Spider Curl': ['brachialis'], 'Incline Dumbbell Curl': ['brachialis'], 'Machine Curl': ['brachialis'],
+  'Bayesian Curl': ['brachialis']
+};
+
+function broadenSecondaryCreditsV2() {
+  const FLAG = 'secondary_credit_v2';
+  if (getMeta(FLAG)) return;
+  const getEx = db.prepare('SELECT id, secondary_muscles, secondary_major FROM exercises WHERE name = ? AND created_by_profile_id IS NULL');
+  const upd = db.prepare('UPDATE exercises SET secondary_muscles = ?, secondary_major = ? WHERE id = ?');
+  const mergeArr = (json, additions) => {
+    let arr = [];
+    try { arr = JSON.parse(json || '[]'); } catch { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    const set = new Set(arr);
+    for (const r of additions) if (REGION_TO_GROUP[r]) set.add(r);
+    return [...set];
+  };
+  tx(() => {
+    for (const [name, additions] of Object.entries(SECONDARY_CREDIT_ADD_V2)) {
+      const row = getEx.get(name);
+      if (!row) continue;
+      upd.run(
+        JSON.stringify(mergeArr(row.secondary_muscles, additions)),
+        JSON.stringify(mergeArr(row.secondary_major, additions)),
+        row.id
+      );
+    }
     setMeta(FLAG, '1');
   });
 }
