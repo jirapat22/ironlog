@@ -260,7 +260,14 @@ function init() {
     // Superset pairing: NULL by default (no pairing). Always mutual when set
     // — A.superset_with = B.id implies B.superset_with = A.id — maintained
     // by the dedicated pairing endpoint below, never by the plain PATCH.
-    ['program_day_exercises', 'superset_with INTEGER']
+    ['program_day_exercises', 'superset_with INTEGER'],
+    // Only meaningful on kind='activity' rows: an activity (HIIT, boxing, a
+    // hard class, ...) can be a real training session, not just secondary
+    // cardio — this opts a specific logged activity into counting toward the
+    // Consistency calendar's streak/heat the same as a strength workout,
+    // instead of only showing as a small dot. Default 0 preserves today's
+    // behavior for every existing and newly-logged activity until toggled.
+    ['workouts', 'counts_as_workout INTEGER NOT NULL DEFAULT 0']
   ]) {
     const column = def.split(' ')[0];
     if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);

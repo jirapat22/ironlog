@@ -292,6 +292,14 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
         <label class="form-label" style="margin-top:16px">Muscles worked <span style="color:var(--text-dim);font-weight:400">· keeps recovery honest</span></label>
         <div class="act-chips">${PICKER_GROUP_ORDER.map((g) => chip(g, g, 'act-mg', initialMuscles.includes(g))).join('')}</div>
 
+        <label class="settings-row" style="margin-top:16px">
+          <span>Count this as a workout</span>
+          <button class="toggle ${existing?.counts_as_workout ? 'toggle--on' : ''}" id="act-counts-workout" aria-pressed="${!!existing?.counts_as_workout}">
+            <span class="toggle__dot"></span>
+          </button>
+        </label>
+        <div class="card__subtitle" style="margin-top:-4px">Off by default — shows as just a dot on the calendar. Flip this if it was a real session, and it counts toward your streak instead.</div>
+
         <label class="form-label" style="margin-top:16px">Notes</label>
         <input class="input" id="act-notes" placeholder="Optional" value="${escapeHtml(existing?.notes || '')}"/>
 
@@ -319,6 +327,14 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
     if (mg) { mg.classList.toggle('act-chip--on'); haptic(8); return; }
     const u = e.target.closest('#act-dist-unit');
     if (u) { const next = u.textContent.trim() === 'km' ? 'mi' : 'km'; u.textContent = next; u.classList.toggle('kg', next === 'km'); return; }
+    const workoutToggle = e.target.closest('#act-counts-workout');
+    if (workoutToggle) {
+      const nowOn = !workoutToggle.classList.contains('toggle--on');
+      workoutToggle.classList.toggle('toggle--on', nowOn);
+      workoutToggle.setAttribute('aria-pressed', String(nowOn));
+      haptic(10);
+      return;
+    }
 
     if (e.target.closest('#act-save')) {
       const minutes = parseInt(document.getElementById('act-dur').value || '0', 10);
@@ -333,9 +349,10 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
       const distance_unit = distance != null ? document.getElementById('act-dist-unit').textContent.trim() : null;
       const muscle_tags = [...sheet.querySelectorAll('[data-act-mg].act-chip--on')].map((b) => b.dataset.actMg);
       const notes = document.getElementById('act-notes').value.trim() || null;
+      const counts_as_workout = sheet.querySelector('#act-counts-workout').classList.contains('toggle--on');
       const btn = document.getElementById('act-save');
       btn.disabled = true; btn.textContent = 'Saving…';
-      const payload = { activity_type, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes };
+      const payload = { activity_type, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes, counts_as_workout };
       try {
         const saved = existing ? await API.updateActivity(existing.id, payload) : await API.logActivity(payload);
         haptic(20); hideSheet(sheet);

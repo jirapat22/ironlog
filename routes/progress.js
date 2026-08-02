@@ -120,13 +120,16 @@ router.get('/calendar', (req, res) => {
   // `count` (gym attendance — streak/best/totals) and `activity_count` (cardio,
   // shown only as a secondary per-day marker) are counted separately in one
   // pass so a cardio-only day still gets a row (activity_count>0, count=0)
-  // without ever adding to the gym-attendance number itself.
+  // without ever adding to the gym-attendance number itself. An activity with
+  // counts_as_workout=1 (a HIIT class, boxing, ... marked as a real session
+  // rather than secondary cardio) moves into `count` and out of
+  // `activity_count` — it earns full credit, not a redundant dot on top of it.
   const rows = db
     .prepare(
       `SELECT
          date(started_at, ?) as date,
-         COUNT(CASE WHEN kind IS NULL OR kind != 'activity' THEN 1 END) as count,
-         COUNT(CASE WHEN kind = 'activity' THEN 1 END) as activity_count
+         COUNT(CASE WHEN kind IS NULL OR kind != 'activity' OR counts_as_workout = 1 THEN 1 END) as count,
+         COUNT(CASE WHEN kind = 'activity' AND counts_as_workout = 0 THEN 1 END) as activity_count
        FROM workouts
        WHERE profile_id = ?
          AND finished_at IS NOT NULL
