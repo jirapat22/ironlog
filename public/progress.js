@@ -612,6 +612,19 @@ function renderCalendar(entries) {
       <span style="font-size:10px;color:var(--text-dim)"><span class="cal-cell__dot" style="position:static;display:inline-block;margin-right:4px;vertical-align:middle"></span>cardio logged that day (doesn't count toward streak)</span>
     </div>` : ''}
   `;
+
+  // The grid renders oldest-month-first (left) through today (right) — with
+  // 6 months of history, scrollLeft defaulting to 0 buried today off-screen
+  // to the right. Center today instead so it opens where you actually look
+  // first; dragging left from there reaches earlier months same as before.
+  const scrollEl = root.querySelector('.cal-scroll');
+  const todayCell = root.querySelector('.cal-cell--today');
+  if (scrollEl && todayCell) {
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const cellRect = todayCell.getBoundingClientRect();
+    const target = (cellRect.left - scrollRect.left) + scrollEl.scrollLeft - scrollEl.clientWidth / 2 + cellRect.width / 2;
+    scrollEl.scrollLeft = Math.max(0, target);
+  }
 }
 
 
