@@ -719,6 +719,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const isSkipped = !!(workoutState.draft.skipped?.[ex.exercise_id]);
   const rows = [];
   let firstUnloggedSet = null;
+  let nextSetW = null, nextSetU = null;
   for (let i = 1; i <= target; i++) {
     const key = `${ex.exercise_id}-${i}`;
     const logged = loggedBySet[key];
@@ -745,13 +746,27 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const repsR = pendingEdit?.repsR ?? logged?.reps_r ?? draft?.repsR ?? '';
     const repsL = pendingEdit?.repsL ?? logged?.reps_l ?? draft?.repsL ?? '';
 
-    if (!logged && firstUnloggedSet === null) firstUnloggedSet = i;
+    if (!logged && firstUnloggedSet === null) { firstUnloggedSet = i; nextSetW = w; nextSetU = u; }
     rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l }));
   }
 
   const trend = pastTrendFor(ex);
 
-  const hint = rec ? buildProgressionHint(rec, trend) : (lastSets.length ? '' : firstTimeHintHTML());
+  // Bug report: the banner ("Increase weight → 65kg") kept showing even
+  // after the number you were actually about to log (or already logged
+  // this session) had diverged from it — typed something else, or an
+  // earlier set this session already went a different way. A recommendation
+  // that contradicts the weight sitting right below it isn't a suggestion
+  // anymore, just wrong information, so suppress it once that's happened.
+  // While a set's still open, compare against ITS resolved prefill (which
+  // itself already cascades from a logged/draft value ahead of rec — see
+  // the w/u fallback chain above); once the exercise is fully logged,
+  // compare against what was actually logged instead.
+  const referenceW = firstUnloggedSet !== null ? nextSetW : lastLogged?.weight;
+  const referenceU = firstUnloggedSet !== null ? nextSetU : lastLogged?.weight_unit;
+  const recStillMatches = !rec || referenceW == null
+    || (Number(referenceW) === Number(rec.recWeight) && referenceU === rec.recUnit);
+  const hint = !recStillMatches ? '' : rec ? buildProgressionHint(rec, trend) : (lastSets.length ? '' : firstTimeHintHTML());
 
   // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
   const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
