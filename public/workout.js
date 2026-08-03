@@ -1383,6 +1383,7 @@ function wireWorkoutView() {
       delete row.dataset.justConfirmed;
       markRowTouched(row);
       updateRowEquiv(row);
+      refreshProgressionHint(Number(row.dataset.ex));
       return;
     }
     const extrasInput = e.target.closest('[data-note], [data-reps-r], [data-reps-l]');
@@ -1502,6 +1503,54 @@ function attachHoldRepeat(container) {
   });
 }
 
+// Same "last session's sets for this exercise" resolution exerciseCardHTML
+// uses when building lastSetsByExercise, but callable for one exercise at a
+// time from event handlers that only have workoutState, not that render pass's
+// local variables.
+function lastSetsForExercise(exId) {
+  const { last } = workoutState;
+  if (last?.sets) {
+    const arr = last.sets.filter((s) => s.exercise_id === exId).sort((a, b) => a.set_number - b.set_number);
+    if (arr.length) return arr;
+  }
+  return workoutState.lastByExercise?.[exId] || [];
+}
+
+// exerciseCardHTML suppresses the progression banner when the recommendation
+// no longer matches what's actually being logged (see its recStillMatches
+// comment) — but that check only runs on a full card re-render. Logging a set
+// or typing a new weight into the still-open next one are both handled by
+// in-place DOM patches specifically so the rest of the card doesn't jump
+// around, so without this, the banner from the card's last full render just
+// sits there contradicting the input right below it until something
+// unrelated happens to force a full re-render. Re-run the same check live
+// and remove the banner element the moment it stops matching.
+function refreshProgressionHint(exId) {
+  const card = document.querySelector(`.exercise-card[data-ex="${exId}"]`);
+  const hintEl = card?.querySelector('.prog-hint');
+  if (!hintEl) return;
+  const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+  const rec = recommendForNext(ex, lastSetsForExercise(exId));
+  if (!rec) return;
+
+  const nextRow = [...card.querySelectorAll('.set-row')].find((r) => !r.dataset.setId);
+  let referenceW, referenceU;
+  if (nextRow) {
+    referenceW = nextRow.querySelector('[data-field="weight"] .num-input__field')?.value;
+    referenceU = nextRow.querySelector('[data-unit]')?.textContent.trim();
+  } else {
+    const loggedThisEx = workoutState.loggedSets
+      .filter((s) => s.exercise_id === exId && !s.is_warmup)
+      .sort((a, b) => a.set_number - b.set_number);
+    const lastLogged = loggedThisEx[loggedThisEx.length - 1];
+    referenceW = lastLogged?.weight;
+    referenceU = lastLogged?.weight_unit;
+  }
+  const stillMatches = referenceW == null || referenceW === ''
+    || (Number(referenceW) === Number(rec.recWeight) && referenceU === rec.recUnit);
+  if (!stillMatches) hintEl.remove();
+}
+
 async function confirmSet(row) {
   if (workoutEnding || !workoutState) return;
   const checkBtn = row.querySelector('[data-confirm]');
@@ -1563,6 +1612,7 @@ async function confirmSet(row) {
       row.classList.remove('editing');
       haptic(20);
       toast('Updated');
+      refreshProgressionHint(exId);
     } else {
       const res = await API.logSet({
         workout_id: workoutState.workout.id,
@@ -1584,6 +1634,7 @@ async function confirmSet(row) {
       clearDraftInput(workoutState.workout.id, exId, setNumber);
       cascadePrefillSiblings(row, weight, unit, reps);
       moveNextHighlight(exId);
+      refreshProgressionHint(exId);
       haptic(30);
       if (!isWarmup) renderSessionCoverage();
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
@@ -1610,7 +1661,19 @@ async function confirmSet(row) {
         prBadge.textContent = '🏆';
         hints?.appendChild(prBadge);
       }
-      startRestCountdown(ex?.rest_seconds ?? undefined);
+      // Superset partner still owes this same set number? Skip the rest
+      // timer — the card explicitly says "go straight into it, rest after
+      // both", so popping a countdown (with its own haptic/beep/notification)
+      // right when you're meant to move straight to the paired exercise
+      // instead just contradicts what's on screen. The real rest starts once
+      // the partner logs its matching set too.
+      const supersetPartnerEx = ex?.superset_with != null
+        ? workoutState.programDay.exercises.find((x) => x.id === ex.superset_with)
+        : null;
+      const partnerOwesThisSet = supersetPartnerEx && !workoutState.loggedSets.some(
+        (s) => s.exercise_id === supersetPartnerEx.exercise_id && s.set_number === setNumber && !!s.is_warmup === isWarmup
+      );
+      if (!partnerOwesThisSet) startRestCountdown(ex?.rest_seconds ?? undefined);
       // Append e1RM hint to the newly-done row
       if (!isWarmup && reps > 0) {
         const load = loadKg({ weight, weight_unit: unit }, ex);

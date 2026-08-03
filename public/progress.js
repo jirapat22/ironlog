@@ -620,6 +620,22 @@ function renderCalendar(entries) {
   const scrollEl = root.querySelector('.cal-scroll');
   const todayCell = root.querySelector('.cal-cell--today');
   if (scrollEl && todayCell) {
+    // Today is the LAST column in the grid — there's no future data after it
+    // to scroll into, so the browser clamps scrollLeft at max and pins today
+    // to the right edge instead of the middle (max scroll = scrollWidth -
+    // clientWidth, which lands short of the centering target whenever that's
+    // less than half the viewport). A trailing spacer gives it room to scroll
+    // past today into, same trick as end-padding on a carousel. The spacer
+    // needs a non-zero height (not just width via flex-basis) — a height:0
+    // flex item is excluded from the scroll container's scrollWidth entirely
+    // in Chromium, silently making the spacer a no-op.
+    const grid = scrollEl.querySelector('.cal-grid');
+    if (grid) {
+      const spacer = document.createElement('div');
+      spacer.style.flex = `0 0 ${scrollEl.clientWidth / 2}px`;
+      spacer.style.height = '1px';
+      grid.appendChild(spacer);
+    }
     const scrollRect = scrollEl.getBoundingClientRect();
     const cellRect = todayCell.getBoundingClientRect();
     const target = (cellRect.left - scrollRect.left) + scrollEl.scrollLeft - scrollEl.clientWidth / 2 + cellRect.width / 2;
