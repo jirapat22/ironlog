@@ -83,7 +83,12 @@ const API = {
   renameDay: (programId, dayId, data) => api(`/api/programs/${programId}/days/${dayId}`, { method: 'PATCH', body: data }),
   reorderDays: (programId, dayIds) => api(`/api/programs/${programId}/days/reorder`, { method: 'PATCH', body: { day_ids: dayIds } }),
   deleteDay: (programId, dayId) => api(`/api/programs/${programId}/days/${dayId}`, { method: 'DELETE' }),
-  updateExercise: (id, data) => api(`/api/exercises/${id}`, { method: 'PATCH', body: data }),
+  // Broadcasts so an already-open workout card (edited via Programs/Settings,
+  // a different tab entirely) can patch itself live instead of showing stale
+  // catalog fields — rep range, equipment, bar weight, etc — until the next
+  // full re-render happens to come along (tab switch, reload).
+  updateExercise: (id, data) => api(`/api/exercises/${id}`, { method: 'PATCH', body: data })
+    .then((updated) => { document.dispatchEvent(new CustomEvent('ironlog:exercise-updated', { detail: updated })); return updated; }),
   deleteExercise: (id) => api(`/api/exercises/${id}`, { method: 'DELETE' }),
   mergeExercise: (id, targetId, adminCode) => api(`/api/exercises/${id}/merge`, { method: 'POST', body: { target_id: targetId, admin_code: adminCode } }),
   exerciseSessions: (id) => api(`/api/exercises/${id}/sessions`),

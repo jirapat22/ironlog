@@ -2006,6 +2006,23 @@ function exerciseCatalogFields(ex) {
   };
 }
 
+// Catches exercise edits made from somewhere OTHER than this workout screen
+// (Programs, Settings) — those routes have no reason to know a workout is
+// even open, so without this an already-rendered card just keeps showing
+// whatever it fetched before the edit (equipment, bar weight, and — the
+// reported case — rep range, so the progression banner kept aiming for the
+// day-slot's target_reps instead of the newly-set range) until something
+// else forces a full re-render.
+document.addEventListener('ironlog:exercise-updated', (e) => {
+  const updated = e.detail;
+  const exercises = workoutState?.programDay?.exercises;
+  if (!updated?.id || !exercises) return;
+  const idx = exercises.findIndex((x) => x.exercise_id === updated.id);
+  if (idx === -1) return;
+  exercises[idx] = { ...exercises[idx], ...exerciseCatalogFields(updated) };
+  renderWorkoutView();
+});
+
 async function openSwapPicker(currentExerciseId) {
   const picker = ensureSheet('workout-swap-picker-sheet');
   picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="skeleton" style="height:120px"></div></div></div>`;
