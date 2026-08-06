@@ -249,7 +249,7 @@ const ACTIVITY_DEFAULT_MUSCLES = {
   row: ['back', 'legs', 'core'],
   swim: ['shoulders', 'back', 'core', 'legs'],
   walk: ['legs'],
-  stairmaster: ['legs', 'core'],
+  stairmaster: ['legs'],
   cardio: ['legs', 'core'],
   class: ['legs', 'core', 'shoulders']
 };
