@@ -1882,41 +1882,69 @@ async function openEquipmentPicker(exerciseId) {
   const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exerciseId);
   if (!ex) return;
   const sheet = ensureSheet('equipment-picker-sheet');
-  const current = ex.equipment || 'barbell';
 
-  sheet.innerHTML = `
-    <div class="sheet__inner">
-      <div class="sheet__head">
-        <button class="btn--icon" data-close-sheet>←</button>
-        <div class="sheet__title">Equipment — ${escapeHtml(ex.name)}</div>
-        <span style="width:40px"></span>
-      </div>
-      <div class="sheet__body">
-        <div class="card__subtitle" style="margin-bottom:12px">Affects the +/− step size and weight recommendation.</div>
-        ${EQUIPMENT_OPTIONS.map((opt) => `
-          <button class="equip-option ${opt.value === current ? 'equip-option--active' : ''}" data-equip-pick="${opt.value}">
-            <div class="equip-option__label">${opt.label}</div>
-            <div class="equip-option__step">${opt.step}</div>
-          </button>`).join('')}
-      </div>
-    </div>`;
+  const render = () => {
+    const current = ex.equipment || 'barbell';
+    sheet.innerHTML = `
+      <div class="sheet__inner">
+        <div class="sheet__head">
+          <button class="btn--icon" data-close-sheet>←</button>
+          <div class="sheet__title">Equipment — ${escapeHtml(ex.name)}</div>
+          <span style="width:40px"></span>
+        </div>
+        <div class="sheet__body">
+          <div class="card__subtitle" style="margin-bottom:12px">Affects the +/− step size and weight recommendation.</div>
+          ${EQUIPMENT_OPTIONS.map((opt) => `
+            <button class="equip-option ${opt.value === current ? 'equip-option--active' : ''}" data-equip-pick="${opt.value}">
+              <div class="equip-option__label">${opt.label}</div>
+              <div class="equip-option__step">${opt.step}</div>
+            </button>`).join('')}
+          ${current === 'barbell' ? `
+            <label class="form-label" style="margin-top:18px">Bar weight (kg, optional)</label>
+            <input class="input" type="number" step="0.5" min="0" id="equip-barweight" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
+            <div class="card__subtitle" style="margin-top:6px">Shows a plate breakdown (bar + per-side) next to the weight field while logging — doesn't change how weight is stored.</div>
+            <button class="btn btn--block" id="equip-barweight-save" style="margin-top:10px">Save bar weight</button>
+          ` : ''}
+        </div>
+      </div>`;
 
-  sheet.querySelector('[data-close-sheet]').onclick = () => hideSheet(sheet);
-  sheet.querySelectorAll('[data-equip-pick]').forEach((btn) => {
-    btn.onclick = async () => {
-      const newEquip = btn.dataset.equipPick;
-      if (newEquip === current) { hideSheet(sheet); return; }
-      try {
-        await API.updateExercise(exerciseId, { equipment: newEquip });
-        ex.equipment = newEquip;
-        haptic(20);
-        hideSheet(sheet);
-        renderWorkoutView();
-        toast(`Equipment updated to ${newEquip}`);
-      } catch (err) { toast(err.message); }
-    };
-  });
+    sheet.querySelector('[data-close-sheet]').onclick = () => hideSheet(sheet);
+    sheet.querySelectorAll('[data-equip-pick]').forEach((btn) => {
+      btn.onclick = async () => {
+        const newEquip = btn.dataset.equipPick;
+        if (newEquip === current) { hideSheet(sheet); return; }
+        try {
+          await API.updateExercise(exerciseId, { equipment: newEquip });
+          ex.equipment = newEquip;
+          haptic(20);
+          renderWorkoutView();
+          toast(`Equipment updated to ${newEquip}`);
+          // Barbell needs a second tap (bar weight) — stay open and show it
+          // instead of closing, so the field is discoverable right here
+          // rather than needing to reopen this same sheet a second time.
+          if (newEquip === 'barbell') render();
+          else hideSheet(sheet);
+        } catch (err) { toast(err.message); }
+      };
+    });
+    const barSaveBtn = sheet.querySelector('#equip-barweight-save');
+    if (barSaveBtn) {
+      barSaveBtn.onclick = async () => {
+        const raw = sheet.querySelector('#equip-barweight').value.trim();
+        const bar_weight_kg = raw ? Number(raw) : null;
+        try {
+          await API.updateExercise(exerciseId, { bar_weight_kg });
+          ex.bar_weight_kg = bar_weight_kg;
+          haptic(20);
+          hideSheet(sheet);
+          renderWorkoutView();
+          toast('Bar weight saved');
+        } catch (err) { toast(err.message); }
+      };
+    }
+  };
 
+  render();
   showSheet(sheet);
 }
 
