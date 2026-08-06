@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -800,7 +800,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <button class="btn--icon-text" data-howto-ex="${ex.exercise_id}" title="How to do this exercise">?</button>
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
-          <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(ex.equipment || 'barbell')}</button>
+          <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(equipmentLabel(ex.equipment))}</button>
           ${!ex.is_bodyweight ? `<button class="badge badge--weightmode ${ex.weight_mode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
           ${muscleTagHTML(ex.muscle_group, ex.sub_muscle)}
         </div>
@@ -1871,7 +1871,7 @@ async function removeExerciseFromWorkout(exerciseId) {
 }
 
 const EQUIPMENT_OPTIONS = [
-  { value: 'barbell',    label: 'Barbell',    step: 'kg +5 / lbs +10' },
+  { value: 'barbell',    label: equipmentLabel('barbell'), step: 'kg +5 / lbs +10' },
   { value: 'dumbbell',   label: 'Dumbbell',   step: 'kg +2 / lbs +5' },
   { value: 'cable',      label: 'Cable',      step: 'kg +2.5 / lbs +5' },
   { value: 'machine',    label: 'Machine',    step: 'kg +2.5 / lbs +5' },
@@ -1905,9 +1905,14 @@ async function openEquipmentPicker(exerciseId) {
               <div class="equip-option__step">${opt.step}</div>
             </button>`).join('')}
           ${current === 'barbell' ? `
-            <label class="form-label" style="margin-top:18px">Bar weight (kg, optional)</label>
-            <input class="input" type="number" step="0.5" min="0" id="equip-barweight" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
-            <div class="card__subtitle" style="margin-top:6px">Shows a plate breakdown (bar + per-side) next to the weight field while logging — doesn't change how weight is stored.</div>
+            <label class="settings-row" style="margin-top:18px">
+              <span>Has a bar?</span>
+              <button class="toggle ${ex.bar_weight_kg != null ? 'toggle--on' : ''}" id="equip-hasbar" aria-pressed="${ex.bar_weight_kg != null}">
+                <span class="toggle__dot"></span>
+              </button>
+            </label>
+            <input class="input" type="number" step="0.5" min="0" id="equip-barweight" style="margin-top:10px${ex.bar_weight_kg != null ? '' : ';display:none'}" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
+            <div class="card__subtitle" style="margin-top:6px">Shows a plate breakdown (bar + per-side) next to the weight field while logging — doesn't change how weight is stored. Remembered for this exercise going forward.</div>
           ` : ''}
           <label class="form-label" style="margin-top:20px">Target rep range (optional)</label>
           <div class="rep-range-inputs">
@@ -1931,7 +1936,7 @@ async function openEquipmentPicker(exerciseId) {
           await API.updateExercise(exerciseId, payload);
           ex.equipment = newEquip;
           haptic(20);
-          toast(`Equipment updated to ${newEquip}`);
+          toast(`Equipment updated to ${equipmentLabel(newEquip)}`);
           // Re-render in place (not close) — barbell needs a second field
           // (bar weight) right here, and non-barbell needs that field gone.
           render();
@@ -1959,6 +1964,16 @@ async function openEquipmentPicker(exerciseId) {
           toast(err.message);
         }
       };
+    });
+    const hasBarBtn = sheet.querySelector('#equip-hasbar');
+    const barWeightInput = sheet.querySelector('#equip-barweight');
+    hasBarBtn?.addEventListener('click', () => {
+      const nowOn = !hasBarBtn.classList.contains('toggle--on');
+      hasBarBtn.classList.toggle('toggle--on', nowOn);
+      hasBarBtn.setAttribute('aria-pressed', String(nowOn));
+      barWeightInput.style.display = nowOn ? '' : 'none';
+      if (nowOn) barWeightInput.focus();
+      else barWeightInput.value = '';
     });
     sheet.querySelector('#equip-save').onclick = async () => {
       const barRaw = sheet.querySelector('#equip-barweight')?.value.trim() ?? '';
@@ -2004,7 +2019,7 @@ async function openHowToSheet(exerciseId) {
         <span style="width:40px"></span>
       </div>
       <div class="sheet__body">
-        <div class="card__subtitle" style="margin-bottom:10px">${escapeHtml(full.muscle_group)}${full.sub_muscle ? ` · ${escapeHtml(full.sub_muscle)}` : ''} · ${escapeHtml(full.equipment || '')}</div>
+        <div class="card__subtitle" style="margin-bottom:10px">${escapeHtml(full.muscle_group)}${full.sub_muscle ? ` · ${escapeHtml(full.sub_muscle)}` : ''} · ${escapeHtml(equipmentLabel(full.equipment))}</div>
         <div class="howto-text">${escapeHtml(full.instructions)}</div>
       </div>
     </div>`;

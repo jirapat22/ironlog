@@ -781,6 +781,15 @@ function createSecondaryPicker(containerEl, getPrimary, initial = [], initialMaj
 // Callbacks: onBack() — go back/close; onSaved(updatedExercise); onDeleted().
 const EXERCISE_GROUPS = PICKER_GROUP_ORDER;
 const EXERCISE_EQUIPMENT = ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight'];
+// Display-only relabel: the stored value stays 'barbell' everywhere (step
+// math, the free-weight muscle-crediting gate, existing catalog data) — only
+// what the user sees changes, since "barbell" reads wrong for plate-loaded
+// gear that isn't a traditional 2-sided bar (leg press, T-bar row, hack
+// squat...). Every spot that shows equipment as text should go through this.
+const EQUIPMENT_LABELS = { barbell: 'Plate', dumbbell: 'Dumbbell', cable: 'Cable', machine: 'Machine', bodyweight: 'Bodyweight' };
+function equipmentLabel(value) {
+  return EQUIPMENT_LABELS[value] || value || 'Plate';
+}
 
 // Shared "New exercise" form — used by the program editor, the mid-workout
 // picker, and Settings → Manage Exercises (it existed as two divergent copies
@@ -1131,7 +1140,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         <div class="sub2-list" id="edit-ex-sub2"></div>
         <label class="form-label" style="margin-top:14px">Equipment</label>
         <select class="input" id="edit-ex-equipment">
-          ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${e}</option>`).join('')}
+          ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${equipmentLabel(e)}</option>`).join('')}
         </select>
         <label class="form-label" style="margin-top:14px">Weight entry</label>
         <select class="input" id="edit-ex-weightmode">
@@ -1139,11 +1148,16 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
           <option value="per_arm" ${ex.weight_mode === 'per_arm' ? 'selected' : ''}>Per arm / side — unilateral, doubled for volume</option>
         </select>
         <label class="form-label" style="margin-top:14px">Custom weight step (kg, optional)</label>
-        <input class="input" type="number" step="0.5" min="0" id="edit-ex-step" value="${ex.step_override != null ? ex.step_override : ''}" placeholder="Default for ${ex.equipment || 'this equipment'}"/>
+        <input class="input" type="number" step="0.5" min="0" id="edit-ex-step" value="${ex.step_override != null ? ex.step_override : ''}" placeholder="Default for ${equipmentLabel(ex.equipment)}"/>
         <div id="edit-ex-barweight-wrap" style="${ex.equipment === 'barbell' ? '' : 'display:none'}">
-          <label class="form-label" style="margin-top:14px">Bar weight (kg, optional)</label>
-          <input class="input" type="number" step="0.5" min="0" id="edit-ex-barweight" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
-          <div class="card__subtitle">Shows a plate breakdown next to the weight field while logging — doesn't change how weight is stored.</div>
+          <label class="settings-row" style="margin-top:14px">
+            <span>Has a bar?</span>
+            <button class="toggle ${ex.bar_weight_kg != null ? 'toggle--on' : ''}" id="edit-ex-hasbar" aria-pressed="${ex.bar_weight_kg != null}">
+              <span class="toggle__dot"></span>
+            </button>
+          </label>
+          <input class="input" type="number" step="0.5" min="0" id="edit-ex-barweight" style="margin-top:10px${ex.bar_weight_kg != null ? '' : ';display:none'}" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
+          <div class="card__subtitle">Shows a plate breakdown next to the weight field while logging — doesn't change how weight is stored. Remembered for this exercise going forward.</div>
         </div>
         <label class="form-label" style="margin-top:14px">Target rep range (optional)</label>
         <div class="rep-range-inputs">
@@ -1188,6 +1202,22 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     weightModeSel.value = e.target.value === 'dumbbell' ? 'per_arm' : 'combined';
     barWeightWrap.style.display = e.target.value === 'barbell' ? '' : 'none';
   };
+
+  // "Has a bar?" toggle — flipping off hides AND clears the number field
+  // (rather than just leaving it optional/blank) so "no bar" is an explicit,
+  // visible state instead of an ambiguous empty box. The toggle's own state
+  // isn't a separate stored field — it just mirrors bar_weight_kg being set
+  // or null, so flipping to "No" saves as null, same field, no schema change.
+  const hasBarBtn = containerEl.querySelector('#edit-ex-hasbar');
+  const barWeightInput = containerEl.querySelector('#edit-ex-barweight');
+  hasBarBtn?.addEventListener('click', () => {
+    const nowOn = !hasBarBtn.classList.contains('toggle--on');
+    hasBarBtn.classList.toggle('toggle--on', nowOn);
+    hasBarBtn.setAttribute('aria-pressed', String(nowOn));
+    barWeightInput.style.display = nowOn ? '' : 'none';
+    if (nowOn) barWeightInput.focus();
+    else barWeightInput.value = '';
+  });
 
   // How-to editing is admin-gated (the catalog is shared across profiles).
   // The code is only collected here; the server verifies it on save (see
@@ -1449,7 +1479,7 @@ function isStandalone() {
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
-  stepForExercise, readRepRangeInputs, retryWithAdminCode, attachLibrarySearch, skeletonBlocks, showPRFlash,
+  stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail,
   enableDragReorder,
