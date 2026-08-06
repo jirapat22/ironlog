@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -1878,6 +1878,10 @@ const EQUIPMENT_OPTIONS = [
   { value: 'bodyweight', label: 'Bodyweight', step: 'kg +1' },
 ];
 
+// Equipment + bar weight + rep-range goal, all in one sheet — the three
+// things that were previously scattered (equipment/bar weight only here,
+// rep range only reachable via Programs/Settings) and that a mid-workout
+// glance at the card is exactly when you'd notice one of them is off.
 async function openEquipmentPicker(exerciseId) {
   const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exerciseId);
   if (!ex) return;
@@ -1889,10 +1893,11 @@ async function openEquipmentPicker(exerciseId) {
       <div class="sheet__inner">
         <div class="sheet__head">
           <button class="btn--icon" data-close-sheet>←</button>
-          <div class="sheet__title">Equipment — ${escapeHtml(ex.name)}</div>
+          <div class="sheet__title">Exercise settings — ${escapeHtml(ex.name)}</div>
           <span style="width:40px"></span>
         </div>
         <div class="sheet__body">
+          <label class="form-label">Equipment</label>
           <div class="card__subtitle" style="margin-bottom:12px">Affects the +/− step size and weight recommendation.</div>
           ${EQUIPMENT_OPTIONS.map((opt) => `
             <button class="equip-option ${opt.value === current ? 'equip-option--active' : ''}" data-equip-pick="${opt.value}">
@@ -1903,8 +1908,15 @@ async function openEquipmentPicker(exerciseId) {
             <label class="form-label" style="margin-top:18px">Bar weight (kg, optional)</label>
             <input class="input" type="number" step="0.5" min="0" id="equip-barweight" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
             <div class="card__subtitle" style="margin-top:6px">Shows a plate breakdown (bar + per-side) next to the weight field while logging — doesn't change how weight is stored.</div>
-            <button class="btn btn--block" id="equip-barweight-save" style="margin-top:10px">Save bar weight</button>
           ` : ''}
+          <label class="form-label" style="margin-top:20px">Target rep range (optional)</label>
+          <div class="rep-range-inputs">
+            <input class="input" type="number" min="1" max="100" step="1" id="equip-repmin" value="${ex.rep_min ?? ''}" placeholder="min"/>
+            <span class="rep-range-inputs__dash">–</span>
+            <input class="input" type="number" min="1" max="100" step="1" id="equip-repmax" value="${ex.rep_max ?? ''}" placeholder="max"/>
+          </div>
+          <div class="card__subtitle" style="margin-top:6px">Sets the progression banner's target directly — otherwise it falls back to whichever is higher: 8, or today's slot target.</div>
+          <button class="btn btn--block" id="equip-save" style="margin-top:14px">Save</button>
         </div>
       </div>`;
 
@@ -1912,36 +1924,61 @@ async function openEquipmentPicker(exerciseId) {
     sheet.querySelectorAll('[data-equip-pick]').forEach((btn) => {
       btn.onclick = async () => {
         const newEquip = btn.dataset.equipPick;
-        if (newEquip === current) { hideSheet(sheet); return; }
-        try {
-          await API.updateExercise(exerciseId, { equipment: newEquip });
+        if (newEquip === current) return;
+        const applyEquipment = async (adminCode) => {
+          const payload = { equipment: newEquip };
+          if (adminCode) payload.admin_code = adminCode;
+          await API.updateExercise(exerciseId, payload);
           ex.equipment = newEquip;
           haptic(20);
-          renderWorkoutView();
           toast(`Equipment updated to ${newEquip}`);
-          // Barbell needs a second tap (bar weight) — stay open and show it
-          // instead of closing, so the field is discoverable right here
-          // rather than needing to reopen this same sheet a second time.
-          if (newEquip === 'barbell') render();
-          else hideSheet(sheet);
-        } catch (err) { toast(err.message); }
+          // Re-render in place (not close) — barbell needs a second field
+          // (bar weight) right here, and non-barbell needs that field gone.
+          render();
+          return true;
+        };
+        try {
+          await applyEquipment();
+        } catch (err) {
+          // Equipment is a classification field — reclassifying a shared/seed
+          // exercise (not one you created) affects every profile's history,
+          // so the server asks for the admin code. Same reactive prompt-and-
+          // retry as the full edit form, so this picker isn't a dead end for
+          // any exercise from the shared catalog.
+          if (err.message === 'admin code required to reclassify a shared exercise') {
+            try {
+              const result = await retryWithAdminCode(applyEquipment, {
+                title: 'Admin code',
+                label: 'This exercise is shared — enter the admin code to change its equipment',
+                confirmText: 'Confirm'
+              });
+              if (result === undefined) return; // cancelled
+            } catch (err2) { toast(err2.message); }
+            return;
+          }
+          toast(err.message);
+        }
       };
     });
-    const barSaveBtn = sheet.querySelector('#equip-barweight-save');
-    if (barSaveBtn) {
-      barSaveBtn.onclick = async () => {
-        const raw = sheet.querySelector('#equip-barweight').value.trim();
-        const bar_weight_kg = raw ? Number(raw) : null;
-        try {
-          await API.updateExercise(exerciseId, { bar_weight_kg });
-          ex.bar_weight_kg = bar_weight_kg;
-          haptic(20);
-          hideSheet(sheet);
-          renderWorkoutView();
-          toast('Bar weight saved');
-        } catch (err) { toast(err.message); }
-      };
-    }
+    sheet.querySelector('#equip-save').onclick = async () => {
+      const barRaw = sheet.querySelector('#equip-barweight')?.value.trim() ?? '';
+      if (barRaw && (!Number.isFinite(Number(barRaw)) || Number(barRaw) <= 0)) {
+        return toast('Bar weight must be a positive number');
+      }
+      const bar_weight_kg = barRaw ? Number(barRaw) : null;
+      const repRange = readRepRangeInputs(sheet, '#equip-repmin', '#equip-repmax');
+      if (!repRange.ok) return toast(repRange.error);
+      const payload = { rep_min: repRange.rep_min, rep_max: repRange.rep_max };
+      if (current === 'barbell') payload.bar_weight_kg = bar_weight_kg;
+      try {
+        await API.updateExercise(exerciseId, payload);
+        // ironlog:exercise-updated (dispatched by API.updateExercise) already
+        // patches workoutState and re-renders the card — just close here.
+        haptic(20);
+        hideSheet(sheet);
+        toast('Saved');
+      } catch (err) { toast(err.message); }
+    };
   };
 
   render();
@@ -2017,9 +2054,14 @@ document.addEventListener('ironlog:exercise-updated', (e) => {
   const updated = e.detail;
   const exercises = workoutState?.programDay?.exercises;
   if (!updated?.id || !exercises) return;
-  const idx = exercises.findIndex((x) => x.exercise_id === updated.id);
-  if (idx === -1) return;
-  exercises[idx] = { ...exercises[idx], ...exerciseCatalogFields(updated) };
+  const target = exercises.find((x) => x.exercise_id === updated.id);
+  if (!target) return;
+  // Mutate the existing object in place rather than replacing the array
+  // slot — a sheet/picker open on this exercise (e.g. the equipment/rep-goal
+  // one) is holding its own reference to this same object, captured before
+  // this event fires. Replacing the slot would leave that reference pointing
+  // at a stale, now-detached copy instead of picking up the update.
+  Object.assign(target, exerciseCatalogFields(updated));
   renderWorkoutView();
 });
 

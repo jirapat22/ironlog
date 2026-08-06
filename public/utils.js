@@ -1449,7 +1449,7 @@ function isStandalone() {
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
-  stepForExercise, readRepRangeInputs, attachLibrarySearch, skeletonBlocks, showPRFlash,
+  stepForExercise, readRepRangeInputs, retryWithAdminCode, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail,
   enableDragReorder,
