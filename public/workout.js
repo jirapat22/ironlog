@@ -911,11 +911,12 @@ function buildProgressionHint(rec, trend = []) {
   } else {
     const gap = rec.recReps - rec.minReps;
     const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
+    const sideStr = rec.sideNote ? ` &mdash; ${rec.sideNote}` : '';
     const nextStep = rec.isAssisted ? 'reduce assistance' : 'add weight';
     return `
       <div class="prog-hint prog-hint--same">
         <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set ${trendBadgeHTML(trendStatus, trend, rec)}</div>
-        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
+        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr}${sideStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
         ${trendLine}
       </div>`;
   }
@@ -1030,6 +1031,19 @@ function recommendForNext(ex, lastSets) {
   const setsLabel = workingSets.length === 1 ? '1 set' : `${workingSets.length} sets`;
   const minReps = Math.min(...workingSets.map((s) => s.reps));
 
+  // Per-side (L/R) sets store the WEAKER side's count as reps — a set can
+  // feel "clean" (e.g. 9 left, 7 right) while still reading as a miss here.
+  // Name the lagging side directly instead of leaving "same weight" looking
+  // unexplained when the logged number doesn't match what either arm did.
+  const limitingSet = workingSets.find(
+    (s) => s.reps === minReps && s.reps_r != null && s.reps_l != null && s.reps_r !== s.reps_l
+  );
+  const sideNote = limitingSet
+    ? (limitingSet.reps_r < limitingSet.reps_l
+        ? `right arm ${limitingSet.reps_l - limitingSet.reps_r} short`
+        : `left arm ${limitingSet.reps_r - limitingSet.reps_l} short`)
+    : null;
+
   return {
     // After a weight bump, aim resets to the BOTTOM of the range (double
     // progression); otherwise keep chasing the top. hitReps is what the last
@@ -1042,8 +1056,21 @@ function recommendForNext(ex, lastSets) {
       : isBw
         ? (recWeight === 0 ? 'BW' : `BW+${recWeight}${unit}`)
         : `${recWeight}${unit}`,
-    setsLabel, repsList, minReps
+    setsLabel, repsList, minReps, sideNote
   };
+}
+
+// Shared by setRowHTML, reconcileSetRowBadges, and confirmSet's live patch —
+// same reason the PR badge appears in all three: a badge only wired into one
+// render path silently vanishes on whichever OTHER path happens to run next
+// (warmup toggle, an unrelated full re-render, ...).
+function improvedBadgeHTML(logged, isBw, isAssisted) {
+  const imp = logged?.improved_from_last;
+  if (!imp) return '';
+  const msg = imp.type === 'weight'
+    ? `Beat your last session's top set for this exercise — was ${fmtSetWeight(imp.priorWeight, imp.priorUnit, isBw, isAssisted)}.`
+    : `Matched your last top weight with more reps — was ${imp.priorReps}.`;
+  return `<button class="set-row__pr" data-badge-title="Improved from last time" data-badge-msg="${escapeHtml(msg)}">&#x1F4C8;</button>`;
 }
 
 function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL: repsLVal, logged, isNext, prevRepsR, prevRepsL }) {
@@ -1086,7 +1113,8 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   // other hints. data-eq stays in the DOM unconditionally: updateRowEquiv()
   // needs it to live-update as weight/unit change, even before there's
   // anything to show.
-  const hintsHTML = `<div class="set-row__hints">${e1rmBadge}${perArmBadge}${prBadge}</div>`;
+  const improvedBadge = improvedBadgeHTML(logged, isBw, isAssisted);
+  const hintsHTML = `<div class="set-row__hints">${e1rmBadge}${perArmBadge}${improvedBadge}${prBadge}</div>`;
   // Optional per-side rep breakdown (right/left) for dumbbell-type per-arm
   // exercises, e.g. right hand got 9, left got 7 — the main reps field above
   // stays the single "official" number (the weaker side); this is opt-in
@@ -1161,8 +1189,9 @@ function reconcileSetRowBadges(row, logged) {
   const prBadge = logged.is_new_pr
     ? `<button class="set-row__pr" data-badge-title="New PR" data-badge-msg="New personal record: ${escapeHtml(fmtSetWeight(logged.weight, logged.weight_unit, isBw, isAssisted))} × ${logged.reps} reps.">&#x1F3C6;</button>`
     : '';
+  const improvedBadge = improvedBadgeHTML(logged, isBw, isAssisted);
   const hints = row.querySelector('.set-row__hints');
-  if (hints) hints.innerHTML = e1rmBadge + perArmBadge + prBadge;
+  if (hints) hints.innerHTML = e1rmBadge + perArmBadge + improvedBadge + prBadge;
 
   const existingFormBtn = row.querySelector('[data-toggle-form]');
   if (!isWarmup && !existingFormBtn) {
@@ -1516,6 +1545,31 @@ function lastSetsForExercise(exId) {
   return workoutState.lastByExercise?.[exId] || [];
 }
 
+// Session-over-session improvement — distinct from the PR trophy (all-time
+// best via e1RM). "Beat last time" specifically: more load than the last
+// session's best working set, or the same load with more reps. Small kg
+// tolerance so a unit round-trip (e.g. logged in lbs, last time in kg)
+// doesn't miss an exact-same-weight match to float noise.
+function improvedFromLastSession(ex, weight, unit, reps) {
+  const prior = lastSetsForExercise(ex.exercise_id).filter((s) => !s.is_warmup);
+  if (!prior.length) return null;
+  let bestPrior = null, bestPriorKg = 0;
+  for (const s of prior) {
+    const kg = loadKg(s, ex);
+    if (kg > bestPriorKg) { bestPriorKg = kg; bestPrior = s; }
+  }
+  if (!bestPrior) return null;
+  const todayKg = loadKg({ weight, weight_unit: unit }, ex);
+  const KG_EPS = 0.01;
+  if (todayKg > bestPriorKg + KG_EPS) {
+    return { type: 'weight', priorWeight: bestPrior.weight, priorUnit: bestPrior.weight_unit };
+  }
+  if (Math.abs(todayKg - bestPriorKg) <= KG_EPS && reps > bestPrior.reps) {
+    return { type: 'reps', priorReps: bestPrior.reps };
+  }
+  return null;
+}
+
 // exerciseCardHTML suppresses the progression banner when the recommendation
 // no longer matches what's actually being logged (see its recStillMatches
 // comment) — but that check only runs on a full card re-render. Logging a set
@@ -1626,6 +1680,11 @@ async function confirmSet(row) {
       // against touching workoutState after Finish/Cancel already nulled it
       // out while this request was in flight.
       if (!workoutState) return;
+      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
+      // Client-computed, not something the server returns — attach before
+      // pushing so it rides along in workoutState.loggedSets exactly like
+      // is_new_pr does, and survives a later re-render the same way.
+      if (!isWarmup) res.improved_from_last = improvedFromLastSession(ex, weight, unit, reps);
       row.dataset.setId = res.id;
       row.dataset.justConfirmed = '1';
       row.classList.add('done');
@@ -1637,7 +1696,6 @@ async function confirmSet(row) {
       refreshProgressionHint(exId);
       haptic(30);
       if (!isWarmup) renderSessionCoverage();
-      const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
       // Newly-confirmed rows are patched in place rather than fully
       // re-rendered via setRowHTML, so the form-flag button (only present in
       // the template when `logged` is set) has to be added here too —
@@ -1652,6 +1710,9 @@ async function confirmSet(row) {
         row.querySelector('[data-rest]')?.insertAdjacentElement('beforebegin', formBtn);
       }
       const hints = row.querySelector('.set-row__hints');
+      if (res.improved_from_last && hints) {
+        hints.insertAdjacentHTML('beforeend', improvedBadgeHTML(res, !!ex?.is_bodyweight, !!ex?.is_assisted));
+      }
       if (res.is_new_pr) {
         showPRFlash();
         const prBadge = document.createElement('button');
