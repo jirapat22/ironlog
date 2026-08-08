@@ -1076,6 +1076,7 @@ body.has-update-banner .app {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .exercise-card__name {
@@ -1782,9 +1783,14 @@ body.has-update-banner .app {
   align-items: center;
   gap: 8px;
   /* Badge count grew (equipment + weight-mode + muscle·sub) — wrap onto a
-     second line on narrow phones instead of overflowing off-screen. */
+     second line on narrow phones instead of overflowing off-screen. Forced
+     onto its own full-width row (rather than sharing one with the name)
+     since the two wrapping independently side-by-side used to interleave
+     into a jumbled mess on narrow phones — this way the name always reads
+     as one block, actions as another, stacked cleanly underneath. */
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex-basis: 100%;
 }
 
 .btn--icon-text {
@@ -2097,6 +2103,7 @@ body.has-update-banner .app {
 }
 
 .rpe-btn {
+  position: relative;
   min-width: 28px;
   height: 28px;
   padding: 0 8px;
@@ -2107,6 +2114,21 @@ body.has-update-banner .app {
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* The visual button stays small (5 of these plus a label/clear/note/rest
+   button all share one row) but the real tap target was 28x28 — well under
+   the ~44px touch-target guideline, easy to miss mid-workout. An invisible
+   expanded hit area fixes that without touching layout: absolutely
+   positioned, so it doesn't push neighboring buttons or grow the row.
+   Mostly vertical (nothing else shares this row's vertical space) with only
+   a little horizontal give — these sit 4px apart in a row next to the note
+   and rest buttons, and a bigger horizontal expansion would start stealing
+   taps meant for its neighbors instead of just being easier to hit itself. */
+.rpe-btn::before {
+  content: '';
+  position: absolute;
+  inset: -8px -3px;
 }
 
 .rpe-btn--active {
