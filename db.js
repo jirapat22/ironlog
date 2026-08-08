@@ -796,6 +796,7 @@ function seed() {
   fixMissingSecondaryMajorGap();
   broadenSecondaryCreditsV2();
   narrowSecondaryMajorV3();
+  promoteFrontDeltMajorV4();
   backfillPersonalRecordSetIds();
   resetNonDumbbellWeightMode();
   markUnilateralSeeds();
@@ -1260,6 +1261,17 @@ function backfillPersonalRecordSetIds() {
 // including machine-assisted ones, over-counted relative to the free-weight
 // case actually doing the loading. Traps' broader list is unaffected.
 const SECONDARY_MAJOR_BY_NAME = {
+  // Front delt is a genuine synergist on every pressing/dip/push-up
+  // movement, not a token stabilizer — user-requested promotion from
+  // tag-only to real "last trained" credit. Triceps' lateral head stays
+  // tag-only here (not asked for, and it already gets major credit from its
+  // own dedicated exercises — Tricep Pushdown, etc).
+  'Bench Press': ['front delt'], 'Incline Bench Press': ['front delt'],
+  'Decline Bench Press': ['front delt'], 'Incline Dumbbell Press': ['front delt'],
+  'Flat Dumbbell Press': ['front delt'], 'Machine Chest Press': ['front delt'],
+  'Chest Dip': ['front delt'], 'Assisted Dip': ['front delt'],
+  'Push-Up': ['front delt'], 'Close-Grip Bench Press': ['front delt'],
+  'Diamond Push-Up': ['front delt'], 'Tricep Dip': ['front delt'],
   'Deadlift': ['glutes', 'hamstrings', 'traps', 'wrist flexors'],
   'Sumo Deadlift': ['glutes', 'hamstrings', 'quads', 'traps', 'wrist flexors'],
   'Rack Pull': ['glutes', 'wrist flexors'],
@@ -1404,6 +1416,43 @@ function narrowSecondaryMajorV3() {
       if (!Array.isArray(arr)) arr = [];
       const removeSet = new Set(removals);
       upd.run(JSON.stringify(arr.filter((r) => !removeSet.has(r))), row.id);
+    }
+    setMeta(FLAG, '1');
+  });
+}
+
+// User-requested: front delt is a real synergist on every pressing/dip/
+// push-up movement, not a token stabilizer — promote it from tag-only
+// (secondary_muscles) to real "last trained" credit (secondary_major) on
+// exactly the exercises where it was already tagged as "also works". Same
+// catch-up rationale as V2 above: SECONDARY_MAJOR_BY_NAME already reflects
+// this for fresh installs, but that only ever fills a NULL column, so an
+// already-seeded database needs this one-time, merge-based, flag-guarded
+// pass to actually pick it up.
+const SECONDARY_MAJOR_ADD_V4 = {
+  'Bench Press': ['front delt'], 'Incline Bench Press': ['front delt'],
+  'Decline Bench Press': ['front delt'], 'Incline Dumbbell Press': ['front delt'],
+  'Flat Dumbbell Press': ['front delt'], 'Machine Chest Press': ['front delt'],
+  'Chest Dip': ['front delt'], 'Assisted Dip': ['front delt'],
+  'Push-Up': ['front delt'], 'Close-Grip Bench Press': ['front delt'],
+  'Diamond Push-Up': ['front delt'], 'Tricep Dip': ['front delt']
+};
+
+function promoteFrontDeltMajorV4() {
+  const FLAG = 'secondary_major_front_delt_v4';
+  if (getMeta(FLAG)) return;
+  const getEx = db.prepare('SELECT id, secondary_major FROM exercises WHERE name = ? AND created_by_profile_id IS NULL');
+  const upd = db.prepare('UPDATE exercises SET secondary_major = ? WHERE id = ?');
+  tx(() => {
+    for (const [name, additions] of Object.entries(SECONDARY_MAJOR_ADD_V4)) {
+      const row = getEx.get(name);
+      if (!row) continue;
+      let arr = [];
+      try { arr = JSON.parse(row.secondary_major || '[]'); } catch { arr = []; }
+      if (!Array.isArray(arr)) arr = [];
+      const set = new Set(arr);
+      for (const r of additions) if (REGION_TO_GROUP[r]) set.add(r);
+      upd.run(JSON.stringify([...set]), row.id);
     }
     setMeta(FLAG, '1');
   });
