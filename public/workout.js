@@ -1658,7 +1658,12 @@ async function confirmSet(row) {
       // workoutState, so the edit silently reverted to its stale pre-edit
       // value even though the server already had the correct one.
       const setIdx = workoutState.loggedSets.findIndex((s) => s.id === Number(row.dataset.setId));
-      if (setIdx !== -1) workoutState.loggedSets[setIdx] = updated;
+      // Merge, don't replace — is_new_pr/improved_from_last are ephemeral,
+      // client-only flags attached at the original confirm time (see below);
+      // a plain PATCH response never carries them. Replacing the whole entry
+      // silently dropped an already-earned trophy/badge the moment anything
+      // ELSE forced a full re-render of this row later in the same session.
+      if (setIdx !== -1) workoutState.loggedSets[setIdx] = { ...workoutState.loggedSets[setIdx], ...updated };
       // The correction is now the server-saved value too — drop the pending
       // draft so a stale copy doesn't linger and override a FUTURE edit.
       if (workoutState.draft.pendingEdits) delete workoutState.draft.pendingEdits[row.dataset.setId];
