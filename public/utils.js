@@ -70,16 +70,24 @@ async function retryWithAdminCode(attempt, promptOpts) {
 // Shared AudioContext — created lazily, kept alive so audio policy doesn't
 // block playback when the beep fires from a setInterval (no recent user gesture).
 let audioCtx = null;
-function primeAudio() {
+async function primeAudio() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    // Awaited (both here and by playBeep below) rather than fire-and-forget —
+    // resume() takes a moment, especially coming back from backgrounded/
+    // locked-screen. Scheduling oscillators before it actually settles risks
+    // a silent beep: currentTime is read and start/stop times computed
+    // against a context that's still transitioning, not yet really running.
+    if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
   } catch { /* not supported */ }
 }
 
-function playBeep() {
-  primeAudio();
-  if (!audioCtx) return;
+async function playBeep() {
+  await primeAudio();
+  // If it's still not running (resume failed or never settled — the
+  // backgrounded-tab case this can't fully work around), don't schedule
+  // sound against a dead context; just skip rather than misfire silently.
+  if (!audioCtx || audioCtx.state !== 'running') return;
   try {
     const schedule = (freq, start, dur) => {
       const osc = audioCtx.createOscillator();

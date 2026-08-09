@@ -2690,32 +2690,6 @@ body.has-update-banner .app {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-/* Stepper (settings) */
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 2px 4px;
-}
-
-.stepper__btn {
-  width: 30px;
-  height: 30px;
-  color: var(--text-dim);
-  font-size: 18px;
-}
-
-.stepper__val {
-  min-width: 62px;
-  text-align: center;
-  font-weight: 600;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
 /* Feel rating */
 .feel-prompt {
   margin: 18px 0 14px;

@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, ACCENTS, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, isIOS, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, ACCENTS, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
@@ -17,18 +17,25 @@ async function openSettingsSheet() {
 
   let serverSettings = {};
   try { serverSettings = await API.settings(); }
-  catch { serverSettings = { nudge_enabled: '1', nudge_threshold_days: '3' }; }
-  const nudgeOn = serverSettings.nudge_enabled === '1';
-  const nudgeDays = Number(serverSettings.nudge_threshold_days || 3);
+  catch { serverSettings = {}; }
   const prefUnit = serverSettings.preferred_unit || 'kg';
   const equivOn = serverSettings.show_weight_equiv !== '0';
-  const weeklyOn = serverSettings.weekly_summary_enabled === '1';
+
+  const standalone = isStandalone();
+  const iosNotInstalled = isIOS() && !standalone;
 
   let notifBody = '';
   if (!canNotif) {
     notifBody = `<div class="card__subtitle">Not supported in this browser.</div>`;
   } else if (perm === 'denied') {
     notifBody = `<div class="card__subtitle" style="color:var(--danger)">Blocked in browser settings. Re-enable for this site to receive rest-timer alerts.</div>`;
+  } else if (iosNotInstalled) {
+    // iOS categorically can't do web notifications outside a home-screen-
+    // installed PWA — showing the toggle here would just be a working-looking
+    // control for something that can never actually fire. Block it instead
+    // of leaving that to a passive caption underneath, same info but easy to
+    // miss (and easy to toggle "on" without it doing anything).
+    notifBody = `<div class="card__subtitle" style="color:var(--danger)">Add IronLog to your Home Screen first — iOS only supports notifications for installed apps, not Safari tabs. Share button → "Add to Home Screen", then reopen it from there.</div>`;
   } else {
     notifBody = `
       <label class="settings-row">
@@ -37,11 +44,8 @@ async function openSettingsSheet() {
           <span class="toggle__dot"></span>
         </button>
       </label>
-      <button class="btn btn--ghost btn--block" id="test-notif" style="margin-top:10px" ${enabled ? '' : 'disabled'}>Send test notification</button>
-      <div class="card__subtitle" style="margin-top:8px">On iOS, notifications require adding the app to the Home Screen first.</div>`;
+      <button class="btn btn--ghost btn--block" id="test-notif" style="margin-top:10px" ${enabled ? '' : 'disabled'}>Send test notification</button>`;
   }
-
-  const standalone = isStandalone();
 
   sheet.innerHTML = `
     <div class="sheet__inner">
@@ -107,29 +111,8 @@ async function openSettingsSheet() {
         </div>
 
         <div class="settings-group__title">Notifications</div>
-        <div class="settings-group ${!canNotif || perm === 'denied' ? 'settings-group--free' : ''}">
+        <div class="settings-group ${!canNotif || perm === 'denied' || iosNotInstalled ? 'settings-group--free' : ''}">
           ${notifBody}
-        </div>
-
-        <div class="settings-group__title">Reminders</div>
-        <div class="settings-group">
-          <label class="settings-row">
-            <span>Missed-training nudge</span>
-            <button class="toggle ${nudgeOn ? 'toggle--on' : ''}" id="toggle-nudge" aria-pressed="${nudgeOn}"><span class="toggle__dot"></span></button>
-          </label>
-          <div class="settings-row">
-            <span>Nudge after</span>
-            <div class="stepper" id="nudge-days-stepper">
-              <button class="stepper__btn" data-nudge-step="-1">−</button>
-              <span class="stepper__val" id="nudge-days-val">${nudgeDays} day${nudgeDays === 1 ? '' : 's'}</span>
-              <button class="stepper__btn" data-nudge-step="1">+</button>
-            </div>
-          </div>
-          <label class="settings-row">
-            <span>Weekly summary <span class="settings-row__val">(Sundays 7pm)</span></span>
-            <button class="toggle ${weeklyOn ? 'toggle--on' : ''}" id="toggle-weekly" aria-pressed="${weeklyOn}"><span class="toggle__dot"></span></button>
-          </label>
-          <div class="card__subtitle">Quiet hours: 10pm–8am. Requires notifications on.</div>
         </div>
 
         <div class="settings-group__title">Data</div>
@@ -286,22 +269,6 @@ async function openSettingsSheet() {
       return;
     }
 
-    if (e.target.closest('#toggle-nudge')) {
-      const btn = e.target.closest('#toggle-nudge');
-      const on = btn.classList.contains('toggle--on');
-      try { await API.updateSettings({ nudge_enabled: on ? '0' : '1' }); haptic(10); openSettingsSheet(); }
-      catch (err) { toast(err.message); }
-      return;
-    }
-
-    if (e.target.closest('#toggle-weekly')) {
-      const btn = e.target.closest('#toggle-weekly');
-      const on = btn.classList.contains('toggle--on');
-      try { await API.updateSettings({ weekly_summary_enabled: on ? '0' : '1' }); haptic(10); openSettingsSheet(); }
-      catch (err) { toast(err.message); }
-      return;
-    }
-
     if (e.target.closest('#toggle-equiv')) {
       const btn = e.target.closest('#toggle-equiv');
       const on = btn.classList.contains('toggle--on');
@@ -358,18 +325,6 @@ async function openSettingsSheet() {
       return;
     }
 
-    const nudgeStep = e.target.closest('[data-nudge-step]');
-    if (nudgeStep) {
-      const delta = Number(nudgeStep.dataset.nudgeStep);
-      const current = Number(document.getElementById('nudge-days-val').textContent.match(/\d+/)[0]);
-      const next = Math.max(1, Math.min(14, current + delta));
-      if (next === current) return;
-      try {
-        await API.updateSettings({ nudge_threshold_days: String(next) });
-        document.getElementById('nudge-days-val').textContent = `${next} day${next === 1 ? '' : 's'}`;
-        haptic(10);
-      } catch (err) { toast(err.message); }
-    }
   };
 
   const fileInput = sheet.querySelector('#import-file-input');

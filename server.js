@@ -21,7 +21,7 @@ const authRouter = require('./routes/auth');
 const bugReportRouter = require('./routes/bugReport');
 const { requireProfile, optionalProfile } = require('./auth');
 const { recordBugReport } = require('./lib/bugReports');
-const nudge = require('./nudge');
+const { sweepExpiredSessions } = require('./accounts');
 
 init();
 console.log('DB ready');
@@ -31,8 +31,10 @@ try {
 } catch (err) {
   console.warn('Push init failed:', err.message);
 }
-nudge.start();
-console.log('Nudge cron started');
+// Expired-session cleanup — used to piggyback on the (now-removed) nudge
+// cron's hourly tick; still needs to run on its own.
+setTimeout(sweepExpiredSessions, 30_000);
+setInterval(sweepExpiredSessions, 60 * 60 * 1000);
 
 const app = express();
 // Railway terminates TLS at a single proxy hop in front of us. Trust exactly
@@ -113,8 +115,8 @@ app.use('/api', requireProfile);
 
 app.get('/api/orbit-summary', (req, res) => {
   // Activity sessions (walks especially) aren't gym attendance — same
-  // exclusion as /api/calendar and the nudge reminders, so this widget can't
-  // report "active today" off a walk while the nudge system still nags.
+  // exclusion as /api/calendar, so this widget can't report "active today"
+  // off a walk.
   const workout = db.prepare(
     `SELECT id, finished_at FROM workouts
      WHERE profile_id = ? AND finished_at IS NOT NULL AND (kind IS NULL OR kind != 'activity')

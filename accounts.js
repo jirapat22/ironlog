@@ -284,7 +284,7 @@ function deleteSession(token) {
 // looked up again after expiring — a device that's lost or a profile that
 // simply stops visiting leaves its row forever (harmlessly, since the
 // max-age filter above already excludes it from auth, but unbounded all the
-// same). Called from nudge.js's existing hourly tick.
+// same). Scheduled on an hourly interval in server.js.
 function sweepExpiredSessions() {
   db.prepare(`DELETE FROM sessions WHERE created_at <= datetime('now', ?)`).run(`-${SESSION_MAX_AGE_DAYS} days`);
 }
