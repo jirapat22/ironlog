@@ -96,6 +96,7 @@ const API = {
   clearExerciseData: (id) => api(`/api/exercises/${id}/sets`, { method: 'DELETE' }),
   exercises: () => api('/api/exercises'),
   exerciseStats: () => api('/api/exercises/stats'),
+  exercisesByIds: (exerciseIds) => api('/api/exercises/by-ids', { method: 'POST', body: { exercise_ids: exerciseIds } }),
   addExercise: (data) => api('/api/exercises', { method: 'POST', body: data }),
   programs: () => api('/api/programs'),
   program: (id) => api(`/api/programs/${id}`),

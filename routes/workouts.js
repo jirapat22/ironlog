@@ -573,13 +573,21 @@ router.get('/:id', (req, res) => {
   // is_new_pr / improved_from_last used to only exist on the object returned
   // by the POST that logged the set — ephemeral client-only state that
   // vanished the moment the page reloaded (backgrounding mid-workout is
-  // routine on a phone). Recomputed durably here on every fetch instead.
-  const exIds = [...new Set(sets.filter((s) => !s.is_warmup).map((s) => s.exercise_id))];
-  const prSetIds = personalRecordSetIds(req.profileId, exIds);
-  const improvedByExercise = new Map(exIds.map((exId) => [exId, computeImprovedFlags(req.profileId, exId, id)]));
-  for (const s of sets) {
-    s.is_new_pr = !s.is_warmup && prSetIds.has(s.id);
-    s.improved_from_last = s.is_warmup ? null : (improvedByExercise.get(s.exercise_id)?.get(s.id) || null);
+  // routine on a phone). Recomputed durably here on every fetch instead —
+  // but only while the workout is still open: a finished workout never
+  // reaches the live workout view again (renderWorkout() redirects away the
+  // moment it sees finished_at), and History reads these same fields from
+  // GET /:id/sets instead, so computing them here for a finished workout is
+  // pure waste (this same endpoint is also fetched, for its other fields,
+  // by History's parallel workout-detail lookup).
+  if (!row.finished_at) {
+    const exIds = [...new Set(sets.filter((s) => !s.is_warmup).map((s) => s.exercise_id))];
+    const prSetIds = personalRecordSetIds(req.profileId, exIds);
+    const improvedByExercise = new Map(exIds.map((exId) => [exId, computeImprovedFlags(req.profileId, exId, id)]));
+    for (const s of sets) {
+      s.is_new_pr = !s.is_warmup && prSetIds.has(s.id);
+      s.improved_from_last = s.is_warmup ? null : (improvedByExercise.get(s.exercise_id)?.get(s.id) || null);
+    }
   }
   row.sets = sets;
   res.json(row);

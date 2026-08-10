@@ -96,6 +96,25 @@ router.get('/library/search', (req, res) => {
   res.json(require('../lib/exerciseLibrary').search(q, 12));
 });
 
+// Fresh catalog rows for a specific set of exercise ids — powers the active
+// workout view's snapshot overlay (see renderWorkout in workout.js): a
+// workout's exercise LIST is snapshotted into workout.exercise_list/the
+// draft the moment it's built, but per-exercise metadata (rep range,
+// equipment, weight mode...) needs to stay live so an edit made mid-workout,
+// or to an exercise swapped in outside the day's own template, actually
+// shows up instead of silently pinning day-old values for the rest of the
+// session.
+router.post('/by-ids', (req, res) => {
+  const ids = Array.isArray(req.body?.exercise_ids)
+    ? [...new Set(req.body.exercise_ids.map(Number).filter(Number.isFinite))]
+    : [];
+  if (!ids.length) return res.json([]);
+  const rows = db
+    .prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id IN (${ids.map(() => '?').join(',')})`)
+    .all(...ids);
+  res.json(rows.map(shapeExercise));
+});
+
 // Single exercise incl. long-form fields (instructions) that the list
 // endpoints deliberately omit. Registered after the static routes above.
 router.get('/:id(\\d+)', (req, res) => {

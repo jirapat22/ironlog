@@ -433,7 +433,17 @@ async function renderWorkout(retriedAfterMissing = false) {
     const programDayId =
       workout.program_day_id || Number(localStorage.getItem(LS.activeProgramDayId) || 0);
 
-    const [days, last, settings, recentSessions] = await Promise.all([
+    // Local draft first (freshest, survives offline edits); fall back to the
+    // server-side snapshot when localStorage is gone (iOS storage eviction,
+    // another device) so mid-workout swaps/adds don't silently revert.
+    const draft = loadDraft(workout.id);
+    let savedList = draft.exerciseList;
+    if (!savedList?.length && workout.exercise_list) {
+      try { savedList = JSON.parse(workout.exercise_list); } catch { savedList = null; }
+    }
+    const savedListExIds = savedList?.length ? savedList.map((e) => e.exercise_id) : [];
+
+    const [days, last, settings, recentSessions, freshExercises] = await Promise.all([
       programDayId
         ? fetchDayDetails(programDayId)
         : Promise.resolve({ day_label: 'Quick Workout', exercises: [], id: null }),
@@ -443,11 +453,17 @@ async function renderWorkout(retriedAfterMissing = false) {
       API.settings().catch(() => ({})),
       programDayId
         ? API.recentWorkouts(programDayId, 4).catch(() => [])
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      // Fresh catalog rows for the saved exercise list — a workout's
+      // exercise list is snapshotted the moment it's built (see the overlay
+      // below), so an exercise's OWN metadata (rep range, equipment...) has
+      // to be re-fetched live or an edit made mid-workout (or to an exercise
+      // swapped in outside the day's own template, or in a quick workout
+      // with no day template to refresh against at all) never shows up.
+      savedListExIds.length ? API.exercisesByIds(savedListExIds).catch(() => []) : Promise.resolve([])
     ]);
     await syncUserBodyweight();
 
-    const draft = loadDraft(workout.id);
     workoutState = {
       workout,
       programDay: days,
@@ -490,24 +506,20 @@ async function renderWorkout(retriedAfterMissing = false) {
     }
     for (const ex of extraById.values()) workoutState.programDay.exercises.push(ex);
 
-    // Local draft first (freshest, survives offline edits); fall back to the
-    // server-side snapshot when localStorage is gone (iOS storage eviction,
-    // another device) so mid-workout swaps/adds don't silently revert.
-    let savedList = draft.exerciseList;
-    if (!savedList?.length && workout.exercise_list) {
-      try { savedList = JSON.parse(workout.exercise_list); } catch { savedList = null; }
-    }
     if (savedList?.length) {
       // The user modified this workout's exercises (swap/add/reorder), so the
       // saved list is authoritative for MEMBERSHIP and ORDER. Exercise-level
       // metadata (name, sub-muscle, weight mode, rep range…) is overlaid from
-      // the fresh server data where we have it — a snapshot taken days ago
-      // must not pin stale fields after the exercise itself was edited.
+      // a fresh fetch (freshExercises, above) — a snapshot taken days ago, or
+      // even one taken moments ago for an exercise with no program-day
+      // template to refresh against (a quick workout, or one swapped in mid-
+      // session), must not pin stale fields after the exercise itself is
+      // edited elsewhere during the same session.
       const built = workoutState.programDay.exercises;
-      const freshById = new Map(built.map((e) => [e.exercise_id, e]));
+      const freshById = new Map(freshExercises.map((e) => [e.id, e]));
       const list = savedList.map((e) => {
         const fresh = freshById.get(e.exercise_id);
-        if (!fresh) return e; // swapped/added with no logged sets — snapshot only
+        if (!fresh) return e; // offline, or the exercise was deleted since — snapshot only
         return {
           ...e,
           name: fresh.name,
@@ -1108,10 +1120,11 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   const perArmBadge = (logged?.reps_r != null && logged?.reps_l != null && logged.reps_r !== logged.reps_l)
     ? `<span class="set-row__hint">${fmtReps(logged.reps, logged.reps_r, logged.reps_l)}</span>`
     : '';
-  // is_new_pr only exists on the object returned by the POST that just
-  // logged this set (see confirmSet) — it isn't a stored column, so it
-  // won't survive a full refetch/resume. Same ephemeral scope as the PR
-  // flash animation it accompanies; History is the durable record of PRs.
+  // is_new_pr isn't a stored column — it's recomputed durably on every fetch
+  // (POST /api/sets, GET /:id, GET /:id/sets; see lib/improved.js) by
+  // checking personal_records, so it survives a refetch/resume same as the
+  // PR trophy itself; only the flash animation that plays alongside a fresh
+  // one is truly one-shot.
   const prBadge = logged?.is_new_pr
     ? `<button class="set-row__pr" data-badge-title="New PR" data-badge-msg="New personal record: ${escapeHtml(fmtSetWeight(logged.weight, logged.weight_unit, isBw, isAssisted))} × ${logged.reps} reps.">&#x1F3C6;</button>`
     : '';
