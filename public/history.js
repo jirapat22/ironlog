@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, showBadgeDetail, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, showBadgeDetail, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -382,6 +382,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
               <span class="history-ex__set-n">Set ${s.set_number}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${fmtReps(s.reps, s.reps_r, s.reps_l)}</span>
               ${s.is_pr ? `<span class="history-ex__set-pr" ${badgeAttrs('New PR', `New personal record: ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps} reps.`)}>&#x1F3C6;</span>` : ''}
+              ${s.improved_from_last ? `<span class="history-ex__set-pr" ${badgeAttrs('Improved from last time', improvedFromLastMsg(s.improved_from_last, s.is_bodyweight, s.is_assisted))}>&#x1F4C8;</span>` : ''}
               ${showEquiv && !s.is_bodyweight && !s.is_assisted && weightEquiv(s.weight, s.weight_unit) ? `<span class="history-ex__set-aux">${weightEquiv(s.weight, s.weight_unit)}</span>` : ''}
               ${!s.is_warmup && !s.is_bodyweight && !s.is_assisted && s.reps > 0 && s.weight > 0 ? `<span class="history-ex__set-aux">~${Math.round(e1RM(toKg(s.weight, s.weight_unit), s.reps))}kg 1RM</span>` : ''}
               ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}

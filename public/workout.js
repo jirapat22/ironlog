@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -784,16 +784,24 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     ? workoutState.programDay.exercises.find((x) => x.id === ex.superset_with)
     : null;
 
+  // The day slot's own target_reps and the exercise's rep_min/rep_max range
+  // are two independently-sourced numbers — showing both ("2 × 10 · aim
+  // 8–12") reads as contradictory when they differ. Once a real range is
+  // set, it's the more meaningful number; the day slot's set COUNT still
+  // matters and stays, just without its own reps figure attached.
+  const rangeLabel = repRangeLabel(ex);
+  const setsRepsText = rangeLabel ? `${target} ${target === 1 ? 'set' : 'sets'}` : `${target} × ${ex.target_reps}`;
+
   return `
     <div class="${cardClasses}${supersetPartner ? ' exercise-card--paired' : ''}" data-ex="${ex.exercise_id}">
       <div class="exercise-card__head">
         <button class="exercise-card__drag" data-drag-handle aria-label="Drag to reorder">&#x2630;</button>
-        <div>
+        <div class="exercise-card__title-block">
           <div class="exercise-card__name">
             ${escapeHtml(ex.name)}
             ${ex.is_assisted ? ' <span class="badge badge--assisted">ASSISTED</span>' : ex.is_bodyweight ? ' <span class="badge badge--bw">BW</span>' : ''}
           </div>
-          <div class="card__subtitle">${target} × ${ex.target_reps}${repRangeLabel(ex)}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
+          <div class="card__subtitle">${setsRepsText}${rangeLabel}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
           ${supersetPartner ? `<div class="exercise-card__superset-tag">&#x26D3; Superset with ${escapeHtml(supersetPartner.name)} — go straight into it, rest after both</div>` : ''}
         </div>
         <div class="exercise-card__head-actions">
@@ -965,6 +973,11 @@ function majorityUnitFor(exerciseId, lastSets) {
 }
 
 function recommendForNext(ex, lastSets) {
+  // Warmups don't represent real working capacity — a caller that doesn't
+  // pre-filter them (e.g. the live progression hint) would otherwise let a
+  // lighter warmup pollute "last: N sets @ weight" or even win bestSet
+  // outright if it happened to tie the working weight.
+  lastSets = lastSets.filter((s) => !s.is_warmup);
   if (!lastSets.length) return null;
   // Double progression is keyed on the exercise's rep RANGE, not the slot's
   // single target: top the range on every set → add weight and drop back to
@@ -1067,9 +1080,7 @@ function recommendForNext(ex, lastSets) {
 function improvedBadgeHTML(logged, isBw, isAssisted) {
   const imp = logged?.improved_from_last;
   if (!imp) return '';
-  const msg = imp.type === 'weight'
-    ? `Beat your last session's top set for this exercise — was ${fmtSetWeight(imp.priorWeight, imp.priorUnit, isBw, isAssisted)}.`
-    : `Matched your last top weight with more reps — was ${imp.priorReps}.`;
+  const msg = improvedFromLastMsg(imp, isBw, isAssisted);
   return `<button class="set-row__pr" data-badge-title="Improved from last time" data-badge-msg="${escapeHtml(msg)}">&#x1F4C8;</button>`;
 }
 
@@ -1545,31 +1556,6 @@ function lastSetsForExercise(exId) {
   return workoutState.lastByExercise?.[exId] || [];
 }
 
-// Session-over-session improvement — distinct from the PR trophy (all-time
-// best via e1RM). "Beat last time" specifically: more load than the last
-// session's best working set, or the same load with more reps. Small kg
-// tolerance so a unit round-trip (e.g. logged in lbs, last time in kg)
-// doesn't miss an exact-same-weight match to float noise.
-function improvedFromLastSession(ex, weight, unit, reps) {
-  const prior = lastSetsForExercise(ex.exercise_id).filter((s) => !s.is_warmup);
-  if (!prior.length) return null;
-  let bestPrior = null, bestPriorKg = 0;
-  for (const s of prior) {
-    const kg = loadKg(s, ex);
-    if (kg > bestPriorKg) { bestPriorKg = kg; bestPrior = s; }
-  }
-  if (!bestPrior) return null;
-  const todayKg = loadKg({ weight, weight_unit: unit }, ex);
-  const KG_EPS = 0.01;
-  if (todayKg > bestPriorKg + KG_EPS) {
-    return { type: 'weight', priorWeight: bestPrior.weight, priorUnit: bestPrior.weight_unit };
-  }
-  if (Math.abs(todayKg - bestPriorKg) <= KG_EPS && reps > bestPrior.reps) {
-    return { type: 'reps', priorReps: bestPrior.reps };
-  }
-  return null;
-}
-
 // exerciseCardHTML suppresses the progression banner when the recommendation
 // no longer matches what's actually being logged (see its recStillMatches
 // comment) — but that check only runs on a full card re-render. Logging a set
@@ -1658,9 +1644,9 @@ async function confirmSet(row) {
       // workoutState, so the edit silently reverted to its stale pre-edit
       // value even though the server already had the correct one.
       const setIdx = workoutState.loggedSets.findIndex((s) => s.id === Number(row.dataset.setId));
-      // Merge, don't replace — is_new_pr/improved_from_last are ephemeral,
-      // client-only flags attached at the original confirm time (see below);
-      // a plain PATCH response never carries them. Replacing the whole entry
+      // Merge, don't replace — is_new_pr/improved_from_last are computed by
+      // the server on log/fetch (see lib/improved.js), but a plain PATCH
+      // response doesn't recompute or carry them. Replacing the whole entry
       // silently dropped an already-earned trophy/badge the moment anything
       // ELSE forced a full re-render of this row later in the same session.
       if (setIdx !== -1) workoutState.loggedSets[setIdx] = { ...workoutState.loggedSets[setIdx], ...updated };
@@ -1686,10 +1672,10 @@ async function confirmSet(row) {
       // out while this request was in flight.
       if (!workoutState) return;
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
-      // Client-computed, not something the server returns — attach before
-      // pushing so it rides along in workoutState.loggedSets exactly like
-      // is_new_pr does, and survives a later re-render the same way.
-      if (!isWarmup) res.improved_from_last = improvedFromLastSession(ex, weight, unit, reps);
+      // Both is_new_pr and improved_from_last are computed durably by the
+      // server (see lib/improved.js) and ride along on `res` — no client
+      // computation needed, and they survive a later reload/re-fetch since
+      // they're recomputed fresh on every read, not stashed client-side.
       row.dataset.setId = res.id;
       row.dataset.justConfirmed = '1';
       row.classList.add('done');

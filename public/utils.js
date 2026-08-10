@@ -351,6 +351,15 @@ function fmtSetWeight(weight, unit, isBw, isAssisted) {
   return `${weight}${unit}`;
 }
 
+// Detail text for a set's improved_from_last flag (see lib/improved.js) —
+// shared by the live workout view and History, which both show the same 📈
+// badge for the same server-computed field.
+function improvedFromLastMsg(imp, isBw, isAssisted) {
+  return imp.type === 'weight'
+    ? `Beat your last session's top set for this exercise — was ${fmtSetWeight(imp.priorWeight, imp.priorUnit, isBw, isAssisted)}.`
+    : `Matched your last top weight with more reps — was ${imp.priorReps}.`;
+}
+
 // ---------- Sheet helpers ----------
 // Body scroll lock while any sheet is open. The app has no separate scroll
 // container — <body> itself scrolls — and a bottom sheet is only a
@@ -1488,7 +1497,7 @@ export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
-  e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv,
+  e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail,
   enableDragReorder,
   PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,

@@ -4,6 +4,7 @@ const { recomputePrsForExercise } = require('../pr');
 const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
 const { REGION_TO_GROUP } = require('../db');
+const { computeImprovedFlags, personalRecordSetIds } = require('../lib/improved');
 
 const router = express.Router();
 
@@ -512,20 +513,18 @@ router.get('/:id/sets', (req, res) => {
   // by set_id (which set actually holds the record), not by value — matching
   // by (weight, unit, reps) alone would flag every set that ever TIES a
   // record, not just the one that originally set it.
-  const prRows = exerciseIds.length
-    ? db.prepare(
-        `SELECT set_id FROM personal_records
-         WHERE profile_id = ? AND exercise_id IN (${exerciseIds.map(() => '?').join(',')}) AND set_id IS NOT NULL`
-      ).all(req.profileId, ...exerciseIds)
-    : [];
-  const prSetIds = new Set(prRows.map((p) => p.set_id));
+  const prSetIds = personalRecordSetIds(req.profileId, exerciseIds);
+  // Session-over-session "improved" tag, same durable computation the live
+  // workout view uses — see lib/improved.js.
+  const improvedByExercise = new Map(exerciseIds.map((exId) => [exId, computeImprovedFlags(req.profileId, exId, id)]));
 
   res.json(rows.map((s) => ({
     ...s,
     trend_status: trendStatus[s.exercise_id] || null,
     is_first_time: !!firstTime[s.exercise_id],
     trend_points: trendPoints[s.exercise_id] || null,
-    is_pr: !s.is_warmup && prSetIds.has(s.id)
+    is_pr: !s.is_warmup && prSetIds.has(s.id),
+    improved_from_last: s.is_warmup ? null : (improvedByExercise.get(s.exercise_id)?.get(s.id) || null)
   })));
 });
 
@@ -570,6 +569,18 @@ router.get('/:id', (req, res) => {
      WHERE s.workout_id = ?
      ORDER BY s.logged_at`
   ).all(id);
+
+  // is_new_pr / improved_from_last used to only exist on the object returned
+  // by the POST that logged the set — ephemeral client-only state that
+  // vanished the moment the page reloaded (backgrounding mid-workout is
+  // routine on a phone). Recomputed durably here on every fetch instead.
+  const exIds = [...new Set(sets.filter((s) => !s.is_warmup).map((s) => s.exercise_id))];
+  const prSetIds = personalRecordSetIds(req.profileId, exIds);
+  const improvedByExercise = new Map(exIds.map((exId) => [exId, computeImprovedFlags(req.profileId, exId, id)]));
+  for (const s of sets) {
+    s.is_new_pr = !s.is_warmup && prSetIds.has(s.id);
+    s.improved_from_last = s.is_warmup ? null : (improvedByExercise.get(s.exercise_id)?.get(s.id) || null);
+  }
   row.sets = sets;
   res.json(row);
 });

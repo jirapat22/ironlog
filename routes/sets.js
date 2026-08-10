@@ -1,6 +1,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
+const { computeImprovedFlags } = require('../lib/improved');
 
 const router = express.Router();
 
@@ -164,7 +165,11 @@ router.post('/', (req, res) => {
   // Skip PR check for warmup sets — they don't count toward personal bests
   const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps, info.lastInsertRowid);
   const row = db.prepare('SELECT * FROM sets WHERE id = ?').get(info.lastInsertRowid);
-  res.status(201).json({ ...row, is_new_pr: isNewPR });
+  // Durable (not client-computed): recomputed fresh on every read too, so it
+  // survives a reload/backgrounding mid-workout instead of vanishing the
+  // moment anything forces a re-fetch — see lib/improved.js.
+  const improved = is_warmup ? null : computeImprovedFlags(req.profileId, exercise_id, workout_id).get(info.lastInsertRowid) || null;
+  res.status(201).json({ ...row, is_new_pr: isNewPR, improved_from_last: improved });
 });
 
 router.patch('/:id', (req, res) => {

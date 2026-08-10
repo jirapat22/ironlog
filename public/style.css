@@ -1084,6 +1084,18 @@ body.has-update-banner .app {
   font-weight: 600;
 }
 
+/* head-actions is forced onto its own row below (flex-basis:100%, see
+   .exercise-card__head-actions), so the head's first row only ever has two
+   items: the drag handle and this block. Without flex:1 here, .head's
+   justify-content:space-between shoves the title away from the handle into
+   the empty space actions used to occupy — reads as "title pushed way too
+   far right." min-width:0 lets a long exercise name wrap/ellipsis instead
+   of forcing the flex item (and the row) wider than the card. */
+.exercise-card__title-block {
+  flex: 1;
+  min-width: 0;
+}
+
 .set-row {
   display: grid;
   grid-template-columns: 28px 1fr 52px 1fr 44px;
