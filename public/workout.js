@@ -122,15 +122,31 @@ function weightHintText(w, u, ex) {
   if (ex && ex.weight_mode === 'per_arm' && !ex.is_bodyweight && Number.isFinite(wn) && wn > 0) {
     return `= ${+(wn * 2).toFixed(1)} ${u} total`;
   }
-  // Plate breakdown — opt-in per exercise (bar_weight_kg set on the Edit
-  // Exercise screen). Purely explanatory: never changes what's stored for
-  // the set, only how the entered TOTAL is broken down into bar + plates.
-  // Hidden below bar weight (loading in progress, or nothing configured)
-  // rather than showing a confusing negative per-side number.
-  if (ex && ex.equipment === 'barbell' && ex.bar_weight_kg != null && Number.isFinite(wn) && wn > 0) {
-    const barInUnit = u === 'lbs' ? fromKg(ex.bar_weight_kg, 'lbs') : ex.bar_weight_kg;
-    const perSide = (wn - barInUnit) / 2;
-    if (perSide > 0) return `= ${+perSide.toFixed(1)} ${u}/side + ${+barInUnit.toFixed(1)} ${u} bar`;
+  // Weight breakdown — opt-in per exercise (bar_weight_kg set via Exercise
+  // settings). Purely explanatory: never changes what's stored for the set,
+  // only how the entered TOTAL is broken down. A barbell splits evenly
+  // across two sides (per-side plate loading); a machine's base weight
+  // (sled/carriage/stack) isn't loaded "per side" at all, so it's shown as a
+  // flat addition instead — matches how these get manually accounted for
+  // today (e.g. leg press, hip thrust: "the plates I loaded, +20 for the
+  // sled") without silently mis-describing the machine as bar-and-plates.
+  // Hidden below the base weight (an entry error — can't lift less than the
+  // equipment's own weight) rather than showing a confusing negative number;
+  // AT the base weight (no plates loaded — an empty-sled warmup) is valid
+  // and worth its own wording, not falling through to the plain kg/lb line
+  // below, which made a freshly-configured base weight look like it wasn't
+  // taking effect at all whenever the tested/first-logged weight was at it.
+  if (ex && (ex.equipment === 'barbell' || ex.equipment === 'machine') && ex.bar_weight_kg != null && Number.isFinite(wn) && wn > 0) {
+    const baseInUnit = u === 'lbs' ? fromKg(ex.bar_weight_kg, 'lbs') : ex.bar_weight_kg;
+    if (ex.equipment === 'barbell') {
+      const perSide = (wn - baseInUnit) / 2;
+      if (perSide > 0) return `= ${+perSide.toFixed(1)} ${u}/side + ${+baseInUnit.toFixed(1)} ${u} bar`;
+      if (perSide === 0) return `= bar only (${+baseInUnit.toFixed(1)} ${u})`;
+    } else {
+      const loaded = wn - baseInUnit;
+      if (loaded > 0) return `= ${+loaded.toFixed(1)} ${u} loaded + ${+baseInUnit.toFixed(1)} ${u} base`;
+      if (loaded === 0) return `= base only (${+baseInUnit.toFixed(1)} ${u})`;
+    }
   }
   return workoutState?.showEquiv ? weightEquiv(w, u) : '';
 }
@@ -759,7 +775,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const repsL = pendingEdit?.repsL ?? logged?.reps_l ?? draft?.repsL ?? '';
 
     if (!logged && firstUnloggedSet === null) { firstUnloggedSet = i; nextSetW = w; nextSetU = u; }
-    rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l, prevNote: prevSet?.notes }));
   }
 
   const trend = pastTrendFor(ex);
@@ -821,7 +837,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(equipmentLabel(ex.equipment))}</button>
-          ${!ex.is_bodyweight ? `<button class="badge badge--weightmode ${ex.weight_mode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
+          ${!ex.is_bodyweight && ex.equipment !== 'barbell' ? `<button class="badge badge--weightmode ${ex.weight_mode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
           ${muscleTagHTML(ex.muscle_group, ex.sub_muscle)}
         </div>
       </div>
@@ -895,13 +911,20 @@ function buildProgressionHint(rec, trend = []) {
   const sameLabel = rec.isAssisted ? 'Same assistance' : 'Same weight';
   const trendStatus = classifyTrend(trend, rec);
 
-  // Trend line: oldest → newest top weight with direction indicator
+  // Trend line: oldest → newest top weight with direction indicator. The
+  // arrow compares the same LAST TWO points classifyTrend() itself keys off
+  // (not first-vs-last across the whole window) — it used to compare the
+  // endpoints, so a plateau-then-plateau streak with an earlier increase
+  // further back (e.g. 36.25 → 38.75 → 38.75) drew an "up" arrow the exact
+  // same render also labeled ⏸ Plateau right above it, a direct
+  // contradiction reported more than once.
   let trendLine = '';
   if (trend.length >= 2) {
     const labels = trend.map((s) => fmtSetWeight(s.weight, s.weight_unit, !!rec.isBodyweight, !!rec.isAssisted));
-    const firstKg = loadKg(trend[0], { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted });
-    const lastKg  = loadKg(trend[trend.length - 1], { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted });
-    const arrow = lastKg > firstKg ? '&#x2197;' : lastKg < firstKg ? '&#x2198;' : '&#x2192;';
+    const ctx = { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted };
+    const lastKg = loadKg(trend[trend.length - 1], ctx);
+    const prevKg = loadKg(trend[trend.length - 2], ctx);
+    const arrow = lastKg > prevKg ? '&#x2197;' : lastKg < prevKg ? '&#x2198;' : '&#x2192;';
     trendLine = `<div class="prog-hint__trend">${labels.join(' &rarr; ')} ${arrow}</div>`;
   }
 
@@ -1096,7 +1119,7 @@ function improvedBadgeHTML(logged, isBw, isAssisted) {
   return `<button class="set-row__pr" data-badge-title="Improved from last time" data-badge-msg="${escapeHtml(msg)}">&#x1F4C8;</button>`;
 }
 
-function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL: repsLVal, logged, isNext, prevRepsR, prevRepsL }) {
+function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL: repsLVal, logged, isNext, prevRepsR, prevRepsL, prevNote }) {
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
   const showAsEmpty = (isBw || isAssisted) && (w === 0 || w === '' || w == null);
@@ -1151,6 +1174,13 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   // time's asymmetry into a set the user hasn't entered yet.
   const repsRPlaceholder = !logged && prevRepsR != null && prevRepsL != null && prevRepsR !== prevRepsL ? String(prevRepsR) : '—';
   const repsLPlaceholder = !logged && prevRepsR != null && prevRepsL != null && prevRepsR !== prevRepsL ? String(prevRepsL) : '—';
+  // Same ghosting idea as the per-side reps above: a note was previously a
+  // dead end (visible only in that one workout's History entry, buried the
+  // moment the session ended) — surfacing last time's as a greyed-out
+  // placeholder on the next set means a real cue ("elbows flared last set")
+  // actually reaches future-you instead of just sitting in a log no one
+  // re-opens mid-workout.
+  const notePlaceholder = !logged && prevNote ? prevNote : 'Form cue, tempo, etc.';
   return `
     <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
@@ -1177,7 +1207,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
       </div>
       ${hintsHTML}
       <div class="set-row__extras">
-        <input class="set-row__note" data-note placeholder="Form cue, tempo, etc." value="${escapeHtml(note)}"/>
+        <input class="set-row__note" data-note placeholder="${escapeHtml(notePlaceholder)}" value="${escapeHtml(note)}"/>
         ${isPerArm ? `
         <div class="set-row__perarm">
           <span class="set-row__perarm-label">Reps differ per side?</span>
@@ -1969,15 +1999,17 @@ async function openEquipmentPicker(exerciseId) {
               <div class="equip-option__label">${opt.label}</div>
               <div class="equip-option__step">${opt.step}</div>
             </button>`).join('')}
-          ${current === 'barbell' ? `
+          ${current === 'barbell' || current === 'machine' ? `
             <label class="settings-row" style="margin-top:18px">
-              <span>Has a bar?</span>
+              <span>${current === 'barbell' ? 'Has a bar?' : 'Has a base weight?'}</span>
               <button class="toggle ${ex.bar_weight_kg != null ? 'toggle--on' : ''}" id="equip-hasbar" aria-pressed="${ex.bar_weight_kg != null}">
                 <span class="toggle__dot"></span>
               </button>
             </label>
-            <input class="input" type="number" step="0.5" min="0" id="equip-barweight" style="margin-top:10px${ex.bar_weight_kg != null ? '' : ';display:none'}" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="e.g. 20 for an Olympic bar"/>
-            <div class="card__subtitle" style="margin-top:6px">Shows a plate breakdown (bar + per-side) next to the weight field while logging — doesn't change how weight is stored. Remembered for this exercise going forward.</div>
+            <input class="input" type="number" step="0.5" min="0" id="equip-barweight" style="margin-top:10px${ex.bar_weight_kg != null ? '' : ';display:none'}" value="${ex.bar_weight_kg != null ? ex.bar_weight_kg : ''}" placeholder="${current === 'barbell' ? 'e.g. 20 for an Olympic bar' : 'e.g. 20 for the sled/carriage'}"/>
+            <div class="card__subtitle" style="margin-top:6px">${current === 'barbell'
+              ? 'Shows a plate breakdown (bar + per-side) next to the weight field while logging — doesn\'t change how weight is stored. Remembered for this exercise going forward.'
+              : 'Shows a breakdown (loaded weight + base) next to the weight field while logging, for machines whose own weight isn\'t on the number pad — doesn\'t change how weight is stored. Remembered for this exercise going forward.'}</div>
           ` : ''}
           <label class="form-label" style="margin-top:20px">Target rep range (optional)</label>
           <div class="rep-range-inputs">
@@ -2049,7 +2081,7 @@ async function openEquipmentPicker(exerciseId) {
       const repRange = readRepRangeInputs(sheet, '#equip-repmin', '#equip-repmax');
       if (!repRange.ok) return toast(repRange.error);
       const payload = { rep_min: repRange.rep_min, rep_max: repRange.rep_max };
-      if (current === 'barbell') payload.bar_weight_kg = bar_weight_kg;
+      if (current === 'barbell' || current === 'machine') payload.bar_weight_kg = bar_weight_kg;
       try {
         await API.updateExercise(exerciseId, payload);
         // ironlog:exercise-updated (dispatched by API.updateExercise) already
