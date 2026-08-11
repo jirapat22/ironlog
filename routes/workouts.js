@@ -4,7 +4,7 @@ const { recomputePrsForExercise } = require('../pr');
 const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
 const { REGION_TO_GROUP } = require('../db');
-const { computeImprovedFlags, personalRecordSetIds } = require('../lib/improved');
+const { computeImprovedFlagsBatch, personalRecordSetIds } = require('../lib/improved');
 
 const router = express.Router();
 
@@ -515,8 +515,9 @@ router.get('/:id/sets', (req, res) => {
   // record, not just the one that originally set it.
   const prSetIds = personalRecordSetIds(req.profileId, exerciseIds);
   // Session-over-session "improved" tag, same durable computation the live
-  // workout view uses — see lib/improved.js.
-  const improvedByExercise = new Map(exerciseIds.map((exId) => [exId, computeImprovedFlags(req.profileId, exId, id)]));
+  // workout view uses — see lib/improved.js. Batched (one call covering
+  // every exercise in this workout) rather than one round-trip per exercise.
+  const improvedByExercise = computeImprovedFlagsBatch(req.profileId, owned, exerciseIds);
 
   res.json(rows.map((s) => ({
     ...s,
@@ -583,7 +584,7 @@ router.get('/:id', (req, res) => {
   if (!row.finished_at) {
     const exIds = [...new Set(sets.filter((s) => !s.is_warmup).map((s) => s.exercise_id))];
     const prSetIds = personalRecordSetIds(req.profileId, exIds);
-    const improvedByExercise = new Map(exIds.map((exId) => [exId, computeImprovedFlags(req.profileId, exId, id)]));
+    const improvedByExercise = computeImprovedFlagsBatch(req.profileId, row, exIds);
     for (const s of sets) {
       s.is_new_pr = !s.is_warmup && prSetIds.has(s.id);
       s.improved_from_last = s.is_warmup ? null : (improvedByExercise.get(s.exercise_id)?.get(s.id) || null);

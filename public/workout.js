@@ -837,7 +837,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           <button class="btn--icon-text" data-swap-ex="${ex.exercise_id}" title="Swap exercise">&#x21C4; Swap</button>
           <button class="btn--icon-text" data-remove-ex="${ex.exercise_id}" title="Remove exercise" style="color:var(--danger)">&#x2715; Remove</button>
           <button class="badge badge--equipment" data-equip-ex="${ex.exercise_id}" title="Change equipment">${escapeHtml(equipmentLabel(ex.equipment))}</button>
-          ${!ex.is_bodyweight && ex.equipment !== 'barbell' ? `<button class="badge badge--weightmode ${ex.weight_mode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
+          ${!ex.is_bodyweight && (ex.equipment !== 'barbell' || ex.weight_mode === 'per_arm') ? `<button class="badge badge--weightmode ${ex.weight_mode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-weightmode-ex="${ex.exercise_id}" title="What does the weight you enter mean? Tap to flip.">${ex.weight_mode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}
           ${muscleTagHTML(ex.muscle_group, ex.sub_muscle)}
         </div>
       </div>
@@ -912,19 +912,33 @@ function buildProgressionHint(rec, trend = []) {
   const trendStatus = classifyTrend(trend, rec);
 
   // Trend line: oldest → newest top weight with direction indicator. The
-  // arrow compares the same LAST TWO points classifyTrend() itself keys off
-  // (not first-vs-last across the whole window) — it used to compare the
-  // endpoints, so a plateau-then-plateau streak with an earlier increase
-  // further back (e.g. 36.25 → 38.75 → 38.75) drew an "up" arrow the exact
-  // same render also labeled ⏸ Plateau right above it, a direct
-  // contradiction reported more than once.
+  // arrow is derived FROM trendStatus (classifyTrend's own verdict) when one
+  // exists, rather than independently re-comparing weights — a previous
+  // version compared first-vs-last across the whole window, so a
+  // plateau-then-plateau streak with an earlier increase further back (e.g.
+  // 36.25 → 38.75 → 38.75) drew an "up" arrow the exact same render also
+  // labeled ⏸ Plateau right above it, a direct contradiction reported more
+  // than once. A later fix compared last-vs-prev instead — matching
+  // decline/plateau exactly, but classifyTrend's 'up' case needs a THIRD
+  // point (two consecutive increases, not one), so last-vs-prev alone could
+  // still show ↗ on a session that only just recovered from a dip, with no
+  // "Going up" badge anywhere to back it up. Reading trendStatus directly
+  // removes the last gap between the two. Only falls back to a raw
+  // last-vs-prev comparison when trendStatus is null (no badge is shown at
+  // all in that case, so there's nothing for the arrow to contradict).
   let trendLine = '';
   if (trend.length >= 2) {
     const labels = trend.map((s) => fmtSetWeight(s.weight, s.weight_unit, !!rec.isBodyweight, !!rec.isAssisted));
-    const ctx = { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted };
-    const lastKg = loadKg(trend[trend.length - 1], ctx);
-    const prevKg = loadKg(trend[trend.length - 2], ctx);
-    const arrow = lastKg > prevKg ? '&#x2197;' : lastKg < prevKg ? '&#x2198;' : '&#x2192;';
+    let arrow;
+    if (trendStatus === 'up') arrow = '&#x2197;';
+    else if (trendStatus === 'decline') arrow = '&#x2198;';
+    else if (trendStatus === 'plateau') arrow = '&#x2192;';
+    else {
+      const ctx = { is_bodyweight: rec.isBodyweight, is_assisted: rec.isAssisted };
+      const lastKg = loadKg(trend[trend.length - 1], ctx);
+      const prevKg = loadKg(trend[trend.length - 2], ctx);
+      arrow = lastKg > prevKg ? '&#x2197;' : lastKg < prevKg ? '&#x2198;' : '&#x2192;';
+    }
     trendLine = `<div class="prog-hint__trend">${labels.join(' &rarr; ')} ${arrow}</div>`;
   }
 

@@ -140,9 +140,11 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'rpe and rir must be numbers between 0 and 10 when provided' });
   }
 
-  // The set must attach to a workout owned by the current profile.
+  // The set must attach to a workout owned by the current profile. bw_kg/
+  // started_at are needed below by computeImprovedFlags — selected here so
+  // it doesn't have to re-fetch a row this handler already has.
   const workout = db
-    .prepare('SELECT id FROM workouts WHERE id = ? AND profile_id = ?')
+    .prepare('SELECT id, bw_kg, started_at FROM workouts WHERE id = ? AND profile_id = ?')
     .get(workout_id, req.profileId);
   if (!workout) return res.status(404).json({ error: 'workout not found' });
 
@@ -168,7 +170,7 @@ router.post('/', (req, res) => {
   // Durable (not client-computed): recomputed fresh on every read too, so it
   // survives a reload/backgrounding mid-workout instead of vanishing the
   // moment anything forces a re-fetch — see lib/improved.js.
-  const improved = is_warmup ? null : computeImprovedFlags(req.profileId, exercise_id, workout_id).get(info.lastInsertRowid) || null;
+  const improved = is_warmup ? null : computeImprovedFlags(req.profileId, workout, exercise_id).get(info.lastInsertRowid) || null;
   res.status(201).json({ ...row, is_new_pr: isNewPR, improved_from_last: improved });
 });
 
