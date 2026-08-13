@@ -190,16 +190,18 @@ router.patch('/:id', (req, res) => {
     }
     updates.push('classification_customized = ?'); values.push(1);
   }
+  let newWeightMode = null;
   if ('weight_mode' in (req.body || {})) {
-    const v = req.body.weight_mode === 'combined' ? 'combined' : 'per_arm';
-    updates.push('weight_mode = ?'); values.push(v);
+    newWeightMode = req.body.weight_mode === 'combined' ? 'combined' : 'per_arm';
+    updates.push('weight_mode = ?'); values.push(newWeightMode);
   } else if ('equipment' in (req.body || {})) {
     // Equipment changed with no explicit mode (e.g. the in-workout equipment
     // picker): reset to that equipment's natural default so a dumbbell→cable
     // change doesn't silently keep doubling. The edit form always sends
     // weight_mode explicitly, so deliberate unilateral choices survive it.
+    newWeightMode = req.body.equipment === 'dumbbell' ? 'per_arm' : 'combined';
     updates.push('weight_mode = ?');
-    values.push(req.body.equipment === 'dumbbell' ? 'per_arm' : 'combined');
+    values.push(newWeightMode);
   }
   if ('step_override' in (req.body || {})) {
     const raw = req.body.step_override;
@@ -279,7 +281,25 @@ router.patch('/:id', (req, res) => {
     if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'exercise name already exists' });
     throw err;
   }
-  res.json(shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)));
+
+  // weight_mode flipping normally only affects sets logged AFTER the change
+  // (load_multiplier is snapshotted per-set at log time — see db.js — so a
+  // deliberate later flip doesn't silently rewrite what an old set meant).
+  // But that's the wrong default when the exercise's classification was
+  // simply wrong the whole time (e.g. marked per-arm while you'd always been
+  // entering the combined total) — recompute_past_sets opts into retroactively
+  // correcting every set YOU'VE already logged for this exercise to match,
+  // scoped to your own profile only (a shared exercise's other profiles may
+  // have been entering it correctly all along).
+  let recomputedSets = 0;
+  if (newWeightMode && req.body.recompute_past_sets) {
+    const multiplier = newWeightMode === 'per_arm' ? 2 : 1;
+    recomputedSets = db
+      .prepare('UPDATE sets SET load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
+      .run(multiplier, id, req.profileId).changes;
+  }
+
+  res.json({ ...shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)), recomputed_sets: recomputedSets });
 });
 
 // Merge this exercise (:id, the one being removed) INTO target_id (the keeper).

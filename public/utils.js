@@ -1278,6 +1278,22 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
     const payload = { name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment, weight_mode, step_override, bar_weight_kg, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
+    // weight_mode actually changing (not just resubmitted as-is): offer to
+    // retroactively fix already-logged sets too — normally a flip only
+    // changes how FUTURE sets get counted (see routes/exercises.js), the
+    // right default when you're deliberately changing how you'll log it from
+    // here on, but wrong when the mode was simply mis-set the whole time.
+    if (weight_mode !== (ex.weight_mode || 'combined')) {
+      const fixPast = await confirmSheet({
+        title: 'Fix past sets too?',
+        message: weight_mode === 'combined'
+          ? 'Also update your already-logged sets for this exercise so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they\'re counted changes.'
+          : 'Also update your already-logged sets for this exercise so they start being doubled for volume/charts (one arm\'s weight × 2)? Only the numbers you already entered stay as-is — just how they\'re counted changes.',
+        confirmText: 'Fix past sets too',
+        cancelText: 'Just going forward'
+      });
+      if (fixPast) payload.recompute_past_sets = true;
+    }
     const howtoEl = containerEl.querySelector('#edit-ex-howto');
     if (howtoEl && howtoAdminCode !== null) {
       payload.instructions = howtoEl.value.trim() || null;
@@ -1289,7 +1305,9 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       // it so the next how-to edit (or reclassify/merge, same code) skips the prompt.
       if (howtoAdminCode) setCachedAdminCode(howtoAdminCode);
       haptic(10);
-      toast('Saved');
+      toast(updated.recomputed_sets
+        ? `Saved — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
+        : 'Saved');
       if (onSaved) onSaved(updated);
     } catch (err) {
       // A cached code we already sent (via howtoAdminCode) turned out wrong —

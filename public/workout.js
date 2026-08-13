@@ -1309,14 +1309,40 @@ function wireWorkoutView() {
       const ex = workoutState.programDay.exercises.find((x) => x.exercise_id === exId);
       if (!ex) return;
       const next = ex.weight_mode === 'combined' ? 'per_arm' : 'combined';
-      API.updateExercise(exId, { weight_mode: next }).then(() => {
+
+      // Flipping normally only changes how FUTURE sets get counted — a set
+      // already logged keeps its own snapshotted load_multiplier (see
+      // db.js), so a deliberate later flip doesn't rewrite what an old set
+      // meant. But that's the wrong default when the mode was simply WRONG
+      // the whole time (e.g. always entering the combined total for an
+      // exercise marked per-arm) — offer to fix past sets too, but only
+      // when there actually are any to fix.
+      const hasPastSets = workoutState.loggedSets.some((s) => s.exercise_id === exId)
+        || lastSetsForExercise(exId).length > 0;
+      let recomputePastSets = false;
+      if (hasPastSets) {
+        recomputePastSets = await confirmSheet({
+          title: 'Fix past sets too?',
+          message: next === 'combined'
+            ? 'Also update your already-logged sets for this exercise so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they\'re counted changes.'
+            : 'Also update your already-logged sets for this exercise so they start being doubled for volume/charts (one arm\'s weight × 2)? Only the numbers you already entered stay as-is — just how they\'re counted changes.',
+          confirmText: 'Fix past sets too',
+          cancelText: 'Just going forward'
+        });
+      }
+
+      try {
+        const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: recomputePastSets });
         ex.weight_mode = next;
         persistExerciseList();
         renderWorkoutView();
-        toast(next === 'combined'
+        const modeMsg = next === 'combined'
           ? 'Weight = the full load (counted as-is)'
-          : 'Weight = one arm/side (doubled for volume)');
-      }).catch((err) => toast(err.message));
+          : 'Weight = one arm/side (doubled for volume)';
+        toast(updated.recomputed_sets
+          ? `${modeMsg} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
+          : modeMsg);
+      } catch (err) { toast(err.message); }
       return;
     }
 
