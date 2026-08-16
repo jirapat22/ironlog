@@ -726,7 +726,13 @@ async function renderOverloadCharts() {
         if (!byDay.has(day) || val > byDay.get(day)) byDay.set(day, val);
       }
       const days = [...byDay.keys()].sort();
-      if (!days.length) continue;
+      // A single session is a dot, not a trend — excluded here (not just at
+      // the merged-chart level) so it can't sneak into a movement card as a
+      // 2nd/3rd contributor either, where it would otherwise still render as
+      // an isolated point and can stretch the shared axis around an outlier
+      // that has nothing to compare against yet. Reappears automatically the
+      // moment a 2nd session gives it something real to plot.
+      if (days.length < 2) continue;
       perExercise.push({
         exercise_id: ex.exercise_id,
         exercise_name: ex.exercise_name,
