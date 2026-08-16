@@ -2832,6 +2832,11 @@ body.has-update-banner .app {
 }
 
 /* Progressive overload charts */
+.overload-search .input {
+  height: 44px;
+  min-height: 44px;
+}
+
 .overload-group {
   padding: 10px 0;
   border-top: 1px solid var(--border);
@@ -2841,13 +2846,47 @@ body.has-update-banner .app {
   border-top: none;
 }
 
-/* Group header is the standard colored muscle chip; sub-muscle sections below
-   it get their own smaller chip so each lift sits under General/Quads/etc
+/* Group header is the standard colored muscle chip plus a lift-count/chevron
+   on the right — tapping it collapses the group's body. Sub-muscle sections
+   inside get their own smaller chip so each lift sits under General/Quads/etc
    instead of one flat alphabetical list per muscle group. */
-.overload-group .badge--mg {
+.overload-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.overload-group__head .badge--mg {
   display: block;
   width: fit-content;
-  margin-bottom: 10px;
+}
+
+.overload-group__meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.overload-group__chevron {
+  font-size: 10px;
+}
+
+.overload-group--collapsed .overload-group__body {
+  display: none;
+}
+
+/* Filtered out by the search box, or (group/subgroup) left with nothing
+   visible inside once its children are filtered. */
+.overload-exercise--hidden,
+.overload-subgroup--hidden,
+.overload-group--hidden {
+  display: none;
 }
 
 .overload-subgroup {
@@ -2894,6 +2933,31 @@ body.has-update-banner .app {
   font-size: 11px;
   font-weight: 400;
   color: var(--text-dim);
+}
+
+/* Colored dot + name per contributor exercise — doubles as the chart's
+   legend (Chart.js's own legend is disabled) so the line colors always map
+   to a visible label, never color alone. */
+.overload-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+}
+
+.overload-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.overload-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .overload-plateau-badge {

@@ -128,6 +128,17 @@ async function renderProgress() {
     const movementDetail = e.target.closest('[data-movement-detail]');
     if (movementDetail) return openMovementDetail(movementDetail.dataset.movementDetail);
 
+    const overloadToggle = e.target.closest('[data-overload-toggle]');
+    if (overloadToggle) {
+      const group = overloadToggle.closest('.overload-group');
+      if (group) {
+        group.classList.toggle('overload-group--collapsed');
+        const chevron = overloadToggle.querySelector('.overload-group__chevron');
+        if (chevron) chevron.textContent = group.classList.contains('overload-group--collapsed') ? '▸' : '▾';
+      }
+      return;
+    }
+
     const toggle = e.target.closest('[data-ps-toggle]');
     if (toggle) {
       const sectionId = toggle.dataset.psToggle;
@@ -223,6 +234,21 @@ function localDateStr(d) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+// Days since a plain "YYYY-MM-DD" local-calendar-day string (as produced by
+// loggedLocalDay below) — NOT a full timestamp, so this reads it as local
+// midnight rather than routing through isoToMs's UTC-assuming parse.
+function daysSinceLocalDay(dayStr) {
+  return Math.floor((Date.now() - new Date(`${dayStr}T00:00:00`).getTime()) / 86400000);
+}
+
+// Fixed-order categorical palette for movements that combine multiple
+// exercises (e.g. swapped equipment) into one chart — one color per
+// contributor line, validated for CVD-safe + normal-vision separation and
+// contrast against the app's dark surface via the dataviz skill's palette
+// validator. Capped at 4: beyond that, `renderOverloadChart` falls back to
+// the single merged line rather than reusing (cycling) a color.
+const OVERLOAD_LINE_COLORS = ['#3987e5', '#199e70', '#e66767', '#a02fbc'];
 
 // A stored "YYYY-MM-DD HH:MM:SS" is UTC; bucket it by the user's LOCAL calendar
 // day (not the raw UTC date) so a morning session in +12/+13 doesn't land on
@@ -721,6 +747,15 @@ async function renderOverloadCharts() {
         if (days.length >= 2) {
           const values = days.map((d) => Math.round(cluster.byDay.get(d)));
           const first = cluster.contributors[0];
+          // Per-contributor series aligned to the shared `days` axis, with a
+          // real gap (null) on days that exercise wasn't trained — plotted as
+          // its own line rather than folded into one merged best-of value, so
+          // switching exercises never reads as a fake jump in strength.
+          const lines = cluster.contributors.map((c) => ({
+            exercise_id: c.exercise_id,
+            exercise_name: c.exercise_name,
+            values: days.map((d) => (c.byDay.has(d) ? Math.round(c.byDay.get(d)) : null))
+          }));
           series.push({
             key: `movement-${seriesIdx++}`,
             title: cluster.contributors.length > 1 ? (first.sub_muscle || first.muscle_group) : first.exercise_name,
@@ -729,6 +764,7 @@ async function renderOverloadCharts() {
             contributors: cluster.contributors,
             labels: days,
             values,
+            lines,
             plateau: detectPlateau(values)
           });
         }
@@ -771,9 +807,18 @@ async function renderOverloadCharts() {
       return ia - ib;
     });
 
-    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift. Tap a lift to see its full history. Swapped between equivalent exercises (e.g. machine availability)? They're combined into one trend here.</div>`;
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift. Tap a lift to see its full history. Swapped between equivalent exercises (e.g. machine availability)? They're shown on one chart, one color per exercise, instead of blended into a single misleading line.</div>`;
+    const search = `<div class="overload-search"><input class="input" id="overload-search-input" type="search" placeholder="Find a lift…" autocomplete="off" style="margin-bottom:12px"></div>
+      <div id="overload-search-empty" class="bw-current__empty hidden">No lifts match "<span id="overload-search-empty-term"></span>".</div>`;
 
-    root.innerHTML = subtitle + groupOrder.map((group) => {
+    // A group defaults collapsed if nothing in it was trained in the last 14
+    // days — keeps the page short without hiding what you're actually
+    // working on right now. Manual expand/collapse only lasts this render;
+    // it recomputes from real training data next time, which matters more
+    // here than remembering a stale click.
+    const STALE_DAYS = 14;
+
+    root.innerHTML = search + subtitle + groupOrder.map((group) => {
       // Section by sub-muscle within the group — "General <group>" (no
       // specific sub-muscle) first, then the group's canonical sub-muscle
       // order, so e.g. Legs reads General -> Quads -> Hamstrings -> Glutes...
@@ -795,31 +840,87 @@ async function renderOverloadCharts() {
         return ia - ib;
       });
 
-      return `<div class="overload-group">
-        ${muscleTagHTML(group)}
-        ${subOrder.map((subKey) => {
-          const movements = [...bySub.get(subKey)].sort((a, b) => a.title.localeCompare(b.title));
-          return `<div class="overload-subgroup">
-            ${subMuscleTagHTML(group, subKey || null)}
-            ${movements.map((s) => `
-              <div class="overload-exercise">
+      const groupSeries = byGroup.get(group);
+      const mostRecentDays = Math.min(...groupSeries.map((s) => daysSinceLocalDay(s.labels[s.labels.length - 1])));
+      const collapsed = mostRecentDays > STALE_DAYS;
+      const liftCount = groupSeries.length;
+      const slug = group.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+      return `<div class="overload-group${collapsed ? ' overload-group--collapsed' : ''}" id="ovg-${slug}" data-default-collapsed="${collapsed ? '1' : '0'}">
+        <div class="overload-group__head" data-overload-toggle role="button" tabindex="0">
+          ${muscleTagHTML(group)}
+          <span class="overload-group__meta">${liftCount} lift${liftCount !== 1 ? 's' : ''} <span class="overload-group__chevron">${collapsed ? '▸' : '▾'}</span></span>
+        </div>
+        <div class="overload-group__body">
+          ${subOrder.map((subKey) => {
+            const movements = [...bySub.get(subKey)].sort((a, b) => a.title.localeCompare(b.title));
+            return `<div class="overload-subgroup">
+              ${subMuscleTagHTML(group, subKey || null)}
+              ${movements.map((s) => {
+                // Only worth a legend/multi-color when every contributor gets
+                // its own validated palette slot — beyond that, fall back to
+                // the plain "+"-joined label (renderOverloadChart falls back
+                // to the merged single line for the same reason).
+                const multiColor = s.contributors.length > 1 && s.contributors.length <= OVERLOAD_LINE_COLORS.length;
+                const searchText = `${s.title} ${s.muscle_group} ${s.sub_muscle || ''} ${s.contributors.map((c) => c.exercise_name).join(' ')}`.toLowerCase();
+                return `
+              <div class="overload-exercise" data-search="${escapeHtml(searchText)}">
                 <div class="overload-exercise__name" data-movement-detail="${s.key}" role="button" tabindex="0">
                   ${escapeHtml(s.title)}
-                  ${s.contributors.length > 1 ? `<span class="overload-exercise__sub">${s.contributors.map((c) => escapeHtml(c.exercise_name)).join(' + ')}</span>` : ''}
                   ${s.plateau ? '<span class="overload-plateau-badge">Plateau</span>' : ''}
                 </div>
+                ${multiColor
+                  ? `<div class="overload-legend">${s.contributors.map((c, i) => `<span class="overload-legend__item"><span class="overload-legend__dot" style="background:${OVERLOAD_LINE_COLORS[i]}"></span>${escapeHtml(c.exercise_name)}</span>`).join('')}</div>`
+                  : s.contributors.length > 1 ? `<span class="overload-exercise__sub">${s.contributors.map((c) => escapeHtml(c.exercise_name)).join(' + ')}</span>` : ''}
                 <div class="overload-chart-wrap"><canvas id="overload-chart-${s.key}"></canvas></div>
                 ${s.plateau ? `<div class="overload-plateau-tip">No new high in 3 sessions — train <strong>${escapeHtml(s.sub_muscle || s.muscle_group)}</strong> more often to break the stall.</div>` : ''}
-              </div>`).join('')}
-          </div>`;
-        }).join('')}
+              </div>`;
+              }).join('')}
+            </div>`;
+          }).join('')}
+        </div>
       </div>`;
     }).join('');
 
     for (const s of series) renderOverloadChart(s);
+    wireOverloadSearch(root);
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+// Live filter over exercise/muscle/sub-muscle text. Matching cards stay
+// visible and their group auto-expands (even if collapsed by default) so
+// typing always surfaces a hit; clearing the box restores each group's
+// freshness-based default instead of leaving everything forced open.
+function wireOverloadSearch(root) {
+  const input = root.querySelector('#overload-search-input');
+  const emptyMsg = root.querySelector('#overload-search-empty');
+  const emptyTerm = root.querySelector('#overload-search-empty-term');
+  if (!input) return;
+  input.oninput = () => {
+    const q = input.value.trim().toLowerCase();
+    let anyVisible = false;
+    for (const card of root.querySelectorAll('.overload-exercise')) {
+      const match = !q || (card.dataset.search || '').includes(q);
+      card.classList.toggle('overload-exercise--hidden', !match);
+      if (match) anyVisible = true;
+    }
+    for (const sub of root.querySelectorAll('.overload-subgroup')) {
+      const hasVisible = [...sub.querySelectorAll('.overload-exercise')].some((c) => !c.classList.contains('overload-exercise--hidden'));
+      sub.classList.toggle('overload-subgroup--hidden', !hasVisible);
+    }
+    for (const group of root.querySelectorAll('.overload-group')) {
+      const hasVisible = [...group.querySelectorAll('.overload-exercise')].some((c) => !c.classList.contains('overload-exercise--hidden'));
+      group.classList.toggle('overload-group--hidden', !hasVisible);
+      if (q && hasVisible) group.classList.remove('overload-group--collapsed');
+      else if (!q) group.classList.toggle('overload-group--collapsed', group.dataset.defaultCollapsed === '1');
+      const chevron = group.querySelector('.overload-group__chevron');
+      if (chevron) chevron.textContent = group.classList.contains('overload-group--collapsed') ? '▸' : '▾';
+    }
+    emptyMsg.classList.toggle('hidden', anyVisible || !q);
+    if (emptyTerm) emptyTerm.textContent = q;
+  };
 }
 
 function renderOverloadChart(s) {
@@ -829,21 +930,40 @@ function renderOverloadChart(s) {
   if (chartInstances[key]) chartInstances[key].destroy();
 
   const d = chartDefaults();
+  // Multiple contributors get one line each (matching the legend chips
+  // rendered above the chart) instead of one merged best-of-day line — a
+  // swap between different exercises should never read as a jump in
+  // strength. Beyond the validated palette's 4 slots this falls back to the
+  // single merged line rather than reusing a color.
+  const multi = s.lines.length > 1 && s.lines.length <= OVERLOAD_LINE_COLORS.length;
+  const datasets = multi
+    ? s.lines.map((line, i) => {
+      const color = OVERLOAD_LINE_COLORS[i];
+      return {
+        label: line.exercise_name,
+        data: line.values, borderColor: color, backgroundColor: 'transparent',
+        spanGaps: false, // a gap is a real "didn't train this exercise that day", not noise to smooth over
+        cubicInterpolationMode: 'monotone', tension: 0.25,
+        fill: false, pointRadius: 2, pointBackgroundColor: color, pointBorderColor: '#16130f'
+      };
+    })
+    : [{
+      data: s.values, borderColor: '#e07a3c', backgroundColor: 'rgba(224,122,60,0.14)',
+      // 'monotone' keeps the curve from overshooting below/above the actual
+      // points — plain bezier tension invents phantom dips between values.
+      cubicInterpolationMode: 'monotone', tension: 0.25,
+      fill: true, pointRadius: 2, pointBackgroundColor: '#e07a3c', pointBorderColor: '#16130f'
+    }];
+
   chartInstances[key] = new Chart(canvas, {
     type: 'line',
-    data: {
-      labels: s.labels,
-      datasets: [{
-        data: s.values, borderColor: '#e07a3c', backgroundColor: 'rgba(224,122,60,0.14)',
-        // 'monotone' keeps the curve from overshooting below/above the actual
-        // points — plain bezier tension invents phantom dips between values.
-        cubicInterpolationMode: 'monotone', tension: 0.25,
-        fill: true, pointRadius: 2, pointBackgroundColor: '#e07a3c', pointBorderColor: '#16130f'
-      }]
-    },
+    data: { labels: s.labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `e1RM ${ctx.parsed.y} kg` } } },
+      plugins: {
+        legend: { display: false }, // the colored name chips above the chart are the legend
+        tooltip: { callbacks: { label: (ctx) => `${multi ? ctx.dataset.label + ': ' : ''}e1RM ${ctx.parsed.y} kg` } }
+      },
       scales: { x: dateAxis(d), y: { ...d, beginAtZero: false } }
     }
   });
