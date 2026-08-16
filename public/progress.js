@@ -251,6 +251,12 @@ function daysSinceLocalDay(dayStr) {
   return Math.floor((Date.now() - new Date(`${dayStr}T00:00:00`).getTime()) / 86400000);
 }
 
+// An exercise not trained in this long is retired, not "progressing" — drop
+// it from Progressive Overload the same way a single-session exercise is
+// dropped (see the perExercise filter below), so it can't linger on its own
+// card or ride along as a merged contributor forever.
+const OVERLOAD_STALE_EXERCISE_DAYS = 90;
+
 // Fixed-order categorical palette for movements that combine multiple
 // exercises (e.g. swapped equipment) into one chart — one color per
 // contributor line, validated for CVD-safe + normal-vision separation and
@@ -733,6 +739,12 @@ async function renderOverloadCharts() {
       // that has nothing to compare against yet. Reappears automatically the
       // moment a 2nd session gives it something real to plot.
       if (days.length < 2) continue;
+      // Same for an exercise that's gone quiet — its last session is too old
+      // to still call "progress," and left in it can merge with a currently
+      // trained exercise under the same movement, stretching that chart back
+      // to a date that's no longer relevant. Comes back the moment it's
+      // trained again.
+      if (daysSinceLocalDay(days[days.length - 1]) > OVERLOAD_STALE_EXERCISE_DAYS) continue;
       perExercise.push({
         exercise_id: ex.exercise_id,
         exercise_name: ex.exercise_name,
