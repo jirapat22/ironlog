@@ -3398,6 +3398,15 @@ body.has-update-banner .app {
   border-radius: var(--radius);
   margin-bottom: 12px;
   overflow: hidden;
+  transition: border-color 0.4s, box-shadow 0.4s;
+}
+
+/* Landing spot for a deep link from Progressive Overload ("View in History" /
+   a specific past set) — a brief highlight so the exact card is obvious after
+   the auto-scroll, not just "somewhere on a page that scrolled." */
+.history-card--flash {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .history-card__head {
@@ -3817,6 +3826,12 @@ body.has-update-banner .app {
 .history-activity { display: flex; flex-direction: column; gap: 6px; }
 .history-activity__line { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-dim); }
 .history-activity__line strong { color: var(--text); font-weight: 600; }
+
+/* Recent-sets rows in the Progressive Overload exercise-detail sheet jump to
+   that exact set in History — Personal-records rows use the same base class
+   but stay plain (not clickable), hence the separate modifier. */
+.history-activity__line--link { cursor: pointer; }
+.history-activity__line--link:active { opacity: 0.6; }
 
 /* ─── Muscle-group colors ─────────────────────────────────────────────
    One fixed hue per canonical group. .mg-<group> sets --mg; .badge--mg

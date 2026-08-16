@@ -2,6 +2,15 @@ import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skele
 import { API } from './api.js';
 import { assert } from './bugreport.js';
 
+// Deep-links to History (e.g. "View full history" / a specific past set from
+// the exercise-detail sheet below). Event-based rather than an import — this
+// module already gets imported BY workout.js (openBodyweightSheet), so
+// importing history.js directly would cycle; history.js listens for this
+// event globally instead, same pattern as the 'ironlog:switch-tab' event.
+function jumpToHistory({ exerciseName = '', workoutId = null } = {}) {
+  document.dispatchEvent(new CustomEvent('ironlog:history-focus', { detail: { exerciseName, workoutId } }));
+}
+
 const chartInstances = {};
 let localBwKg = 0; // updated by renderBodyweightSection; used for strength chart & PR timeline
 // Module-level (not function-local) so it survives renderBodyweightSection()
@@ -1028,13 +1037,23 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
         </div>
         <div class="sheet__body">
           ${days.length >= 2 ? `<div class="chart-wrap" style="height:160px"><canvas id="ex-detail-chart"></canvas></div>` : `<div class="bw-current__empty">Log this exercise across 2+ sessions to see a trend.</div>`}
+          <button class="btn btn--ghost btn--sm" data-view-history style="width:100%;margin:10px 0 2px">View full history →</button>
           ${prRows.length ? `<div class="form-label" style="margin-top:14px">Personal records</div>
             ${prRows.map((r) => `<div class="history-activity__line"><span>${r.reps}-rep max</span><strong>${fmtSetWeight(r.weight, r.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} · ${formatDateShort(r.achieved_at)}</strong></div>`).join('')}` : ''}
-          <div class="form-label" style="margin-top:14px">Recent sets</div>
-          ${recentSets.length ? recentSets.map((s) => `<div class="history-activity__line"><span>${formatDateShort(s.logged_at)}</span><strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}</strong></div>`).join('') : '<div class="bw-current__empty">No sets logged yet.</div>'}
+          <div class="form-label" style="margin-top:14px">Recent sets <span style="color:var(--text-dim);font-weight:400">· tap to fix in History</span></div>
+          ${recentSets.length ? recentSets.map((s) => `
+            <div class="history-activity__line history-activity__line--link" data-jump-set data-workout-id="${s.workout_id}" role="button" tabindex="0">
+              <span>${formatDateShort(s.logged_at)}</span>
+              <strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}</strong>
+            </div>`).join('') : '<div class="bw-current__empty">No sets logged yet.</div>'}
         </div>
       </div>`;
-    sheet.onclick = closeHandler;
+    sheet.onclick = (e) => {
+      if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
+      if (e.target.closest('[data-view-history]')) { hideSheet(sheet); return jumpToHistory({ exerciseName: name }); }
+      const jumpSet = e.target.closest('[data-jump-set]');
+      if (jumpSet) { hideSheet(sheet); return jumpToHistory({ exerciseName: name, workoutId: Number(jumpSet.dataset.workoutId) }); }
+    };
     if (days.length >= 2) renderExerciseDetailChart(days, values);
   } catch (err) {
     sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;

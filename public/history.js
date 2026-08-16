@@ -22,6 +22,20 @@ function historyKindFilterHTML(current) {
   </div>`;
 }
 
+// Cross-tab deep link (e.g. Progressive Overload's "View in History" / a
+// specific past set). Event-based rather than an imported function — same
+// reason workout.js/programs.js dispatch 'ironlog:switch-tab' instead of
+// importing app.js: it keeps this a one-way dependency (progress.js already
+// gets imported BY workout.js, so an import the other way would cycle).
+// `pendingFocus` is a module-level var, consumed once by the next
+// renderHistory() run triggered by the switch-tab dispatch below, because
+// renderHistory() is async and may still be fetching when this arrives.
+let pendingFocus = null;
+document.addEventListener('ironlog:history-focus', (e) => {
+  pendingFocus = e.detail || null;
+  document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'history' }));
+});
+
 async function renderHistory() {
   const root = $('#view-history');
   let kindFilter = localStorage.getItem(LS.historyKindFilter) || 'all';
@@ -83,7 +97,27 @@ async function renderHistory() {
       applyFilters();
     };
 
-    applyFilters(); // apply the persisted kind filter immediately on load
+    // A pending deep link (from Progressive Overload) wins over the persisted
+    // kind filter for this one load — the whole point is to land exactly on
+    // the set the user came here to fix, not on whatever was left selected.
+    if (pendingFocus) {
+      const { exerciseName, workoutId } = pendingFocus;
+      pendingFocus = null;
+      if (exerciseName) {
+        const filterInput = $('#history-filter');
+        filterInput.value = exerciseName;
+        list.dataset.filter = exerciseName.trim().toLowerCase();
+      }
+      applyFilters();
+      const card = workoutId ? list.querySelector(`.history-card[data-id="${workoutId}"]`) : null;
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        card.classList.add('history-card--flash');
+        setTimeout(() => card.classList.remove('history-card--flash'), 1800);
+      }
+    } else {
+      applyFilters(); // apply the persisted kind filter immediately on load
+    }
 
     list.onclick = async (e) => {
       // Checked first: a status badge (New PR) can sit INSIDE the set-row
