@@ -130,6 +130,35 @@ async function renderHistory() {
         return;
       }
 
+      // Same "what does this weight mean" flip as the mid-workout badge, but
+      // reachable from wherever a bad entry is actually being reviewed —
+      // fixing a mislabeled exercise used to mean leaving History to find
+      // this same toggle in Settings or an active workout.
+      const wmBtn = e.target.closest('[data-history-weightmode]');
+      if (wmBtn) {
+        e.stopPropagation();
+        haptic(15);
+        const exId = Number(wmBtn.dataset.historyWeightmode);
+        const next = wmBtn.classList.contains('badge--weightmode-off') ? 'per_arm' : 'combined';
+        const fixPast = await confirmSheet({
+          title: 'Fix past sets too?',
+          message: next === 'combined'
+            ? `Also update your already-logged sets for ${wmBtn.dataset.exName} so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they're counted changes.`
+            : `Also update your already-logged sets for ${wmBtn.dataset.exName} so they start being doubled for volume/charts (one arm's weight × 2)? Only the numbers you already entered stay as-is — just how they're counted changes.`,
+          confirmText: 'Fix past sets too',
+          cancelText: 'Just going forward'
+        });
+        try {
+          const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: fixPast });
+          wmBtn.textContent = next === 'per_arm' ? 'per arm/side ×2' : 'total';
+          wmBtn.classList.toggle('badge--weightmode-off', next !== 'per_arm');
+          toast(updated.recomputed_sets
+            ? `${next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
+            : (next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'));
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
       const editSetBtn = e.target.closest('[data-edit-set]');
       if (editSetBtn) {
         e.stopPropagation();
@@ -368,7 +397,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     for (const s of sets) {
       if (!grouped.has(s.exercise_id)) grouped.set(s.exercise_id, {
         exerciseId: s.exercise_id, name: s.exercise_name, muscle: s.muscle_group, sub: s.sub_muscle,
-        isBodyweight: s.is_bodyweight, isAssisted: s.is_assisted,
+        isBodyweight: s.is_bodyweight, isAssisted: s.is_assisted, equipment: s.equipment, weightMode: s.weight_mode,
         trendStatus: s.trend_status, isFirstTime: s.is_first_time, trendPoints: s.trend_points,
         sets: []
       });
@@ -407,7 +436,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     const exHTML = [...grouped.values()].map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
         <div class="history-ex__head">
-          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g)}</div>
+          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g)}${!g.isBodyweight && (g.equipment !== 'barbell' || g.weightMode === 'per_arm') ? `<button class="badge badge--weightmode ${g.weightMode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-history-weightmode="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="What does the weight you enter mean? Tap to flip.">${g.weightMode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}</div>
           <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
         </div>
         <div class="history-ex__sets">
