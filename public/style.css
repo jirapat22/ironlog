@@ -863,6 +863,11 @@ body.has-update-banner .app {
 
 .picker-group {
   margin-bottom: 18px;
+  /* Tapping a muscle-group chip scrollIntoView()s this element to the top of
+     the scroll container — but .picker-chips is sticky at that same top
+     edge, so without this the chip bar covers the group title and its first
+     row. Matches the chip bar's own rendered height. */
+  scroll-margin-top: 52px;
 }
 
 .picker-group__title {
@@ -2290,7 +2295,12 @@ body.has-update-banner .app {
 }
 
 /* Exercise library */
-.ex-lib-group { margin-bottom: 20px; }
+.ex-lib-group {
+  margin-bottom: 20px;
+  /* Same fix as .picker-group above — clears the sticky .picker-chips bar
+     that would otherwise cover the group title after scrollIntoView(). */
+  scroll-margin-top: 52px;
+}
 .ex-lib-group__title {
   font-size: 11px;
   font-weight: 700;
