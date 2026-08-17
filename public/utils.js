@@ -322,6 +322,26 @@ function fromKg(kg, unit) {
   return unit === 'lbs' ? kg / 0.45359237 : kg;
 }
 
+// Effective load in kg for one set — the client-side mirror of db.js's
+// effectiveLoadKgSql / effectiveVolumeLoadKgSql (the server's single source
+// of truth for volume totals and trend badges), used wherever an e1RM gets
+// computed for display (Progressive Overload charts, the exercise-detail
+// sheet, History's per-set 1RM hint, the PR timeline). Before this existed,
+// those call sites used raw weight only — silently ignoring per-arm doubling,
+// so a per-arm exercise's e1RM trend read as roughly half its real strength
+// and couldn't be fairly compared against a combined-mode exercise merged
+// into the same movement chart. `set.load_multiplier` (snapshotted per-set at
+// log time) wins when present; `exercise.weight_mode` is the fallback for
+// rows that predate that column (or a PR row, which has no multiplier of its
+// own to snapshot).
+function effectiveLoadKg(set, exercise, bwKg) {
+  const base = toKg(set.weight, set.weight_unit);
+  if (exercise?.is_assisted && bwKg) return Math.max(0, bwKg - base);
+  if (exercise?.is_bodyweight && bwKg) return base + bwKg;
+  const multiplier = set.load_multiplier ?? (exercise?.weight_mode === 'per_arm' ? 2 : 1);
+  return base * multiplier;
+}
+
 // Small "≈ X kg/lb" equivalent for a logged weight (the opposite unit). Empty
 // for non-positive weights. Used as a tag on set rows.
 function weightEquiv(weight, unit) {
@@ -1547,7 +1567,7 @@ export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
-  e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
+  e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail,
   enableDragReorder,
   PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,

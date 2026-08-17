@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML } from './utils.js';
+import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, effectiveLoadKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML } from './utils.js';
 import { API } from './api.js';
 import { assert } from './bugreport.js';
 
@@ -19,14 +19,9 @@ let localBwKg = 0; // updated by renderBodyweightSection; used for strength char
 // the default 4 rows.
 let bwHistoryExpanded = false;
 
-// helper: e1RM for a set, folding in BW when appropriate
+// helper: e1RM for a set, folding in BW and per-arm doubling
 function calcE1RM(set, exercise, bwKg) {
-  const base = toKg(set.weight, set.weight_unit);
-  let load;
-  if (exercise?.is_assisted && bwKg) load = Math.max(0, bwKg - base);
-  else if (exercise?.is_bodyweight && bwKg) load = base + bwKg;
-  else load = base;
-  return e1RM(load, set.reps);
+  return e1RM(effectiveLoadKg(set, exercise, bwKg), set.reps);
 }
 
 // ---------- PROGRESS tab ----------

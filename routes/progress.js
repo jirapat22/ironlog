@@ -16,14 +16,17 @@ function tzModFromOffset(offsetMin) {
 router.get('/progress/:exerciseId', (req, res) => {
   const exerciseId = Number(req.params.exerciseId);
   const exercise = db
-    .prepare('SELECT id, name, muscle_group, is_bodyweight, is_assisted FROM exercises WHERE id = ?')
+    .prepare('SELECT id, name, muscle_group, is_bodyweight, is_assisted, weight_mode FROM exercises WHERE id = ?')
     .get(exerciseId);
 
   // Warmups excluded — they aren't working sets and would skew the e1RM trend,
   // same as /strength-history (which feeds the overload chart this drills into).
+  // load_multiplier travels with each set (not just weight_mode on the
+  // exercise) so a set logged before a later per-arm/total reclassification
+  // still shows the e1RM it actually meant at the time.
   const rows = db
     .prepare(
-      `SELECT s.id, s.weight, s.weight_unit, s.reps, s.rpe, s.logged_at,
+      `SELECT s.id, s.weight, s.weight_unit, s.reps, s.rpe, s.logged_at, s.load_multiplier,
               w.started_at, w.id as workout_id
        FROM sets s
        JOIN workouts w ON w.id = s.workout_id
@@ -361,8 +364,8 @@ router.get('/sub-muscle-frequency', (req, res) => {
 router.get('/strength-history', (req, res) => {
   const rows = db.prepare(`
     SELECT e.id as exercise_id, e.name as exercise_name, e.muscle_group, e.sub_muscle,
-           e.is_bodyweight, e.is_assisted,
-           s.weight, s.weight_unit, s.reps, s.logged_at
+           e.is_bodyweight, e.is_assisted, e.weight_mode,
+           s.weight, s.weight_unit, s.reps, s.logged_at, s.load_multiplier
     FROM sets s
     JOIN exercises e ON e.id = s.exercise_id
     WHERE s.profile_id = ? AND s.is_warmup = 0
@@ -379,10 +382,11 @@ router.get('/strength-history', (req, res) => {
         sub_muscle: r.sub_muscle || null,
         is_bodyweight: !!r.is_bodyweight,
         is_assisted: !!r.is_assisted,
+        weight_mode: r.weight_mode,
         sets: []
       });
     }
-    byExercise.get(r.exercise_id).sets.push({ weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, logged_at: r.logged_at });
+    byExercise.get(r.exercise_id).sets.push({ weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, logged_at: r.logged_at, load_multiplier: r.load_multiplier });
   }
   res.json([...byExercise.values()]);
 });

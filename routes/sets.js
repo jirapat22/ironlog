@@ -20,8 +20,15 @@ function parseRepsSides(reps_r, reps_l) {
   return { ok: true, repsR: r, repsL: l };
 }
 
-function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId) {
+// loadMultiplier: this set's per-arm doubling factor (see load_multiplier in
+// db.js). personal_records has no multiplier column of its own to snapshot,
+// so every comparison against past records applies the CURRENT exercise's
+// factor uniformly on both sides — an approximation for an exercise whose
+// weight_mode changed partway through its history, but correct for the
+// (overwhelmingly common) case where it never did.
+function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, loadMultiplier = 1) {
   const newKg = toKg(weight, unit);
+  const newEffectiveKg = newKg * loadMultiplier;
 
   const ex = db.prepare('SELECT is_bodyweight, is_assisted FROM exercises WHERE id = ?').get(exerciseId);
   // Assisted exercises log ASSISTANCE (more = easier) — the inverse of every
@@ -29,7 +36,7 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId) {
   // the e1RM-style estimate so "beat previous best" means less assistance (or
   // more reps at the same assistance), not more raw kg.
   const sign = ex?.is_assisted ? -1 : 1;
-  const newE1RM = sign * newKg * (1 + reps / 30);
+  const newE1RM = sign * newEffectiveKg * (1 + reps / 30);
   // Zero load (unweighted bodyweight, or fully-unassisted) is the hardest
   // variant either way — compare by reps directly rather than through e1RM.
   const isZeroLoad = !!ex?.is_bodyweight && newKg === 0;
@@ -47,7 +54,7 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId) {
          (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END)
          * (1.0 + reps / 30.0) * ?
        ) as best FROM personal_records WHERE profile_id = ? AND exercise_id = ?`
-    ).get(sign, profileId, exerciseId);
+    ).get(sign * loadMultiplier, profileId, exerciseId);
     const prevBestE1RM = row?.best;
     if (prevBestE1RM == null) {
       // No prior record for this exercise at all — anything logged is a PR.
@@ -72,8 +79,8 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId) {
        VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`
     ).run(profileId, exerciseId, weight, unit, reps, setId ?? null);
   } else {
-    const existingKg = toKg(existing.weight, existing.weight_unit);
-    if (sign * newKg > sign * existingKg) {
+    const existingEffectiveKg = toKg(existing.weight, existing.weight_unit) * loadMultiplier;
+    if (sign * newEffectiveKg > sign * existingEffectiveKg) {
       db.prepare(
         `UPDATE personal_records
          SET weight = ?, weight_unit = ?, achieved_at = datetime('now'), set_id = ?
@@ -165,7 +172,7 @@ router.post('/', (req, res) => {
     .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, sides.repsR, sides.repsL, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
-  const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps, info.lastInsertRowid);
+  const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps, info.lastInsertRowid, loadMultiplier);
   const row = db.prepare('SELECT * FROM sets WHERE id = ?').get(info.lastInsertRowid);
   // Durable (not client-computed): recomputed fresh on every read too, so it
   // survives a reload/backgrounding mid-workout instead of vanishing the
