@@ -294,9 +294,25 @@ router.patch('/:id', (req, res) => {
   let recomputedSets = 0;
   if (newWeightMode && req.body.recompute_past_sets) {
     const multiplier = newWeightMode === 'per_arm' ? 2 : 1;
-    recomputedSets = db
-      .prepare('UPDATE sets SET load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
-      .run(multiplier, id, req.profileId).changes;
+    if (req.body.convert_stored_weight) {
+      // The default recompute above assumes the NUMBER you typed already
+      // meant what the new mode expects (just miscounted) — right when you
+      // were entering, say, one arm's weight the whole time regardless of
+      // the (wrong) label. But if you were instead following the OLD
+      // label's convention — entering the combined total while marked
+      // combined, or one arm's number while marked per-arm — the number
+      // itself is now wrong for the new mode too, and needs converting:
+      // per-arm's number was half the total, so flipping combined->per_arm
+      // means every logged number needs to be halved (and the reverse).
+      const factor = newWeightMode === 'per_arm' ? 0.5 : 2;
+      recomputedSets = db
+        .prepare('UPDATE sets SET weight = weight * ?, load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
+        .run(factor, multiplier, id, req.profileId).changes;
+    } else {
+      recomputedSets = db
+        .prepare('UPDATE sets SET load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
+        .run(multiplier, id, req.profileId).changes;
+    }
   }
 
   res.json({ ...shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)), recomputed_sets: recomputedSets });

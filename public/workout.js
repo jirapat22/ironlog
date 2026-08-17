@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -1319,20 +1319,15 @@ function wireWorkoutView() {
       // when there actually are any to fix.
       const hasPastSets = workoutState.loggedSets.some((s) => s.exercise_id === exId)
         || lastSetsForExercise(exId).length > 0;
-      let recomputePastSets = false;
+      let recomputePastSets = false, convertStoredWeight = false;
       if (hasPastSets) {
-        recomputePastSets = await confirmSheet({
-          title: 'Fix past sets too?',
-          message: next === 'combined'
-            ? 'Also update your already-logged sets for this exercise so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they\'re counted changes.'
-            : 'Also update your already-logged sets for this exercise so they start being doubled for volume/charts (one arm\'s weight × 2)? Only the numbers you already entered stay as-is — just how they\'re counted changes.',
-          confirmText: 'Fix past sets too',
-          cancelText: 'Just going forward'
-        });
+        const fix = await confirmWeightModeFix(ex.name || 'this exercise', next);
+        recomputePastSets = fix.recompute;
+        convertStoredWeight = fix.convert;
       }
 
       try {
-        const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: recomputePastSets });
+        const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: recomputePastSets, convert_stored_weight: convertStoredWeight });
         ex.weight_mode = next;
         persistExerciseList();
         renderWorkoutView();

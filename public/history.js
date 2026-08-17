@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, showBadgeDetail, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, toKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -140,16 +140,9 @@ async function renderHistory() {
         haptic(15);
         const exId = Number(wmBtn.dataset.historyWeightmode);
         const next = wmBtn.classList.contains('badge--weightmode-off') ? 'per_arm' : 'combined';
-        const fixPast = await confirmSheet({
-          title: 'Fix past sets too?',
-          message: next === 'combined'
-            ? `Also update your already-logged sets for ${wmBtn.dataset.exName} so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they're counted changes.`
-            : `Also update your already-logged sets for ${wmBtn.dataset.exName} so they start being doubled for volume/charts (one arm's weight × 2)? Only the numbers you already entered stay as-is — just how they're counted changes.`,
-          confirmText: 'Fix past sets too',
-          cancelText: 'Just going forward'
-        });
+        const fix = await confirmWeightModeFix(wmBtn.dataset.exName || 'this exercise', next);
         try {
-          const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: fixPast });
+          const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: fix.recompute, convert_stored_weight: fix.convert });
           wmBtn.textContent = next === 'per_arm' ? 'per arm/side ×2' : 'total';
           wmBtn.classList.toggle('badge--weightmode-off', next !== 'per_arm');
           toast(updated.recomputed_sets

@@ -399,7 +399,11 @@ function showSheet(el) {
 
 function hideSheet(el) {
   el.classList.remove('open');
-  setTimeout(() => el.classList.add('hidden'), 180);
+  // Guarded: if the same sheet id got shown again in the interim (e.g. two
+  // confirmSheet() calls chained back-to-back — ensureSheet reuses the
+  // element), showSheet's own rAF already re-added 'open' well before this
+  // fires, and this stale timeout must not hide the new sheet out from under it.
+  setTimeout(() => { if (!el.classList.contains('open')) el.classList.add('hidden'); }, 180);
   if (!openSheets.has(el)) return; // already closed / never tracked
   openSheets.delete(el);
   if (openSheets.size === 0) {
@@ -650,6 +654,40 @@ function confirmSheet({ title, message = '', confirmText = 'Confirm', cancelText
     sheet.querySelector('[data-confirm-ok]').onclick = () => finish(true);
     showSheet(sheet);
   });
+}
+
+// Two-step confirm for retroactively fixing a weight-mode flip's past sets —
+// shared by the mid-workout badge, the Settings exercise editor, and
+// History's badge, so the same irreversible bulk edit reads identically
+// wherever it's offered.
+//
+// Step 1: fix past sets at all, or just go forward from here?
+// Step 2 (only if yes): the default recompute assumes the NUMBER you typed
+// already meant what the new mode expects — right if you'd been entering
+// one arm's weight the whole time regardless of the (wrong) label. But if
+// you were instead following the OLD label's convention (e.g. typing the
+// combined total while it was marked combined), the number itself needs
+// converting too — flipping combined -> per-arm means every past entry was
+// double what one arm actually lifted, and needs halving (or the reverse).
+// Returns { recompute, convert } — both false if "just going forward".
+async function confirmWeightModeFix(exerciseName, newMode) {
+  const fixPast = await confirmSheet({
+    title: 'Fix past sets too?',
+    message: newMode === 'combined'
+      ? `Also update your already-logged sets for ${exerciseName} so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they're counted changes.`
+      : `Also update your already-logged sets for ${exerciseName} so they start being doubled for volume/charts (one arm's weight × 2)? Only the numbers you already entered stay as-is — just how they're counted changes.`,
+    confirmText: 'Fix past sets too',
+    cancelText: 'Just going forward'
+  });
+  if (!fixPast) return { recompute: false, convert: false };
+
+  const keepAsTyped = await confirmSheet({
+    title: 'One more thing',
+    message: `For those past sets, does the number you typed already mean what you want going forward — or were you actually entering ${newMode === 'per_arm' ? 'the combined total (both sides added up)' : "just one side's weight"} the whole time? If so, the number itself needs converting, not just how it's counted.`,
+    confirmText: 'It already means what I want',
+    cancelText: newMode === 'per_arm' ? 'I was entering the total — convert it' : "I was entering one side's weight — convert it"
+  });
+  return { recompute: true, convert: !keepAsTyped };
 }
 
 // Small read-only info sheet — tap/detail popup for a status badge (PR,
@@ -1284,15 +1322,9 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     // right default when you're deliberately changing how you'll log it from
     // here on, but wrong when the mode was simply mis-set the whole time.
     if (weight_mode !== (ex.weight_mode || 'combined')) {
-      const fixPast = await confirmSheet({
-        title: 'Fix past sets too?',
-        message: weight_mode === 'combined'
-          ? 'Also update your already-logged sets for this exercise so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they\'re counted changes.'
-          : 'Also update your already-logged sets for this exercise so they start being doubled for volume/charts (one arm\'s weight × 2)? Only the numbers you already entered stay as-is — just how they\'re counted changes.',
-        confirmText: 'Fix past sets too',
-        cancelText: 'Just going forward'
-      });
-      if (fixPast) payload.recompute_past_sets = true;
+      const fix = await confirmWeightModeFix(ex.name || 'this exercise', weight_mode);
+      if (fix.recompute) payload.recompute_past_sets = true;
+      if (fix.convert) payload.convert_stored_weight = true;
     }
     const howtoEl = containerEl.querySelector('#edit-ex-howto');
     if (howtoEl && howtoAdminCode !== null) {
@@ -1516,7 +1548,7 @@ export {
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
-  showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, showBadgeDetail,
+  showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail,
   enableDragReorder,
   PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
