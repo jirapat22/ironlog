@@ -14,6 +14,8 @@ const DEFAULTS = {
   profile_age: '',
   profile_activity: 'moderate', // sedentary | light | moderate | very | athlete
   profile_goal: 'maintain', // cut | maintain | bulk
+  profile_cut_deficit: '500', // kcal/day below TDEE while cutting
+  profile_bulk_surplus: '300', // kcal/day above TDEE while bulking
   preferred_unit: 'kg', // 'kg' | 'lbs'
   show_weight_equiv: '1' // show the small kg<->lb equivalent on set rows
 };

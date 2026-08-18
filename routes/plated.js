@@ -9,6 +9,13 @@
  *  GET /api/plated/profile
  *      Current bodyweight, TDEE, and daily macro/calorie goals derived from the
  *      user's IronLog profile settings (height, age, activity, goal, sex).
+ *      `tdee_includes_workouts` tells the caller whether `tdee_kcal` (and thus
+ *      `calorie_goal`) already prices in a typical training week: true at
+ *      activity levels moderate/very/athlete, false at sedentary/light. When
+ *      true, adding `workouts/calories` on top double-counts training energy
+ *      — only add it on top when this is false. `cut`/`bulk` offsets are the
+ *      user's own `profile_cut_deficit`/`profile_bulk_surplus` settings
+ *      (defaults 500/300 kcal), not fixed constants.
  *
  *  GET /api/plated/bodyweight?limit=30
  *      Recent bodyweight log entries normalised to kg so Plated can overlay
@@ -70,8 +77,6 @@ const ACTIVITY_MULTIPLIERS = {
   very:      1.725,
   athlete:   1.9
 };
-
-const GOAL_OFFSETS = { cut: -500, maintain: 0, bulk: 300 };
 
 function getSetting(profileId, key) {
   const row = db
@@ -180,6 +185,16 @@ router.get('/profile', (req, res) => {
     const goal       = ['cut', 'maintain', 'bulk'].includes(getSetting(pid, 'profile_goal'))
       ? getSetting(pid, 'profile_goal')
       : 'maintain';
+    const cutDeficit  = Math.abs(Number(getSetting(pid, 'profile_cut_deficit')))  || 500;
+    const bulkSurplus = Math.abs(Number(getSetting(pid, 'profile_bulk_surplus'))) || 300;
+    const GOAL_OFFSETS = { cut: -cutDeficit, maintain: 0, bulk: bulkSurplus };
+
+    // Mirrors the "eat back" logic in the app's own TDEE card (progress.js):
+    // sedentary/light activity multipliers assume no regular training, so a
+    // logged workout's calories are extra and should be added on top. At
+    // moderate and above, the multiplier itself already prices in a typical
+    // training week — adding workouts/calories on top there double-counts them.
+    const tdeeIncludesWorkouts = activityKey !== 'sedentary' && activityKey !== 'light';
 
     const weightKg = bwRow ? +toKg(bwRow.weight, bwRow.weight_unit).toFixed(2) : null;
 
@@ -214,6 +229,7 @@ router.get('/profile', (req, res) => {
       data: {
         bodyweight_kg:    weightKg,
         tdee_kcal:        tdee,
+        tdee_includes_workouts: tdeeIncludesWorkouts,
         goal,
         calorie_goal:     goalKcal,
         protein_g:        macros?.proteinG  ?? null,

@@ -1225,7 +1225,6 @@ function computeMacros(goalKcal, weightKg, goal) {
     proteinPerKg
   };
 }
-const GOAL_OFFSETS = { cut: -500, maintain: 0, bulk: 300 };
 const GOAL_LABELS = { cut: 'Cut', maintain: 'Maintain', bulk: 'Bulk' };
 
 async function renderTdeeSection() {
@@ -1240,6 +1239,9 @@ async function renderTdeeSection() {
   const activity = settings.profile_activity || 'moderate';
   const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
   const goal = ['cut','maintain','bulk'].includes(settings.profile_goal) ? settings.profile_goal : 'maintain';
+  const cutDeficit = Math.abs(Number(settings.profile_cut_deficit)) || 500;
+  const bulkSurplus = Math.abs(Number(settings.profile_bulk_surplus)) || 300;
+  const GOAL_OFFSETS = { cut: -cutDeficit, maintain: 0, bulk: bulkSurplus };
   const missing = [];
   if (!bw.length) missing.push('body weight');
   if (!heightCm) missing.push('height');
@@ -1325,6 +1327,8 @@ async function openProfileSheet() {
   const age = settings.profile_age || '';
   const activity = settings.profile_activity || 'moderate';
   const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
+  const cutDeficit = Math.abs(Number(settings.profile_cut_deficit)) || 500;
+  const bulkSurplus = Math.abs(Number(settings.profile_bulk_surplus)) || 300;
   const activityOptions = Object.entries(ACTIVITY_LABELS).map(([key, label]) => `
     <label class="radio-row ${activity === key ? 'radio-row--active' : ''}">
       <input type="radio" name="prof-activity" value="${key}" ${activity === key ? 'checked' : ''}/><span>${label}</span>
@@ -1340,6 +1344,10 @@ async function openProfileSheet() {
         <input class="input" id="prof-age" type="number" inputmode="numeric" min="13" max="100" value="${age}" placeholder="e.g. 28"/>
         <label class="form-label" style="margin-top:14px">Activity level</label>
         <div class="radio-group">${activityOptions}</div>
+        <label class="form-label" style="margin-top:14px">Cut deficit (kcal/day below TDEE)</label>
+        <input class="input" id="prof-cut" type="number" inputmode="numeric" min="0" max="2000" value="${cutDeficit}" placeholder="e.g. 500"/>
+        <label class="form-label" style="margin-top:14px">Bulk surplus (kcal/day above TDEE)</label>
+        <input class="input" id="prof-bulk" type="number" inputmode="numeric" min="0" max="2000" value="${bulkSurplus}" placeholder="e.g. 300"/>
         <button class="btn btn--primary btn--block" id="prof-save" style="margin-top:20px">Save</button>
       </div>
     </div>`;
@@ -1351,11 +1359,19 @@ async function openProfileSheet() {
       const h = sheet.querySelector('#prof-height').value.trim();
       const a = sheet.querySelector('#prof-age').value.trim();
       const act = sheet.querySelector('input[name=prof-activity]:checked')?.value || 'moderate';
+      const cut = sheet.querySelector('#prof-cut').value.trim();
+      const bulk = sheet.querySelector('#prof-bulk').value.trim();
       const heightNum = Number(h), ageNum = Number(a);
+      const cutNum = Number(cut), bulkNum = Number(bulk);
       if (!heightNum || heightNum < 100 || heightNum > 250) return toast('Enter a valid height (100–250 cm)');
       if (!ageNum || ageNum < 13 || ageNum > 100) return toast('Enter a valid age (13–100)');
+      if (!Number.isFinite(cutNum) || cutNum < 0 || cutNum > 2000) return toast('Enter a valid cut deficit (0–2000 kcal)');
+      if (!Number.isFinite(bulkNum) || bulkNum < 0 || bulkNum > 2000) return toast('Enter a valid bulk surplus (0–2000 kcal)');
       try {
-        await API.updateSettings({ profile_height_cm: String(heightNum), profile_age: String(ageNum), profile_activity: act });
+        await API.updateSettings({
+          profile_height_cm: String(heightNum), profile_age: String(ageNum), profile_activity: act,
+          profile_cut_deficit: String(cutNum), profile_bulk_surplus: String(bulkNum)
+        });
         haptic(20); hideSheet(sheet); await renderTdeeSection(); toast('Profile saved');
       } catch (err) { toast(err.message); }
     }
