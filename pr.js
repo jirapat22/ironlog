@@ -14,14 +14,22 @@ function recomputePrsForExercise(profileId, exerciseId) {
 
   // Assisted exercises log ASSISTANCE (more = easier), so "best" is the
   // LOWEST weight at that rep count — the inverse of every other exercise.
-  const ex = db.prepare('SELECT is_assisted FROM exercises WHERE id = ?').get(exerciseId);
+  const ex = db.prepare('SELECT is_assisted, weight_mode FROM exercises WHERE id = ?').get(exerciseId);
   const dir = ex?.is_assisted ? 'ASC' : 'DESC';
+  // Per-row COALESCE, not a single exercise-wide factor: a set carries its own
+  // load_multiplier SNAPSHOT from when it was logged, so an exercise whose
+  // weight_mode flipped mid-history (per-arm <-> combined) still compares each
+  // set's true effective load rather than its raw number — same fix as
+  // checkAndUpdatePR, needed here because ranking picks among many past rows
+  // that can carry different snapshots, not just one incoming set.
+  const fallbackMultiplier = ex?.weight_mode === 'per_arm' ? 2 : 1;
 
   const best = db.prepare(`
     SELECT id, weight, weight_unit, logged_at
     FROM sets
     WHERE profile_id = ? AND exercise_id = ? AND reps = ? AND is_warmup = 0
-    ORDER BY (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END) ${dir},
+    ORDER BY (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END)
+             * COALESCE(load_multiplier, ?) ${dir},
              logged_at ASC
     LIMIT 1
   `);
@@ -35,7 +43,7 @@ function recomputePrsForExercise(profileId, exerciseId) {
   tx(() => {
     del.run(profileId, exerciseId);
     for (const { reps } of repRows) {
-      const b = best.get(profileId, exerciseId, reps);
+      const b = best.get(profileId, exerciseId, reps, fallbackMultiplier);
       // Ties resolve to the OLDEST occurrence (logged_at ASC tiebreak above)
       // — the set that first hit this weight/rep count is "the" record
       // holder; a later repeat of the same value isn't a new PR.
