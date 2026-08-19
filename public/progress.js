@@ -833,13 +833,6 @@ async function renderOverloadCharts() {
     const search = `<div class="overload-search"><input class="input" id="overload-search-input" type="search" placeholder="Find a lift…" autocomplete="off" style="margin-bottom:12px"></div>
       <div id="overload-search-empty" class="bw-current__empty hidden">No lifts match "<span id="overload-search-empty-term"></span>".</div>`;
 
-    // A group defaults collapsed if nothing in it was trained in the last 14
-    // days — keeps the page short without hiding what you're actually
-    // working on right now. Manual expand/collapse only lasts this render;
-    // it recomputes from real training data next time, which matters more
-    // here than remembering a stale click.
-    const STALE_DAYS = 14;
-
     root.innerHTML = search + subtitle + groupOrder.map((group) => {
       // Section by sub-muscle within the group — "General <group>" (no
       // specific sub-muscle) first, then the group's canonical sub-muscle
@@ -863,8 +856,9 @@ async function renderOverloadCharts() {
       });
 
       const groupSeries = byGroup.get(group);
-      const mostRecentDays = Math.min(...groupSeries.map((s) => daysSinceLocalDay(s.labels[s.labels.length - 1])));
-      const collapsed = mostRecentDays > STALE_DAYS;
+      // Every group starts collapsed — keeps the page short on open; tap a
+      // group to expand it. Manual expand/collapse only lasts this render.
+      const collapsed = true;
       const liftCount = groupSeries.length;
       const slug = group.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
