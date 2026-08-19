@@ -1035,6 +1035,17 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
     const recentSets = [...sets].reverse().slice(0, 15);
     const prRows = [...prs].sort((a, b) => a.reps - b.reps);
 
+    // Collapsed to one headline row by default — a rep-max row per distinct
+    // rep count logged gets noisy fast; the rest are a tap away.
+    const PR_SHOW_DEFAULT = 1;
+    let prExpanded = false;
+    const renderPrRows = (expanded) => {
+      const visible = expanded ? prRows : prRows.slice(0, PR_SHOW_DEFAULT);
+      const hasMore = prRows.length > PR_SHOW_DEFAULT;
+      return `${visible.map((r) => `<div class="history-activity__line"><span>${r.reps}-rep max</span><strong>${fmtSetWeight(r.weight, r.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} · ${formatDateShort(r.achieved_at)}</strong></div>`).join('')}
+        ${hasMore ? `<button class="bw-toggle" data-pr-toggle>${expanded ? '▲ Show less' : `▼ ${prRows.length - PR_SHOW_DEFAULT} more`}</button>` : ''}`;
+    };
+
     sheet.innerHTML = `
       <div class="sheet__inner">
         <div class="sheet__head">
@@ -1046,18 +1057,22 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
           ${days.length >= 2 ? `<div class="chart-wrap" style="height:160px"><canvas id="ex-detail-chart"></canvas></div>` : `<div class="bw-current__empty">Log this exercise across 2+ sessions to see a trend.</div>`}
           <button class="btn btn--ghost btn--sm" data-view-history style="width:100%;margin:10px 0 2px">View full history →</button>
           ${prRows.length ? `<div class="form-label" style="margin-top:14px">Personal records</div>
-            ${prRows.map((r) => `<div class="history-activity__line"><span>${r.reps}-rep max</span><strong>${fmtSetWeight(r.weight, r.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} · ${formatDateShort(r.achieved_at)}</strong></div>`).join('')}` : ''}
+            <div id="pr-list">${renderPrRows(prExpanded)}</div>` : ''}
           <div class="form-label" style="margin-top:14px">Recent sets <span style="color:var(--text-dim);font-weight:400">· tap to fix in History</span></div>
-          ${recentSets.length ? recentSets.map((s) => `
+          ${recentSets.length ? recentSets.map((s) => {
+            const rm = calcE1RM(s, exercise, bwKg);
+            return `
             <div class="history-activity__line history-activity__line--link" data-jump-set data-workout-id="${s.workout_id}" role="button" tabindex="0">
               <span>${formatDateShort(s.logged_at)}</span>
-              <strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}</strong>
-            </div>`).join('') : '<div class="bw-current__empty">No sets logged yet.</div>'}
+              <strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}${rm ? ` · ~${Math.round(rm)}kg 1RM` : ''}</strong>
+            </div>`;
+          }).join('') : '<div class="bw-current__empty">No sets logged yet.</div>'}
         </div>
       </div>`;
     sheet.onclick = (e) => {
       if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
       if (e.target.closest('[data-view-history]')) { hideSheet(sheet); return jumpToHistory({ exerciseName: name }); }
+      if (e.target.closest('[data-pr-toggle]')) { prExpanded = !prExpanded; sheet.querySelector('#pr-list').innerHTML = renderPrRows(prExpanded); return; }
       const jumpSet = e.target.closest('[data-jump-set]');
       if (jumpSet) { hideSheet(sheet); return jumpToHistory({ exerciseName: name, workoutId: Number(jumpSet.dataset.workoutId) }); }
     };
