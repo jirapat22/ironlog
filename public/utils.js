@@ -322,21 +322,31 @@ function fromKg(kg, unit) {
   return unit === 'lbs' ? kg / 0.45359237 : kg;
 }
 
-// Effective load in kg for one set — the client-side mirror of db.js's
-// effectiveLoadKgSql / effectiveVolumeLoadKgSql (the server's single source
-// of truth for volume totals and trend badges), used wherever an e1RM gets
-// computed for display (Progressive Overload charts, the exercise-detail
-// sheet, History's per-set 1RM hint, the PR timeline). Before this existed,
-// those call sites used raw weight only — silently ignoring per-arm doubling,
-// so a per-arm exercise's e1RM trend read as roughly half its real strength
-// and couldn't be fairly compared against a combined-mode exercise merged
-// into the same movement chart. `set.load_multiplier` (snapshotted per-set at
-// log time) wins when present; `exercise.weight_mode` is the fallback for
-// rows that predate that column (or a PR row, which has no multiplier of its
-// own to snapshot).
+// Effective load in kg for one set — used wherever an e1RM gets computed for
+// display (Progressive Overload charts, the exercise-detail sheet, History's
+// per-set 1RM hint, the PR timeline, the live workout view's set badges).
+// Before this existed, those call sites used raw weight only — silently
+// ignoring per-arm doubling, so a per-arm exercise's e1RM trend read as
+// roughly half its real strength and couldn't be fairly compared against a
+// combined-mode exercise merged into the same movement chart.
+// `set.load_multiplier` (snapshotted per-set at log time) wins when present;
+// `exercise.weight_mode` is the fallback for rows that predate that column
+// (or a PR row, which has no multiplier of its own to snapshot).
+//
+// Deliberately NOT a strict mirror of db.js's effectiveVolumeLoadKgSql: the
+// weighted branch matches it exactly, but the bodyweight branches take the
+// caller's CURRENT bodyweight, where the server uses each workout's own
+// bw_kg snapshot. That's the right trade for a client-side chart (one
+// bodyweight fetch instead of one per workout) but it means a user whose
+// weight changed will see their bodyweight-exercise e1RM history shift.
+// Don't "consolidate" the two without moving bw_kg per workout to the client.
 function effectiveLoadKg(set, exercise, bwKg) {
   const base = toKg(set.weight, set.weight_unit);
-  if (exercise?.is_assisted && bwKg) return Math.max(0, bwKg - base);
+  // Both bodyweight branches gated on is_bodyweight, matching the server —
+  // an assisted machine is always a bodyweight movement, and the ungated
+  // version would have applied the assistance offset to a plain weighted
+  // exercise that merely had is_assisted set.
+  if (exercise?.is_bodyweight && exercise?.is_assisted && bwKg) return Math.max(0, bwKg - base);
   if (exercise?.is_bodyweight && bwKg) return base + bwKg;
   const multiplier = set.load_multiplier ?? (exercise?.weight_mode === 'per_arm' ? 2 : 1);
   return base * multiplier;
@@ -404,6 +414,12 @@ const openSheets = new Set();
 let lockedScrollY = 0;
 
 function showSheet(el) {
+  // Cancel a hide still in flight for this element (ensureSheet reuses one
+  // element per id, so back-to-back confirmSheet calls land on the same one).
+  // The guard in hideSheet keeps a stale timer from hiding the NEW sheet, but
+  // the timer still fires — and if the new sheet is dismissed inside the old
+  // 180ms window it would cut that dismissal's animation short.
+  if (el._hideTimer) { clearTimeout(el._hideTimer); el._hideTimer = null; }
   el.classList.remove('hidden');
   requestAnimationFrame(() => el.classList.add('open'));
   if (openSheets.has(el)) return; // already open (re-render / back-nav) — don't re-lock
@@ -419,11 +435,15 @@ function showSheet(el) {
 
 function hideSheet(el) {
   el.classList.remove('open');
-  // Guarded: if the same sheet id got shown again in the interim (e.g. two
-  // confirmSheet() calls chained back-to-back — ensureSheet reuses the
-  // element), showSheet's own rAF already re-added 'open' well before this
-  // fires, and this stale timeout must not hide the new sheet out from under it.
-  setTimeout(() => { if (!el.classList.contains('open')) el.classList.add('hidden'); }, 180);
+  // Guarded as well as cancellable: if the same sheet id got shown again in
+  // the interim (e.g. two confirmSheet() calls chained back-to-back —
+  // ensureSheet reuses the element), showSheet cancels this timer AND its own
+  // rAF re-adds 'open', so a stale hide can neither fire late nor hide the
+  // new sheet out from under it.
+  el._hideTimer = setTimeout(() => {
+    el._hideTimer = null;
+    if (!el.classList.contains('open')) el.classList.add('hidden');
+  }, 180);
   if (!openSheets.has(el)) return; // already closed / never tracked
   openSheets.delete(el);
   if (openSheets.size === 0) {

@@ -137,6 +137,11 @@ async function renderProgress() {
       const group = overloadToggle.closest('.overload-group');
       if (group) {
         group.classList.toggle('overload-group--collapsed');
+        // Remember the manual choice as this render's default, so clearing the
+        // search box restores what the user last chose rather than snapping
+        // everything shut again (every group now starts collapsed, so the
+        // hardcoded default would otherwise undo every expand on clear).
+        group.dataset.defaultCollapsed = group.classList.contains('overload-group--collapsed') ? '1' : '0';
         const chevron = overloadToggle.querySelector('.overload-group__chevron');
         if (chevron) chevron.textContent = group.classList.contains('overload-group--collapsed') ? '▸' : '▾';
       }
@@ -766,6 +771,10 @@ async function renderOverloadCharts() {
       const flush = () => {
         if (!cluster) return;
         const days = [...cluster.byDay.keys()].sort();
+        // Belt-and-braces: every contributor is already filtered to >= 2 days
+        // before clustering (see the perExercise loop), and merging can only
+        // add days — so this can't actually fail any more. Kept so the
+        // invariant is enforced here too if that filter ever moves.
         if (days.length >= 2) {
           const values = days.map((d) => Math.round(cluster.byDay.get(d)));
           const first = cluster.contributors[0];
@@ -1059,6 +1068,7 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
           ${prRows.length ? `<div class="form-label" style="margin-top:14px">Personal records</div>
             <div id="pr-list">${renderPrRows(prExpanded)}</div>` : ''}
           <div class="form-label" style="margin-top:14px">Recent sets <span style="color:var(--text-dim);font-weight:400">· tap to fix in History</span></div>
+          ${exercise?.weight_mode === 'per_arm' ? `<div class="card__subtitle" style="margin:-2px 0 6px">Logged per arm/side — the 1RM counts both sides, so it reads about double the weight shown.</div>` : ''}
           ${recentSets.length ? recentSets.map((s) => {
             const rm = calcE1RM(s, exercise, bwKg);
             return `
@@ -1236,6 +1246,22 @@ function computeMacros(goalKcal, weightKg, goal) {
 }
 const GOAL_LABELS = { cut: 'Cut', maintain: 'Maintain', bulk: 'Bulk' };
 
+// A user-set kcal offset. `|| fallback` can't be used: a deliberate 0 ("cut at
+// maintenance") is falsy and would snap back to 500/300 — save a 0, reopen the
+// profile sheet, and it read 500 again. Only missing/unparseable gets default.
+function readKcalOffset(raw, fallback) {
+  const n = Math.abs(Number(raw));
+  return Number.isFinite(n) ? Math.min(n, 2000) : fallback;
+}
+
+// Floor for the daily target — mirrors floorGoalKcal in routes/plated.js so the
+// app and Plated can't quote different numbers. Since the offsets became
+// adjustable (0-2000) a small TDEE plus a big deficit went NEGATIVE, taking fat
+// grams and the macro percentages with it. Never below 1200, never above TDEE.
+function floorGoalKcal(goalKcal, tdee) {
+  return Math.max(Math.min(1200, tdee), goalKcal);
+}
+
 async function renderTdeeSection() {
   const root = $('#tdee-card');
   if (!root) return;
@@ -1248,8 +1274,8 @@ async function renderTdeeSection() {
   const activity = settings.profile_activity || 'moderate';
   const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
   const goal = ['cut','maintain','bulk'].includes(settings.profile_goal) ? settings.profile_goal : 'maintain';
-  const cutDeficit = Math.abs(Number(settings.profile_cut_deficit)) || 500;
-  const bulkSurplus = Math.abs(Number(settings.profile_bulk_surplus)) || 300;
+  const cutDeficit = readKcalOffset(settings.profile_cut_deficit, 500);
+  const bulkSurplus = readKcalOffset(settings.profile_bulk_surplus, 300);
   const GOAL_OFFSETS = { cut: -cutDeficit, maintain: 0, bulk: bulkSurplus };
   const missing = [];
   if (!bw.length) missing.push('body weight');
@@ -1264,7 +1290,7 @@ async function renderTdeeSection() {
   const bmr = Math.round(calcBmrMifflin(weightKg, heightCm, age, sex));
   const multiplier = ACTIVITY_MULTIPLIERS[activity] || 1.55;
   const tdee = Math.round(bmr * multiplier);
-  const goalKcal = tdee + GOAL_OFFSETS[goal];
+  const goalKcal = floorGoalKcal(tdee + GOAL_OFFSETS[goal], tdee);
   const macros = computeMacros(goalKcal, weightKg, goal);
 
   // Today's workout calorie burn (if any finished workouts today)
@@ -1297,7 +1323,7 @@ async function renderTdeeSection() {
     : '';
 
   const goalTile = (key) => {
-    const kcal = tdee + GOAL_OFFSETS[key];
+    const kcal = floorGoalKcal(tdee + GOAL_OFFSETS[key], tdee);
     const offset = GOAL_OFFSETS[key];
     const offsetStr = offset === 0 ? '±0' : (offset > 0 ? '+' : '') + offset;
     return `<button class="tdee-goal tdee-goal--${key} ${goal === key ? 'tdee-goal--active' : ''}" data-goal="${key}"><div class="tdee-goal__label">${GOAL_LABELS[key]}</div><div class="tdee-goal__val">${kcal.toLocaleString()}</div><div class="tdee-goal__delta">${offsetStr}</div></button>`;
@@ -1336,8 +1362,8 @@ async function openProfileSheet() {
   const age = settings.profile_age || '';
   const activity = settings.profile_activity || 'moderate';
   const sex = settings.strength_standard_gender === 'female' ? 'female' : 'male';
-  const cutDeficit = Math.abs(Number(settings.profile_cut_deficit)) || 500;
-  const bulkSurplus = Math.abs(Number(settings.profile_bulk_surplus)) || 300;
+  const cutDeficit = readKcalOffset(settings.profile_cut_deficit, 500);
+  const bulkSurplus = readKcalOffset(settings.profile_bulk_surplus, 300);
   const activityOptions = Object.entries(ACTIVITY_LABELS).map(([key, label]) => `
     <label class="radio-row ${activity === key ? 'radio-row--active' : ''}">
       <input type="radio" name="prof-activity" value="${key}" ${activity === key ? 'checked' : ''}/><span>${label}</span>

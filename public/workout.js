@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -13,11 +13,15 @@ async function syncUserBodyweight() {
   } catch { /* ignore */ }
 }
 
+// Shared with History / Progress / the server rather than a second local copy:
+// this used to drop the per-arm multiplier entirely, so the SAME set showed
+// "~20 kg 1RM" on its row here and "~40kg 1RM" in History. The trend and
+// progression comparisons below are all within one exercise, where a uniform
+// multiplier cancels — but it does NOT cancel for an exercise logged under
+// both modes ("just going forward"), which is exactly when the server's own
+// effKg (routes/workouts.js) would disagree with this.
 function loadKg(set, exercise) {
-  const base = toKg(set.weight, set.weight_unit);
-  if (exercise?.is_assisted && userBwKg) return Math.max(0, userBwKg - base);
-  if (exercise?.is_bodyweight && userBwKg) return base + userBwKg;
-  return base;
+  return effectiveLoadKg(set, exercise, userBwKg);
 }
 
 function e1RMForSet(set, exercise) {
@@ -1330,7 +1334,13 @@ function wireWorkoutView() {
         const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: recomputePastSets, convert_stored_weight: convertStoredWeight });
         ex.weight_mode = next;
         persistExerciseList();
-        renderWorkoutView();
+        // convert_stored_weight rewrites sets.weight server-side, so every
+        // number cached in workoutState.loggedSets is now wrong — re-render
+        // from a fresh fetch rather than from stale local state. A plain
+        // multiplier change leaves the weights alone, so that keeps the
+        // cheap in-place re-render.
+        if (convertStoredWeight && updated.recomputed_sets) await renderWorkout();
+        else renderWorkoutView();
         const modeMsg = next === 'combined'
           ? 'Weight = the full load (counted as-is)'
           : 'Weight = one arm/side (doubled for volume)';

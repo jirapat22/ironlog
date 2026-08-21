@@ -145,6 +145,13 @@ async function renderHistory() {
           const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: fix.recompute, convert_stored_weight: fix.convert });
           wmBtn.textContent = next === 'per_arm' ? 'per arm/side ×2' : 'total';
           wmBtn.classList.toggle('badge--weightmode-off', next !== 'per_arm');
+          // A conversion halves/doubles every stored weight for this exercise,
+          // so the set rows on screen are quoting numbers that no longer exist
+          // - reload this card's body instead of only relabelling the badge.
+          if (fix.convert && updated.recomputed_sets) {
+            const card = wmBtn.closest('.history-card');
+            if (card) await loadHistoryCardBody(card, { showSkeleton: false });
+          }
           toast(updated.recomputed_sets
             ? `${next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
             : (next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'));
