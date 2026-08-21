@@ -31,6 +31,11 @@ router.get('/', (req, res) => {
   res.json(getAll(req.profileId));
 });
 
+// Settings that feed the calorie math directly: a bad value here doesn't fail
+// loudly, it just produces a nonsense goal (and ships it to Plated). The
+// client enforces the same 0-2000 range, but the client isn't the boundary.
+const KCAL_OFFSET_KEYS = new Set(['profile_cut_deficit', 'profile_bulk_surplus']);
+
 router.put('/', (req, res) => {
   const body = req.body || {};
   const allowed = Object.keys(DEFAULTS);
@@ -39,6 +44,14 @@ router.put('/', (req, res) => {
   );
   for (const [k, v] of Object.entries(body)) {
     if (!allowed.includes(k)) continue;
+    if (KCAL_OFFSET_KEYS.has(k)) {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > 2000) {
+        return res.status(400).json({ error: `${k} must be a number between 0 and 2000` });
+      }
+      stmt.run(req.profileId, k, String(Math.round(n)));
+      continue;
+    }
     stmt.run(req.profileId, k, String(v));
   }
   res.json(getAll(req.profileId));

@@ -78,6 +78,24 @@ const ACTIVITY_MULTIPLIERS = {
   athlete:   1.9
 };
 
+// A user-set kcal offset. `|| fallback` can't be used here: a deliberate 0
+// ("cut at maintenance") is falsy and would silently snap back to 500/300,
+// which is what the profile sheet did when you saved a 0 and reopened it.
+// Only a missing/unparseable value gets the default.
+function readKcalOffset(raw, fallback) {
+  const n = Math.abs(Number(raw));
+  return Number.isFinite(n) ? Math.min(n, 2000) : fallback;
+}
+
+// Floor for the daily target. The offsets became user-adjustable (0-2000)
+// without one, so a small TDEE plus a large deficit produced a NEGATIVE goal
+// — and with it negative fat grams and negative macro percentages, shipped
+// to Plated as a real number. Never below 1200 kcal, and never above TDEE
+// (which would turn an aggressive cut into a surplus for a very small user).
+function floorGoalKcal(goalKcal, tdee) {
+  return Math.max(Math.min(1200, tdee), goalKcal);
+}
+
 function getSetting(profileId, key) {
   const row = db
     .prepare('SELECT value FROM app_settings WHERE profile_id = ? AND key = ?')
@@ -185,8 +203,8 @@ router.get('/profile', (req, res) => {
     const goal       = ['cut', 'maintain', 'bulk'].includes(getSetting(pid, 'profile_goal'))
       ? getSetting(pid, 'profile_goal')
       : 'maintain';
-    const cutDeficit  = Math.abs(Number(getSetting(pid, 'profile_cut_deficit')))  || 500;
-    const bulkSurplus = Math.abs(Number(getSetting(pid, 'profile_bulk_surplus'))) || 300;
+    const cutDeficit  = readKcalOffset(getSetting(pid, 'profile_cut_deficit'), 500);
+    const bulkSurplus = readKcalOffset(getSetting(pid, 'profile_bulk_surplus'), 300);
     const GOAL_OFFSETS = { cut: -cutDeficit, maintain: 0, bulk: bulkSurplus };
 
     // Mirrors the "eat back" logic in the app's own TDEE card (progress.js):
@@ -208,7 +226,7 @@ router.get('/profile', (req, res) => {
       const bmr        = calcBmr(weightKg, heightCm, age, sex);
       const multiplier = ACTIVITY_MULTIPLIERS[activityKey] || 1.55;
       tdee             = Math.round(bmr * multiplier);
-      goalKcal         = tdee + (GOAL_OFFSETS[goal] ?? 0);
+      goalKcal         = floorGoalKcal(tdee + (GOAL_OFFSETS[goal] ?? 0), tdee);
       macros           = computeMacros(goalKcal, weightKg, goal);
 
       // Carbs are the balancing macro, derived to fill what's left after
