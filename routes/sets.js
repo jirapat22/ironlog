@@ -21,16 +21,21 @@ function parseRepsSides(reps_r, reps_l) {
 }
 
 // loadMultiplier: this set's per-arm doubling factor (see load_multiplier in
-// db.js). personal_records has no multiplier column of its own to snapshot,
-// so every comparison against past records applies the CURRENT exercise's
-// factor uniformly on both sides — an approximation for an exercise whose
-// weight_mode changed partway through its history, but correct for the
-// (overwhelmingly common) case where it never did.
+// db.js). personal_records has no multiplier column of its own, so each record
+// borrows the one from the SET that holds it (set_id), falling back to the
+// exercise's current weight_mode for legacy rows with no set_id. That per-row
+// resolution is what recomputePrsForExercise (pr.js) already does; applying
+// the incoming set's factor uniformly to both sides instead made the two
+// disagree, so a plain edit/delete elsewhere on the exercise could silently
+// re-rank the PR — see the "just going forward" flow, which is exactly how an
+// exercise ends up with mixed multipliers in the first place.
 function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, loadMultiplier = 1) {
   const newKg = toKg(weight, unit);
   const newEffectiveKg = newKg * loadMultiplier;
 
-  const ex = db.prepare('SELECT is_bodyweight, is_assisted FROM exercises WHERE id = ?').get(exerciseId);
+  const ex = db.prepare('SELECT is_bodyweight, is_assisted, weight_mode FROM exercises WHERE id = ?').get(exerciseId);
+  // Fallback factor for a record whose set_id is NULL (pre-set_id rows).
+  const fallbackMultiplier = ex?.weight_mode === 'per_arm' ? 2 : 1;
   // Assisted exercises log ASSISTANCE (more = easier) — the inverse of every
   // other exercise, where more = harder. Flip the sign before folding it into
   // the e1RM-style estimate so "beat previous best" means less assistance (or
@@ -51,10 +56,14 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, load
   } else {
     const row = db.prepare(
       `SELECT MAX(
-         (CASE WHEN weight_unit = 'lbs' THEN weight * 0.45359237 ELSE weight END)
-         * (1.0 + reps / 30.0) * ?
-       ) as best FROM personal_records WHERE profile_id = ? AND exercise_id = ?`
-    ).get(sign * loadMultiplier, profileId, exerciseId);
+         (CASE WHEN pr.weight_unit = 'lbs' THEN pr.weight * 0.45359237 ELSE pr.weight END)
+         * COALESCE(s.load_multiplier, ?)
+         * (1.0 + pr.reps / 30.0) * ?
+       ) as best
+       FROM personal_records pr
+       LEFT JOIN sets s ON s.id = pr.set_id
+       WHERE pr.profile_id = ? AND pr.exercise_id = ?`
+    ).get(fallbackMultiplier, sign, profileId, exerciseId);
     const prevBestE1RM = row?.best;
     if (prevBestE1RM == null) {
       // No prior record for this exercise at all — anything logged is a PR.
@@ -71,15 +80,20 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, load
   // by recomputePrsForExercise after edits/deletes. "Better at this rep count"
   // also flips for assisted: less assistance wins, not more.
   const existing = db
-    .prepare('SELECT * FROM personal_records WHERE profile_id = ? AND exercise_id = ? AND reps = ?')
-    .get(profileId, exerciseId, reps);
+    .prepare(
+      `SELECT pr.*, COALESCE(s.load_multiplier, ?) as eff_multiplier
+       FROM personal_records pr
+       LEFT JOIN sets s ON s.id = pr.set_id
+       WHERE pr.profile_id = ? AND pr.exercise_id = ? AND pr.reps = ?`
+    )
+    .get(fallbackMultiplier, profileId, exerciseId, reps);
   if (!existing) {
     db.prepare(
       `INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at, set_id)
        VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`
     ).run(profileId, exerciseId, weight, unit, reps, setId ?? null);
   } else {
-    const existingEffectiveKg = toKg(existing.weight, existing.weight_unit) * loadMultiplier;
+    const existingEffectiveKg = toKg(existing.weight, existing.weight_unit) * existing.eff_multiplier;
     if (sign * newEffectiveKg > sign * existingEffectiveKg) {
       db.prepare(
         `UPDATE personal_records
@@ -298,3 +312,7 @@ router.delete('/:id', (req, res) => {
 });
 
 module.exports = router;
+// Exported for pr.test.js: this and recomputePrsForExercise (pr.js) are two
+// independent implementations of "which set holds the record", and they have
+// to agree — see the mixed-multiplier tests there.
+module.exports.checkAndUpdatePR = checkAndUpdatePR;

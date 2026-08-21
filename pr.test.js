@@ -31,7 +31,7 @@ function makeExercise(name, opts = {}) {
       `INSERT INTO exercises (name, muscle_group, is_bodyweight, is_assisted, equipment, weight_mode)
        VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(`${name} (test)`, 'chest', opts.isBodyweight ? 1 : 0, opts.isAssisted ? 1 : 0, 'barbell', 'combined');
+    .run(`${name} (test)`, 'chest', opts.isBodyweight ? 1 : 0, opts.isAssisted ? 1 : 0, 'barbell', opts.weightMode || 'combined');
   return Number(info.lastInsertRowid);
 }
 
@@ -40,11 +40,12 @@ function makeWorkout(profileId) {
   return Number(info.lastInsertRowid);
 }
 
-function logSet(profileId, workoutId, exerciseId, { weight, reps, isWarmup = false, loggedAt }) {
-  db.prepare(
-    `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, is_warmup, logged_at)
-     VALUES (?, ?, ?, 1, ?, 'kg', ?, ?, ?)`
-  ).run(profileId, workoutId, exerciseId, weight, reps, isWarmup ? 1 : 0, loggedAt || '2026-01-01 00:00:00');
+function logSet(profileId, workoutId, exerciseId, { weight, reps, isWarmup = false, loggedAt, loadMultiplier = null }) {
+  const info = db.prepare(
+    `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, is_warmup, logged_at, load_multiplier)
+     VALUES (?, ?, ?, 1, ?, 'kg', ?, ?, ?, ?)`
+  ).run(profileId, workoutId, exerciseId, weight, reps, isWarmup ? 1 : 0, loggedAt || '2026-01-01 00:00:00', loadMultiplier);
+  return Number(info.lastInsertRowid);
 }
 
 function prsFor(profileId, exerciseId) {
@@ -121,4 +122,95 @@ test('recompute is idempotent and profile-scoped (does not leak across profiles)
 
   assert.strictEqual(prsFor(profileA, exerciseId).length, 1);
   assert.strictEqual(prsFor(profileB, exerciseId).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Mixed load_multiplier history — an exercise logged under BOTH weight modes.
+// This is not an exotic state: choosing "Just going forward" on a weight-mode
+// flip (the cancel option on the first confirm step) produces it every time.
+// The two independent "which set holds the record" implementations —
+// recomputePrsForExercise here and checkAndUpdatePR in routes/sets.js — must
+// rank such an exercise the same way, or an unrelated edit silently rewrites
+// the PR.
+// ---------------------------------------------------------------------------
+const { checkAndUpdatePR } = require('./routes/sets');
+
+test('mixed multipliers: ranks by EFFECTIVE load, not the raw number', () => {
+  const profileId = makeProfile('F1');
+  const exerciseId = makeExercise('Single-Arm Row', { weightMode: 'per_arm' });
+  const workoutId = makeWorkout(profileId);
+  // 40kg logged while the exercise was "combined" -> 40kg effective.
+  logSet(profileId, workoutId, exerciseId, { weight: 40, reps: 8, loadMultiplier: 1 });
+  // 21kg logged after the flip to per-arm -> 42kg effective. Lower number,
+  // heavier lift.
+  const winner = logSet(profileId, workoutId, exerciseId, { weight: 21, reps: 8, loadMultiplier: 2 });
+
+  recomputePrsForExercise(profileId, exerciseId);
+
+  const prs = prsFor(profileId, exerciseId);
+  assert.strictEqual(prs.length, 1);
+  assert.strictEqual(prs[0].weight, 21);
+  assert.strictEqual(prs[0].set_id, winner);
+});
+
+test('mixed multipliers: checkAndUpdatePR and recompute agree on the holder', () => {
+  const profileId = makeProfile('F2');
+  const exerciseId = makeExercise('Cable Curl', { weightMode: 'per_arm' });
+  const workoutId = makeWorkout(profileId);
+
+  // Logged while combined, through the same path the route uses.
+  const first = logSet(profileId, workoutId, exerciseId, { weight: 40, reps: 8, loadMultiplier: 1 });
+  checkAndUpdatePR(profileId, exerciseId, 40, 'kg', 8, first, 1);
+  assert.strictEqual(prsFor(profileId, exerciseId)[0].weight, 40);
+
+  // Flip to per-arm, "just going forward", then log a heavier EFFECTIVE lift
+  // that carries a smaller number (21 x2 = 42 > 40).
+  const second = logSet(profileId, workoutId, exerciseId, { weight: 21, reps: 8, loadMultiplier: 2 });
+  checkAndUpdatePR(profileId, exerciseId, 21, 'kg', 8, second, 2);
+  const afterLogging = prsFor(profileId, exerciseId);
+  assert.strictEqual(afterLogging[0].set_id, second, 'the heavier effective lift takes the record');
+
+  // The regression: any later edit/delete on this exercise triggers a full
+  // recompute. It must reach the same answer, not silently swap the holder.
+  recomputePrsForExercise(profileId, exerciseId);
+  const afterRecompute = prsFor(profileId, exerciseId);
+  assert.deepStrictEqual(
+    afterRecompute.map((r) => [r.weight, r.reps, r.set_id]),
+    afterLogging.map((r) => [r.weight, r.reps, r.set_id]),
+    'recomputePrsForExercise disagreed with checkAndUpdatePR'
+  );
+});
+
+test('mixed multipliers: a weaker effective lift does not steal the record', () => {
+  const profileId = makeProfile('F3');
+  const exerciseId = makeExercise('Lateral Raise', { weightMode: 'per_arm' });
+  const workoutId = makeWorkout(profileId);
+
+  const heavy = logSet(profileId, workoutId, exerciseId, { weight: 40, reps: 8, loadMultiplier: 1 });
+  checkAndUpdatePR(profileId, exerciseId, 40, 'kg', 8, heavy, 1);
+
+  // 19kg per arm = 38kg effective, which is LESS than 40. The old code scaled
+  // both sides by the incoming multiplier so this compared 38 vs 80 and also
+  // said "no" — but then recompute compared 38 vs 40 and agreed by luck. The
+  // point here is that both still say no for the right reason.
+  const lighter = logSet(profileId, workoutId, exerciseId, { weight: 19, reps: 8, loadMultiplier: 2 });
+  checkAndUpdatePR(profileId, exerciseId, 19, 'kg', 8, lighter, 2);
+  assert.strictEqual(prsFor(profileId, exerciseId)[0].set_id, heavy);
+
+  recomputePrsForExercise(profileId, exerciseId);
+  assert.strictEqual(prsFor(profileId, exerciseId)[0].set_id, heavy);
+});
+
+test('uniform multipliers behave exactly as before (per-arm cancels out)', () => {
+  const profileId = makeProfile('F4');
+  const exerciseId = makeExercise('DB Press', { weightMode: 'per_arm' });
+  const workoutId = makeWorkout(profileId);
+  logSet(profileId, workoutId, exerciseId, { weight: 30, reps: 5, loadMultiplier: 2 });
+  const best = logSet(profileId, workoutId, exerciseId, { weight: 35, reps: 5, loadMultiplier: 2 });
+
+  recomputePrsForExercise(profileId, exerciseId);
+
+  const prs = prsFor(profileId, exerciseId);
+  assert.strictEqual(prs[0].weight, 35);
+  assert.strictEqual(prs[0].set_id, best);
 });

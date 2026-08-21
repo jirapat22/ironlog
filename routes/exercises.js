@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { db, REGION_TO_GROUP, MUSCLE_GROUPS, tx, mergeExercises, moveExerciseSessions } = require('../db');
+const { recomputePrsForExercise } = require('../pr');
 
 const router = express.Router();
 
@@ -292,7 +293,15 @@ router.patch('/:id', (req, res) => {
   // scoped to your own profile only (a shared exercise's other profiles may
   // have been entering it correctly all along).
   let recomputedSets = 0;
-  if (newWeightMode && req.body.recompute_past_sets) {
+  // Gated on the mode ACTUALLY changing, not merely being sent. The clients
+  // each gate on their own cached copy of weight_mode, and those caches go
+  // stale the moment another surface flips it (History's badge doesn't touch
+  // the workout view's persisted exercise list) — a second flip computed from
+  // a stale cache re-sends the mode it's already in, and convert_stored_weight
+  // would then halve/double every logged weight a SECOND time. Irreversible,
+  // so the server has to be the one that says no.
+  const modeActuallyChanged = newWeightMode && newWeightMode !== (existing.weight_mode || 'combined');
+  if (modeActuallyChanged && req.body.recompute_past_sets) {
     const multiplier = newWeightMode === 'per_arm' ? 2 : 1;
     if (req.body.convert_stored_weight) {
       // The default recompute above assumes the NUMBER you typed already
@@ -313,6 +322,12 @@ router.patch('/:id', (req, res) => {
         .prepare('UPDATE sets SET load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
         .run(multiplier, id, req.profileId).changes;
     }
+    // personal_records caches raw weights AND is ranked by effective load, so
+    // rewriting either the weights or the multipliers invalidates it. Without
+    // this, converting left the PR list quoting numbers no set has any more
+    // while History's trophy (driven by personal_records.set_id) still pointed
+    // at the right — differently-labelled — set.
+    if (recomputedSets) recomputePrsForExercise(req.profileId, id);
   }
 
   res.json({ ...shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)), recomputed_sets: recomputedSets });
