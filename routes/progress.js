@@ -394,10 +394,17 @@ router.get('/strength-history', (req, res) => {
 router.get('/prs', (req, res) => {
   const rows = db
     .prepare(
+      // load_multiplier comes from the SET that holds the record, not the
+      // exercise's current weight_mode — without it the PR timeline's e1RM
+      // fell back to the live mode and doubled a record set during a
+      // combined-era session (showing 101kg where History said 51kg). Same
+      // per-row resolution checkAndUpdatePR and pr.js use.
       `SELECT pr.id, pr.weight, pr.weight_unit, pr.reps, pr.achieved_at,
+              s.load_multiplier,
               e.id as exercise_id, e.name as exercise_name, e.muscle_group
        FROM personal_records pr
        JOIN exercises e ON e.id = pr.exercise_id
+       LEFT JOIN sets s ON s.id = pr.set_id
        WHERE pr.profile_id = ?
        ORDER BY e.muscle_group, e.name, pr.reps ASC`
     )
@@ -418,7 +425,8 @@ router.get('/prs', (req, res) => {
       weight: row.weight,
       weight_unit: row.weight_unit,
       reps: row.reps,
-      achieved_at: row.achieved_at
+      achieved_at: row.achieved_at,
+      load_multiplier: row.load_multiplier
     });
   }
 

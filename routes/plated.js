@@ -83,6 +83,12 @@ const ACTIVITY_MULTIPLIERS = {
 // which is what the profile sheet did when you saved a 0 and reopened it.
 // Only a missing/unparseable value gets the default.
 function readKcalOffset(raw, fallback) {
+  // Missing must come FIRST. getSetting() returns null for an absent row and
+  // Number(null) is 0 — which is finite, so a bare isFinite check handed back
+  // a 0 kcal offset for every user who had never saved the Profile sheet,
+  // silently telling Plated a cutting user should eat at maintenance. Only a
+  // real stored value reaches the numeric path; '0' still means 0.
+  if (raw === null || raw === undefined || raw === '') return fallback;
   const n = Math.abs(Number(raw));
   return Number.isFinite(n) ? Math.min(n, 2000) : fallback;
 }
@@ -90,10 +96,14 @@ function readKcalOffset(raw, fallback) {
 // Floor for the daily target. The offsets became user-adjustable (0-2000)
 // without one, so a small TDEE plus a large deficit produced a NEGATIVE goal
 // — and with it negative fat grams and negative macro percentages, shipped
-// to Plated as a real number. Never below 1200 kcal, and never above TDEE
-// (which would turn an aggressive cut into a surplus for a very small user).
+// to Plated as a real number. Floor only: never below 1200 kcal, and the
+// floor itself is capped at TDEE so clamping a cut can't push the target
+// ABOVE maintenance for a very small user. A bulk still exceeds TDEE, as it
+// should — nothing here caps the upper end.
 function floorGoalKcal(goalKcal, tdee) {
-  return Math.max(Math.min(1200, tdee), goalKcal);
+  // Math.max(0, ...) so a nonsensical TDEE can't make the floor itself
+  // negative and pass a negative goal straight through.
+  return Math.max(Math.max(0, Math.min(1200, tdee)), goalKcal);
 }
 
 function getSetting(profileId, key) {
@@ -223,7 +233,10 @@ router.get('/profile', (req, res) => {
     let macros     = null;
 
     if (profileComplete) {
-      const bmr        = calcBmr(weightKg, heightCm, age, sex);
+      // Rounded here to match renderTdeeSection in public/progress.js exactly.
+      // Unrounded is marginally more accurate, but the app and Plated quoting
+      // different numbers for the same profile is the worse failure.
+      const bmr        = Math.round(calcBmr(weightKg, heightCm, age, sex));
       const multiplier = ACTIVITY_MULTIPLIERS[activityKey] || 1.55;
       tdee             = Math.round(bmr * multiplier);
       goalKcal         = floorGoalKcal(tdee + (GOAL_OFFSETS[goal] ?? 0), tdee);

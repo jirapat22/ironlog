@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../db');
+const { db, tx } = require('../db');
 
 const router = express.Router();
 
@@ -31,29 +31,64 @@ router.get('/', (req, res) => {
   res.json(getAll(req.profileId));
 });
 
-// Settings that feed the calorie math directly: a bad value here doesn't fail
-// loudly, it just produces a nonsense goal (and ships it to Plated). The
-// client enforces the same 0-2000 range, but the client isn't the boundary.
-const KCAL_OFFSET_KEYS = new Set(['profile_cut_deficit', 'profile_bulk_surplus']);
+// Numeric settings that feed the calorie math. A bad value here doesn't fail
+// loudly, it just produces a nonsense goal (and ships it to Plated) — an
+// unvalidated profile_age of 500 drove BMR negative and put a negative
+// calorie_goal and negative fat grams on the Plated contract. The client
+// enforces these same ranges, but the client isn't the boundary.
+// allowEmpty marks the ones whose DEFAULT is '' (meaning "not set yet").
+const NUMERIC_SETTINGS = {
+  profile_cut_deficit:  { min: 0,   max: 2000 },
+  profile_bulk_surplus: { min: 0,   max: 2000 },
+  profile_age:          { min: 13,  max: 100, allowEmpty: true },
+  profile_height_cm:    { min: 100, max: 250, allowEmpty: true }
+};
+
+// Strict: Number() alone accepted true->1, []->0, '0x10'->16 and null->0, so
+// clearing a field read as a deliberate 0 rather than "unset". Only a real
+// number or a plain decimal string gets through.
+function parseNumericSetting(raw, { min, max, allowEmpty }) {
+  if (raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '')) {
+    return allowEmpty ? { ok: true, value: '' } : { ok: false };
+  }
+  if (typeof raw !== 'number' && typeof raw !== 'string') return { ok: false };
+  const s = String(raw).trim();
+  if (!/^[0-9]+([.][0-9]+)?$/.test(s)) return { ok: false };
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < min || n > max) return { ok: false };
+  return { ok: true, value: String(Math.round(n)) };
+}
 
 router.put('/', (req, res) => {
   const body = req.body || {};
   const allowed = Object.keys(DEFAULTS);
+
+  // Validate EVERYTHING before writing ANYTHING. This used to 400 from inside
+  // the write loop, so a rejected deficit still committed the goal and age
+  // that came before it — and silently dropped the keys after it. The profile
+  // sheet sends all five in one PUT, which made a half-applied profile the
+  // normal outcome of one bad field.
+  const writes = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (!allowed.includes(k)) continue;
+    const spec = NUMERIC_SETTINGS[k];
+    if (spec) {
+      const parsed = parseNumericSetting(v, spec);
+      if (!parsed.ok) {
+        return res.status(400).json({ error: `${k} must be a number between ${spec.min} and ${spec.max}` });
+      }
+      writes.push([k, parsed.value]);
+      continue;
+    }
+    writes.push([k, String(v)]);
+  }
+
   const stmt = db.prepare(
     'INSERT INTO app_settings (profile_id, key, value) VALUES (?, ?, ?) ON CONFLICT(profile_id, key) DO UPDATE SET value = excluded.value'
   );
-  for (const [k, v] of Object.entries(body)) {
-    if (!allowed.includes(k)) continue;
-    if (KCAL_OFFSET_KEYS.has(k)) {
-      const n = Number(v);
-      if (!Number.isFinite(n) || n < 0 || n > 2000) {
-        return res.status(400).json({ error: `${k} must be a number between 0 and 2000` });
-      }
-      stmt.run(req.profileId, k, String(Math.round(n)));
-      continue;
-    }
-    stmt.run(req.profileId, k, String(v));
-  }
+  tx(() => {
+    for (const [k, value] of writes) stmt.run(req.profileId, k, value);
+  });
   res.json(getAll(req.profileId));
 });
 

@@ -157,6 +157,23 @@ router.post('/', (req, res) => {
       `INSERT INTO workouts (profile_id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    // Resolve a concrete load_multiplier for every imported set. Storing NULL
+    // left the row resolving through db.js's COALESCE fallback to the
+    // exercise's CURRENT weight_mode — so a later per-arm flip silently
+    // re-valued imported history (doubling its volume and handing it PRs it
+    // never earned), which is exactly what the per-set snapshot exists to
+    // prevent. backfillLoadMultiplier can't rescue these: it's flag-guarded
+    // and already ran. A backup that predates the column has no snapshot to
+    // honour, so the exercise's mode AT IMPORT TIME is the best available
+    // answer — and unlike NULL it's frozen from then on.
+    const modeByExercise = new Map();
+    const exModeStmt = db.prepare('SELECT weight_mode FROM exercises WHERE id = ?');
+    const multiplierFor = (exerciseId) => {
+      if (!modeByExercise.has(exerciseId)) {
+        modeByExercise.set(exerciseId, exModeStmt.get(exerciseId)?.weight_mode === 'per_arm' ? 2 : 1);
+      }
+      return modeByExercise.get(exerciseId);
+    };
     const insSet = db.prepare(
       `INSERT INTO sets
          (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, reps_r, reps_l, rpe, rir, notes, is_warmup, logged_at, load_multiplier)
@@ -198,7 +215,7 @@ router.post('/', (req, res) => {
           s.rpe ?? null, s.rir ?? null, s.notes ?? null,
           s.is_warmup ? 1 : 0,
           s.logged_at,
-          s.load_multiplier ?? null
+          s.load_multiplier ?? multiplierFor(exId)
         );
         importedSets++;
         affectedExercises.add(exId);

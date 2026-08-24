@@ -192,8 +192,20 @@ router.patch('/:id', (req, res) => {
     updates.push('classification_customized = ?'); values.push(1);
   }
   let newWeightMode = null;
+  // Tracks whether the caller ASKED for a mode: only an explicit weight_mode
+  // may drive the retroactive set rewrite below. The equipment branch sets a
+  // mode as a side effect, and a stray recompute flag alongside an equipment
+  // change must never be read as consent to rewrite logged weights.
+  let weightModeRequested = false;
   if ('weight_mode' in (req.body || {})) {
-    newWeightMode = req.body.weight_mode === 'combined' ? 'combined' : 'per_arm';
+    // Anything-but-'combined' used to mean per_arm, so '', null, 'total' and 0
+    // all silently selected doubling — with the recompute flags that halved
+    // every logged weight.
+    if (req.body.weight_mode !== 'combined' && req.body.weight_mode !== 'per_arm') {
+      return res.status(400).json({ error: "weight_mode must be 'combined' or 'per_arm'" });
+    }
+    newWeightMode = req.body.weight_mode;
+    weightModeRequested = true;
     updates.push('weight_mode = ?'); values.push(newWeightMode);
   } else if ('equipment' in (req.body || {})) {
     // Equipment changed with no explicit mode (e.g. the in-workout equipment
@@ -276,12 +288,6 @@ router.patch('/:id', (req, res) => {
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
   values.push(id);
-  try {
-    db.prepare(`UPDATE exercises SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-  } catch (err) {
-    if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'exercise name already exists' });
-    throw err;
-  }
 
   // weight_mode flipping normally only affects sets logged AFTER the change
   // (load_multiplier is snapshotted per-set at log time — see db.js — so a
@@ -292,45 +298,89 @@ router.patch('/:id', (req, res) => {
   // correcting every set YOU'VE already logged for this exercise to match,
   // scoped to your own profile only (a shared exercise's other profiles may
   // have been entering it correctly all along).
-  let recomputedSets = 0;
-  // Gated on the mode ACTUALLY changing, not merely being sent. The clients
-  // each gate on their own cached copy of weight_mode, and those caches go
-  // stale the moment another surface flips it (History's badge doesn't touch
-  // the workout view's persisted exercise list) — a second flip computed from
-  // a stale cache re-sends the mode it's already in, and convert_stored_weight
-  // would then halve/double every logged weight a SECOND time. Irreversible,
-  // so the server has to be the one that says no.
+  //
+  // Decided from `existing`, which is the pre-UPDATE snapshot read at the top
+  // of this handler. Gated on the mode ACTUALLY changing, not merely being
+  // sent: each client gates on its own cached copy of weight_mode, and those
+  // caches go stale the moment another surface flips it (History's badge
+  // doesn't touch the workout view's persisted exercise list). A second flip
+  // computed from a stale cache re-sends the mode it's already in, and
+  // convert_stored_weight would then halve/double every logged weight a
+  // SECOND time. Irreversible, so the server has to be the one that says no.
+  // Also gated on weightModeRequested: the equipment branch above sets a mode
+  // as a side effect, and a stray recompute flag alongside an equipment change
+  // is not consent to rewrite logged weights.
   const modeActuallyChanged = newWeightMode && newWeightMode !== (existing.weight_mode || 'combined');
-  if (modeActuallyChanged && req.body.recompute_past_sets) {
-    const multiplier = newWeightMode === 'per_arm' ? 2 : 1;
-    if (req.body.convert_stored_weight) {
-      // The default recompute above assumes the NUMBER you typed already
-      // meant what the new mode expects (just miscounted) — right when you
-      // were entering, say, one arm's weight the whole time regardless of
-      // the (wrong) label. But if you were instead following the OLD
-      // label's convention — entering the combined total while marked
-      // combined, or one arm's number while marked per-arm — the number
-      // itself is now wrong for the new mode too, and needs converting:
-      // per-arm's number was half the total, so flipping combined->per_arm
-      // means every logged number needs to be halved (and the reverse).
-      const factor = newWeightMode === 'per_arm' ? 0.5 : 2;
-      recomputedSets = db
-        .prepare('UPDATE sets SET weight = weight * ?, load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
-        .run(factor, multiplier, id, req.profileId).changes;
-    } else {
-      recomputedSets = db
-        .prepare('UPDATE sets SET load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
-        .run(multiplier, id, req.profileId).changes;
-    }
+  const wantsRewrite = !!(req.body.recompute_past_sets && weightModeRequested);
+  const willRewriteSets = wantsRewrite && modeActuallyChanged;
+  // Reported back so a caller whose cached mode was stale can say "already set
+  // to X, past sets weren't touched" rather than showing a success toast for a
+  // rewrite that never happened.
+  const modeUnchanged = wantsRewrite && !modeActuallyChanged;
+
+  let recomputedSets = 0;
+  try {
+    // ONE transaction covering both writes. Previously the exercises UPDATE
+    // and the sets UPDATE were separate autocommits, so a failure between them
+    // left the label saying per-arm over unconverted numbers — a state the
+    // modeActuallyChanged guard then permanently refused to retry, with no way
+    // out of the UI. recomputePrsForExercise wraps its own non-reentrant tx(),
+    // so it must run AFTER this commits (same pattern db.js uses for
+    // mergeExercises).
+    tx(() => {
+      db.prepare(`UPDATE exercises SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      if (!willRewriteSets) return;
+      const multiplier = newWeightMode === 'per_arm' ? 2 : 1;
+      if (req.body.convert_stored_weight) {
+        // The plain recompute assumes the NUMBER you typed already meant what
+        // the new mode expects (just miscounted) — right when you were
+        // entering, say, one arm's weight the whole time regardless of the
+        // (wrong) label. But if you were instead following the OLD label's
+        // convention — entering the combined total while marked combined, or
+        // one arm's number while marked per-arm — the number itself is now
+        // wrong for the new mode too: per-arm's number was half the total, so
+        // flipping combined->per_arm halves every logged number (and reverse).
+        const factor = newWeightMode === 'per_arm' ? 0.5 : 2;
+        recomputedSets = db
+          .prepare('UPDATE sets SET weight = weight * ?, load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
+          .run(factor, multiplier, id, req.profileId).changes;
+      } else {
+        recomputedSets = db
+          .prepare('UPDATE sets SET load_multiplier = ? WHERE exercise_id = ? AND profile_id = ?')
+          .run(multiplier, id, req.profileId).changes;
+      }
+    });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) return res.status(409).json({ error: 'exercise name already exists' });
+    throw err;
+  }
+
+  if (recomputedSets) {
     // personal_records caches raw weights AND is ranked by effective load, so
     // rewriting either the weights or the multipliers invalidates it. Without
     // this, converting left the PR list quoting numbers no set has any more
     // while History's trophy (driven by personal_records.set_id) still pointed
     // at the right — differently-labelled — set.
-    if (recomputedSets) recomputePrsForExercise(req.profileId, id);
+    recomputePrsForExercise(req.profileId, id);
+    // weight_mode is global on a shared exercise, and any OTHER profile's sets
+    // carrying a NULL load_multiplier resolve through the exercise's CURRENT
+    // mode (db.js's COALESCE fallback). Flipping it silently re-values their
+    // history, so their cached PRs need rebuilding too even though their sets
+    // were deliberately left alone. New NULLs are no longer created (see
+    // routes/import.js), but restored pre-column backups can still hold them.
+    const others = db
+      .prepare(
+        `SELECT DISTINCT profile_id FROM sets
+         WHERE exercise_id = ? AND profile_id != ? AND load_multiplier IS NULL`
+      )
+      .all(id, req.profileId);
+    for (const { profile_id } of others) recomputePrsForExercise(profile_id, id);
   }
-
-  res.json({ ...shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)), recomputed_sets: recomputedSets });
+  res.json({
+    ...shapeExercise(db.prepare(`SELECT ${SELECT_COLS} FROM exercises WHERE id = ?`).get(id)),
+    recomputed_sets: recomputedSets,
+    weight_mode_unchanged: modeUnchanged
+  });
 });
 
 // Merge this exercise (:id, the one being removed) INTO target_id (the keeper).

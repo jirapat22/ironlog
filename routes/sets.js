@@ -42,9 +42,14 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, load
   // more reps at the same assistance), not more raw kg.
   const sign = ex?.is_assisted ? -1 : 1;
   const newE1RM = sign * newEffectiveKg * (1 + reps / 30);
-  // Zero load (unweighted bodyweight, or fully-unassisted) is the hardest
-  // variant either way — compare by reps directly rather than through e1RM.
-  const isZeroLoad = !!ex?.is_bodyweight && newKg === 0;
+  // Fully-unassisted (0 assistance) IS the hardest variant, so comparing by
+  // reps is right there. But for a WEIGHTED bodyweight exercise (pull-up plus
+  // a belt) 0 added weight is the LIGHTEST variant — and this branch only
+  // compares against records at weight = 0, so every rep count never done
+  // bodyweight-only reported a "New PR!" for a strictly worse set. The banner
+  // lied while History's trophy (keyed on set_id) correctly disagreed on the
+  // same screen.
+  const isZeroLoad = !!ex?.is_bodyweight && !!ex?.is_assisted && newKg === 0;
 
   let beatPreviousBest = false;
   if (isZeroLoad) {
