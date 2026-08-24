@@ -721,13 +721,18 @@ async function confirmWeightModeFix(exerciseName, newMode) {
   });
   if (!fixPast) return { recompute: false, convert: false };
 
-  const keepAsTyped = await confirmSheet({
+  // The destructive branch is the CONFIRM, never the cancel. confirmSheet wires
+  // its header back-arrow to the same handler as cancelText, so having "convert
+  // it" on cancel meant the universal back-out affordance silently halved or
+  // doubled every logged weight for the exercise. danger:true styles it too.
+  const convert = await confirmSheet({
     title: 'One more thing',
-    message: `For those past sets, does the number you typed already mean what you want going forward — or were you actually entering ${newMode === 'per_arm' ? 'the combined total (both sides added up)' : "just one side's weight"} the whole time? If so, the number itself needs converting, not just how it's counted.`,
-    confirmText: 'It already means what I want',
-    cancelText: newMode === 'per_arm' ? 'I was entering the total — convert it' : "I was entering one side's weight — convert it"
+    message: `For those past sets, were you actually entering ${newMode === 'per_arm' ? 'the combined total (both sides added up)' : "just one side's weight"} the whole time? Then the number itself needs converting, not just how it's counted — every past entry gets ${newMode === 'per_arm' ? 'halved' : 'doubled'}. This can't be undone.`,
+    confirmText: newMode === 'per_arm' ? 'Yes — halve my past entries' : 'Yes — double my past entries',
+    cancelText: 'No, the numbers are already right',
+    danger: true
   });
-  return { recompute: true, convert: !keepAsTyped };
+  return { recompute: true, convert };
 }
 
 // Small read-only info sheet — tap/detail popup for a status badge (PR,

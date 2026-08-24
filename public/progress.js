@@ -1068,7 +1068,7 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
           ${prRows.length ? `<div class="form-label" style="margin-top:14px">Personal records</div>
             <div id="pr-list">${renderPrRows(prExpanded)}</div>` : ''}
           <div class="form-label" style="margin-top:14px">Recent sets <span style="color:var(--text-dim);font-weight:400">· tap to fix in History</span></div>
-          ${exercise?.weight_mode === 'per_arm' ? `<div class="card__subtitle" style="margin:-2px 0 6px">Logged per arm/side — the 1RM counts both sides, so it reads about double the weight shown.</div>` : ''}
+          ${exercise?.weight_mode === 'per_arm' && !exercise?.is_bodyweight ? `<div class="card__subtitle" style="margin:-2px 0 6px">Logged per arm/side — the 1RM counts both sides, so it reads about double the weight shown.</div>` : ''}
           ${recentSets.length ? recentSets.map((s) => {
             const rm = calcE1RM(s, exercise, bwKg);
             return `
@@ -1131,6 +1131,7 @@ async function renderPrTimeline() {
         events.push({
           exerciseName: g.exercise_name, muscleGroup: g.muscle_group,
           weight: r.weight, weight_unit: r.weight_unit, reps: r.reps, achievedAt: r.achieved_at,
+          load_multiplier: r.load_multiplier,
           isBodyweight: !!ex?.is_bodyweight, isAssisted: !!ex?.is_assisted,
           e1rm: calcE1RM(r, ex, bwKg)
         });
@@ -1237,10 +1238,20 @@ function computeMacros(goalKcal, weightKg, goal) {
   const proteinKcal = proteinG * 4, fatKcal = fatG * 9;
   const carbKcal = Math.max(0, goalKcal - proteinKcal - fatKcal);
   const carbG = Math.round(carbKcal / 4);
+  // Guarded divisor: a 0 goal rendered "Infinity%" and style="width:NaN%".
+  const pct = (kcal) => (goalKcal > 0 ? Math.round((kcal / goalKcal) * 100) : 0);
+  // Protein is a fixed g/kg target, so on an aggressive cut it can exceed the
+  // whole goal on its own (past ~103kg at the 1200 floor) and the true
+  // percentages then sum well over 100. The NUMBERS stay honest — that
+  // overshoot is real and worth seeing — but the bar is a fixed-width
+  // container, so its segments get normalised to fit instead of overflowing.
+  const raw = { protein: pct(proteinKcal), fat: pct(fatKcal), carbs: pct(carbKcal) };
+  const total = raw.protein + raw.fat + raw.carbs;
+  const scale = total > 100 ? 100 / total : 1;
   return {
-    protein: { g: proteinG, kcal: proteinKcal, pct: Math.round((proteinKcal / goalKcal) * 100) },
-    fat: { g: fatG, kcal: fatKcal, pct: Math.round((fatKcal / goalKcal) * 100) },
-    carbs: { g: carbG, kcal: carbKcal, pct: Math.round((carbKcal / goalKcal) * 100) },
+    protein: { g: proteinG, kcal: proteinKcal, pct: raw.protein, barPct: Math.round(raw.protein * scale) },
+    fat: { g: fatG, kcal: fatKcal, pct: raw.fat, barPct: Math.round(raw.fat * scale) },
+    carbs: { g: carbG, kcal: carbKcal, pct: raw.carbs, barPct: Math.round(raw.carbs * scale) },
     proteinPerKg
   };
 }
@@ -1250,6 +1261,12 @@ const GOAL_LABELS = { cut: 'Cut', maintain: 'Maintain', bulk: 'Bulk' };
 // maintenance") is falsy and would snap back to 500/300 — save a 0, reopen the
 // profile sheet, and it read 500 again. Only missing/unparseable gets default.
 function readKcalOffset(raw, fallback) {
+  // Missing must come FIRST. getSetting() returns null for an absent row and
+  // Number(null) is 0 — which is finite, so a bare isFinite check handed back
+  // a 0 kcal offset for every user who had never saved the Profile sheet,
+  // silently telling Plated a cutting user should eat at maintenance. Only a
+  // real stored value reaches the numeric path; '0' still means 0.
+  if (raw === null || raw === undefined || raw === '') return fallback;
   const n = Math.abs(Number(raw));
   return Number.isFinite(n) ? Math.min(n, 2000) : fallback;
 }
@@ -1259,7 +1276,9 @@ function readKcalOffset(raw, fallback) {
 // adjustable (0-2000) a small TDEE plus a big deficit went NEGATIVE, taking fat
 // grams and the macro percentages with it. Never below 1200, never above TDEE.
 function floorGoalKcal(goalKcal, tdee) {
-  return Math.max(Math.min(1200, tdee), goalKcal);
+  // Math.max(0, ...) so a nonsensical TDEE can't make the floor itself
+  // negative and pass a negative goal straight through.
+  return Math.max(Math.max(0, Math.min(1200, tdee)), goalKcal);
 }
 
 async function renderTdeeSection() {
@@ -1286,7 +1305,10 @@ async function renderTdeeSection() {
       <button class="btn btn--primary btn--block" data-edit-profile style="margin-top:6px">Set up profile</button>`;
     return;
   }
-  const weightKg = toKg(bw[0].weight, bw[0].weight_unit);
+  // Rounded to 2dp to match routes/plated.js, which reports bodyweight_kg that
+  // way and feeds the same rounded value into BMR — without this an lbs user
+  // saw different protein/carb grams in the app than Plated received.
+  const weightKg = +toKg(bw[0].weight, bw[0].weight_unit).toFixed(2);
   const bmr = Math.round(calcBmrMifflin(weightKg, heightCm, age, sex));
   const multiplier = ACTIVITY_MULTIPLIERS[activity] || 1.55;
   const tdee = Math.round(bmr * multiplier);
@@ -1325,7 +1347,12 @@ async function renderTdeeSection() {
   const goalTile = (key) => {
     const kcal = floorGoalKcal(tdee + GOAL_OFFSETS[key], tdee);
     const offset = GOAL_OFFSETS[key];
-    const offsetStr = offset === 0 ? '±0' : (offset > 0 ? '+' : '') + offset;
+    // Show the EFFECTIVE delta. When the floor clamps a big cut, the raw
+    // offset is a lie about the number right above it — a tile reading 1,200
+    // captioned "-2000" off a 1,367 TDEE, or two tiles showing the same kcal
+    // with different deltas.
+    const effective = kcal - tdee;
+    const offsetStr = effective === 0 ? '±0' : (effective > 0 ? '+' : '') + effective;
     return `<button class="tdee-goal tdee-goal--${key} ${goal === key ? 'tdee-goal--active' : ''}" data-goal="${key}"><div class="tdee-goal__label">${GOAL_LABELS[key]}</div><div class="tdee-goal__val">${kcal.toLocaleString()}</div><div class="tdee-goal__delta">${offsetStr}</div></button>`;
   };
   root.innerHTML = `
@@ -1336,7 +1363,7 @@ async function renderTdeeSection() {
     <div class="macros">
       <div class="macros__title">Daily macros</div>
       <div class="macro-row macro-row--protein"><span class="macro-row__name">Protein</span><span class="macro-row__g">${macros.protein.g} g</span><span class="macro-row__kcal">${macros.protein.kcal} kcal</span><span class="macro-row__pct">${macros.protein.pct}%</span></div>
-      <div class="macro-bar"><div class="macro-bar__fill macro-bar__fill--protein" style="width:${macros.protein.pct}%"></div><div class="macro-bar__fill macro-bar__fill--carbs" style="width:${macros.carbs.pct}%"></div><div class="macro-bar__fill macro-bar__fill--fat" style="width:${macros.fat.pct}%"></div></div>
+      <div class="macro-bar"><div class="macro-bar__fill macro-bar__fill--protein" style="width:${macros.protein.barPct}%"></div><div class="macro-bar__fill macro-bar__fill--carbs" style="width:${macros.carbs.barPct}%"></div><div class="macro-bar__fill macro-bar__fill--fat" style="width:${macros.fat.barPct}%"></div></div>
       <div class="macro-row macro-row--carbs"><span class="macro-row__name">Carbs</span><span class="macro-row__g">${macros.carbs.g} g</span><span class="macro-row__kcal">${macros.carbs.kcal} kcal</span><span class="macro-row__pct">${macros.carbs.pct}%</span></div>
       <div class="macro-row macro-row--fat"><span class="macro-row__name">Fat</span><span class="macro-row__g">${macros.fat.g} g</span><span class="macro-row__kcal">${macros.fat.kcal} kcal</span><span class="macro-row__pct">${macros.fat.pct}%</span></div>
     </div>
@@ -1397,7 +1424,11 @@ async function openProfileSheet() {
       const cut = sheet.querySelector('#prof-cut').value.trim();
       const bulk = sheet.querySelector('#prof-bulk').value.trim();
       const heightNum = Number(h), ageNum = Number(a);
-      const cutNum = Number(cut), bulkNum = Number(bulk);
+      // Empty means "restore the default", not 0 — now that 0 is a legitimate
+      // stored value ("cut at maintenance"), a blank box would otherwise save
+      // a real zero. The server rejects '' for these keys outright.
+      const cutNum = cut === '' ? 500 : Number(cut);
+      const bulkNum = bulk === '' ? 300 : Number(bulk);
       if (!heightNum || heightNum < 100 || heightNum > 250) return toast('Enter a valid height (100–250 cm)');
       if (!ageNum || ageNum < 13 || ageNum > 100) return toast('Enter a valid age (13–100)');
       if (!Number.isFinite(cutNum) || cutNum < 0 || cutNum > 2000) return toast('Enter a valid cut deficit (0–2000 kcal)');

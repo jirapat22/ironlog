@@ -33,6 +33,11 @@ let wakeLockSentinel = null;
 
 async function acquireWakeLock() {
   if (!('wakeLock' in navigator)) return;
+  // Already holding one: renderWorkout() can now run mid-workout (a
+  // weight-mode fix re-renders), and overwriting the sentinel orphaned the
+  // previous one — releaseWakeLock only ever released the newest, so the
+  // screen stayed awake past the end of the workout.
+  if (wakeLockSentinel) return;
   try {
     wakeLockSentinel = await navigator.wakeLock.request('screen');
     wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
@@ -1155,7 +1160,12 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   // e1RM badge on logged working sets (not warmups, reps must be > 0)
   let e1rmBadge = '';
   if (logged && !isWarmup && logged.reps > 0) {
-    const load = loadKg({ weight: logged.weight, weight_unit: logged.weight_unit }, ex);
+    // Pass the whole row, not {weight, weight_unit}: stripping the fields drops
+    // load_multiplier, so effectiveLoadKg falls back to the exercise's CURRENT
+    // weight_mode — the exact source of truth the per-set snapshot exists to
+    // avoid. After a "just going forward" flip that made already-logged sets
+    // render doubled here while History (which passes the full row) did not.
+    const load = loadKg(logged, ex);
     if (load > 0) e1rmBadge = `<span class="set-row__hint">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
   }
   const perArmBadge = (logged?.reps_r != null && logged?.reps_l != null && logged.reps_r !== logged.reps_l)
@@ -1252,7 +1262,12 @@ function reconcileSetRowBadges(row, logged) {
 
   let e1rmBadge = '';
   if (!isWarmup && logged.reps > 0) {
-    const load = loadKg({ weight: logged.weight, weight_unit: logged.weight_unit }, ex);
+    // Pass the whole row, not {weight, weight_unit}: stripping the fields drops
+    // load_multiplier, so effectiveLoadKg falls back to the exercise's CURRENT
+    // weight_mode — the exact source of truth the per-set snapshot exists to
+    // avoid. After a "just going forward" flip that made already-logged sets
+    // render doubled here while History (which passes the full row) did not.
+    const load = loadKg(logged, ex);
     if (load > 0) e1rmBadge = `<span class="set-row__hint">~${Math.round(e1RM(load, logged.reps))} kg 1RM</span>`;
   }
   const perArmBadge = (logged.reps_r != null && logged.reps_l != null && logged.reps_r !== logged.reps_l)
@@ -1334,16 +1349,23 @@ function wireWorkoutView() {
         const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: recomputePastSets, convert_stored_weight: convertStoredWeight });
         ex.weight_mode = next;
         persistExerciseList();
-        // convert_stored_weight rewrites sets.weight server-side, so every
-        // number cached in workoutState.loggedSets is now wrong — re-render
-        // from a fresh fetch rather than from stale local state. A plain
-        // multiplier change leaves the weights alone, so that keeps the
-        // cheap in-place re-render.
-        if (convertStoredWeight && updated.recomputed_sets) await renderWorkout();
+        // Any touched set invalidates the cache, not just a converted one: a
+        // plain recompute rewrites load_multiplier, and the e1RM badges read
+        // that per-set snapshot. Gating on convertStoredWeight left the badges
+        // quoting the pre-flip multiplier until something else refetched.
+        if (updated.recomputed_sets) await renderWorkout();
         else renderWorkoutView();
         const modeMsg = next === 'combined'
           ? 'Weight = the full load (counted as-is)'
           : 'Weight = one arm/side (doubled for volume)';
+        // The server refuses a rewrite when the mode was already what we
+        // asked for (a stale cached copy re-sending it). Saying nothing made
+        // that indistinguishable from success, right after the user agreed
+        // to two sheets' worth of irreversible bulk edit.
+        if (updated.weight_mode_unchanged) {
+          toast(`Already set to ${next === 'per_arm' ? 'per arm/side' : 'total'} — past sets weren't changed`);
+          return;
+        }
         toast(updated.recomputed_sets
           ? `${modeMsg} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
           : modeMsg);
@@ -1816,6 +1838,8 @@ async function confirmSet(row) {
       if (!partnerOwesThisSet) startRestCountdown(ex?.rest_seconds ?? undefined);
       // Append e1RM hint to the newly-done row
       if (!isWarmup && reps > 0) {
+        // Synthetic object is right here: this set was logged moments ago under
+        // ex.weight_mode, so the fallback resolves to its real snapshot.
         const load = loadKg({ weight, weight_unit: unit }, ex);
         if (load > 0) {
           const badge = document.createElement('span');

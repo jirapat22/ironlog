@@ -145,12 +145,21 @@ async function renderHistory() {
           const updated = await API.updateExercise(exId, { weight_mode: next, recompute_past_sets: fix.recompute, convert_stored_weight: fix.convert });
           wmBtn.textContent = next === 'per_arm' ? 'per arm/side ×2' : 'total';
           wmBtn.classList.toggle('badge--weightmode-off', next !== 'per_arm');
-          // A conversion halves/doubles every stored weight for this exercise,
-          // so the set rows on screen are quoting numbers that no longer exist
-          // - reload this card's body instead of only relabelling the badge.
-          if (fix.convert && updated.recomputed_sets) {
-            const card = wmBtn.closest('.history-card');
-            if (card) await loadHistoryCardBody(card, { showSkeleton: false });
+          // Any touched set invalidates what's on screen, not just a converted
+          // one: a plain recompute rewrites load_multiplier, which drives the
+          // per-set 1RM hint, the card's volume total, and the trend badges.
+          // And the UPDATE is scoped to the exercise, not one workout, so every
+          // OTHER expanded card holding this exercise is stale too - a full
+          // re-render is the honest blast radius here (it costs the expanded
+          // state, which is the right trade after an explicit bulk edit).
+          if (updated.recomputed_sets) { await renderHistory(); return; }
+          // The server refuses a rewrite when the mode was already what we
+          // asked for (a stale cached copy re-sending it). Saying nothing made
+          // that indistinguishable from success, right after the user agreed
+          // to two sheets' worth of irreversible bulk edit.
+          if (updated.weight_mode_unchanged) {
+            toast(`Already set to ${next === 'per_arm' ? 'per arm/side' : 'total'} — past sets weren't changed`);
+            return;
           }
           toast(updated.recomputed_sets
             ? `${next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
