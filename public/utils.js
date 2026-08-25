@@ -735,6 +735,56 @@ async function confirmWeightModeFix(exerciseName, newMode) {
   return { recompute: true, convert };
 }
 
+// Day chooser for logging (or re-dating) a session that happened earlier.
+// Offers only the window the server accepts: today, yesterday, 2 days ago.
+//
+// Resolves to a 'YYYY-MM-DD HH:MM:SS' UTC string carrying the CURRENT local
+// time-of-day on the chosen LOCAL date. Two reasons it isn't local midnight:
+// midnight is the value most likely to tip onto the neighbouring day once
+// converted to UTC, and a session stamped mid-afternoon reads sensibly in
+// History next to real ones. Resolves null if dismissed.
+function pickRecentDay({ title = 'Which day?', message = '', maxDaysBack = 2 } = {}) {
+  return new Promise((resolve) => {
+    const sheet = ensureSheet('day-picker-sheet');
+    const now = new Date();
+    const days = [];
+    for (let back = 0; back <= maxDaysBack; back++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - back);
+      days.push({
+        back,
+        label: back === 0 ? 'Today' : back === 1 ? 'Yesterday' : `${back} days ago`,
+        sub: d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }),
+        // toISOString is UTC, which is the frame every timestamp is stored in.
+        value: new Date(d.getTime()).toISOString().slice(0, 19).replace('T', ' ')
+      });
+    }
+    sheet.innerHTML = `
+      <div class="sheet__inner">
+        <div class="sheet__head">
+          <button class="btn--icon" data-day-cancel aria-label="Cancel">&larr;</button>
+          <div class="sheet__title">${escapeHtml(title)}</div>
+          <span style="width:32px"></span>
+        </div>
+        <div class="sheet__body">
+          ${message ? `<p style="color:var(--text-dim);margin:0 0 16px">${escapeHtml(message)}</p>` : ''}
+          ${days.map((d) => `<button class="btn btn--block" data-day-pick="${d.value}" style="margin-bottom:8px;text-align:left">
+              <strong>${d.label}</strong><span style="color:var(--text-dim);font-weight:400"> &middot; ${escapeHtml(d.sub)}</span>
+            </button>`).join('')}
+          <button class="btn btn--ghost btn--block" data-day-cancel style="margin-top:8px">Cancel</button>
+        </div>
+      </div>`;
+    let settled = false;
+    const finish = (val) => { if (settled) return; settled = true; hideSheet(sheet); resolve(val); };
+    sheet.onclick = (e) => {
+      const pick = e.target.closest('[data-day-pick]');
+      if (pick) return finish(pick.dataset.dayPick);
+      if (e.target.closest('[data-day-cancel]')) return finish(null);
+    };
+    showSheet(sheet);
+  });
+}
+
 // Small read-only info sheet — tap/detail popup for a status badge (PR,
 // Plateau, Decline, Going up, First time). No confirm/cancel, just a title,
 // a message, and a close button.
@@ -1593,7 +1643,7 @@ export {
   formatDateShort, daysAgo, humanAgo, fmtDuration,
   stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
-  showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail,
+  showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay,
   enableDragReorder,
   PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,

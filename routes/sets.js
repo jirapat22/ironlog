@@ -94,17 +94,23 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, load
     .get(fallbackMultiplier, profileId, exerciseId, reps);
   if (!existing) {
     db.prepare(
+      // achieved_at comes from the SET, not the clock: a session logged for
+      // yesterday would otherwise date its PRs today. Also makes this agree
+      // with recomputePrsForExercise, which has always used logged_at — so a
+      // later rebuild no longer silently moves every PR date.
       `INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at, set_id)
-       VALUES (?, ?, ?, ?, ?, datetime('now'), ?)`
-    ).run(profileId, exerciseId, weight, unit, reps, setId ?? null);
+       VALUES (?, ?, ?, ?, ?, COALESCE((SELECT logged_at FROM sets WHERE id = ?), datetime('now')), ?)`
+    ).run(profileId, exerciseId, weight, unit, reps, setId ?? null, setId ?? null);
   } else {
     const existingEffectiveKg = toKg(existing.weight, existing.weight_unit) * existing.eff_multiplier;
     if (sign * newEffectiveKg > sign * existingEffectiveKg) {
       db.prepare(
         `UPDATE personal_records
-         SET weight = ?, weight_unit = ?, achieved_at = datetime('now'), set_id = ?
+         SET weight = ?, weight_unit = ?,
+             achieved_at = COALESCE((SELECT logged_at FROM sets WHERE id = ?), datetime('now')),
+             set_id = ?
          WHERE id = ?`
-      ).run(weight, unit, setId ?? null, existing.id);
+      ).run(weight, unit, setId ?? null, setId ?? null, existing.id);
     }
     // A tie (sign*newKg == sign*existingKg) deliberately leaves set_id
     // untouched — the ORIGINAL set stays the record holder, this one is
@@ -170,9 +176,26 @@ router.post('/', (req, res) => {
   // started_at are needed below by computeImprovedFlags — selected here so
   // it doesn't have to re-fetch a row this handler already has.
   const workout = db
-    .prepare('SELECT id, bw_kg, started_at FROM workouts WHERE id = ? AND profile_id = ?')
+    .prepare('SELECT id, bw_kg, started_at, is_backdated FROM workouts WHERE id = ? AND profile_id = ?')
     .get(workout_id, req.profileId);
   if (!workout) return res.status(404).json({ error: 'workout not found' });
+
+  // logged_at drives every "which day did I train" question there is — weekly
+  // volume buckets, muscle coverage, the overload chart's per-session points,
+  // PR tie-breaks. Left at datetime('now'), a session logged for yesterday
+  // would file all its sets under today and the backdating would be cosmetic.
+  // Sets are spaced a minute apart from the session's start so ordering stays
+  // deterministic and the finish heuristic (last set + 10 min) still derives
+  // a believable duration instead of a two-day one.
+  let loggedAt = null;
+  if (workout.is_backdated) {
+    const priorSets = db
+      .prepare('SELECT COUNT(*) AS n FROM sets WHERE workout_id = ?')
+      .get(workout_id).n;
+    loggedAt = db
+      .prepare("SELECT datetime(?, ?) AS t")
+      .get(workout.started_at, `+${priorSets} minutes`).t;
+  }
 
   // Validate that the exercise exists (prevents dangling foreign keys and
   // phantom PR records from attacker-supplied exercise IDs).
@@ -185,10 +208,10 @@ router.post('/', (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, reps_r, reps_l, rpe, rir, notes, is_warmup, load_multiplier)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, reps_r, reps_l, rpe, rir, notes, is_warmup, load_multiplier, logged_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`
     )
-    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, sides.repsR, sides.repsL, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier);
+    .run(req.profileId, workout_id, exercise_id, nSetNumber, nWeight, weight_unit, nReps, sides.repsR, sides.repsL, nRpe, nRir, notes, is_warmup ? 1 : 0, loadMultiplier, loggedAt);
 
   // Skip PR check for warmup sets — they don't count toward personal bests
   const isNewPR = is_warmup ? false : checkAndUpdatePR(req.profileId, exercise_id, nWeight, weight_unit, nReps, info.lastInsertRowid, loadMultiplier);

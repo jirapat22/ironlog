@@ -77,6 +77,34 @@ router.post('/activity', (req, res) => {
 // "54h 8min" session that has nothing to do with actual training time.
 // Doing it here, at the moment a new workout starts, keeps the closed-out
 // duration meaningful regardless of when the user gets around to it.
+// How far back a session may be dated. The picker offers today / yesterday /
+// 2 days ago; this bound is deliberately looser because the client sends a UTC
+// instant derived from ITS local calendar day — "2 days ago" at UTC+13 lands
+// further back in UTC than the same choice at UTC-11. The 2-day product rule
+// lives in the picker; this is the sanity bound behind it.
+const MAX_BACKDATE_MS = 3 * 24 * 60 * 60 * 1000;
+
+// Accepts 'YYYY-MM-DD HH:MM:SS' (or the same with a T), interpreted as UTC —
+// the format every other timestamp in this schema uses. Returns
+// { ok, value, error }; value is null when no date was supplied at all.
+// PATCH /:id previously wrote req.body.started_at straight into the column
+// with no checking, so a malformed string broke every downstream date parse.
+function parseWorkoutDate(raw) {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, value: null };
+  if (typeof raw !== 'string') return { ok: false, error: 'started_at must be a string' };
+  const s = raw.trim().replace('T', ' ');
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$/.test(s)) {
+    return { ok: false, error: 'started_at must be YYYY-MM-DD HH:MM:SS' };
+  }
+  const ms = Date.parse(s.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(ms)) return { ok: false, error: 'started_at is not a real date' };
+  const now = Date.now();
+  // A minute of slack absorbs clock skew between phone and server.
+  if (ms > now + 60000) return { ok: false, error: 'a workout cannot be dated in the future' };
+  if (ms < now - MAX_BACKDATE_MS) return { ok: false, error: 'a workout can only be backdated up to 2 days' };
+  return { ok: true, value: s, ms };
+}
+
 function closeStaleWorkouts(profileId) {
   const stale = db.prepare(
     `SELECT w.id, MAX(s.logged_at) as last_set, COUNT(s.id) as n
@@ -96,7 +124,9 @@ function closeStaleWorkouts(profileId) {
 }
 
 router.post('/', (req, res) => {
-  const { program_day_id } = req.body || {};
+  const { program_day_id, started_at } = req.body || {};
+  const dated = parseWorkoutDate(started_at);
+  if (!dated.ok) return res.status(400).json({ error: dated.error });
   if (program_day_id) {
     const day = db.prepare(
       `SELECT pd.id FROM program_days pd JOIN programs p ON p.id = pd.program_id
@@ -105,9 +135,16 @@ router.post('/', (req, res) => {
     if (!day) return res.status(404).json({ error: 'program day not found' });
   }
   closeStaleWorkouts(req.profileId);
-  const info = db
-    .prepare('INSERT INTO workouts (program_day_id, profile_id) VALUES (?, ?)')
-    .run(program_day_id || null, req.profileId);
+  // is_backdated is set from the REQUEST, not inferred from the timestamp:
+  // POST /api/sets uses it to decide whether a set belongs to the session's
+  // day or to right now, and that can't be guessed after the fact.
+  const info = dated.value
+    ? db
+      .prepare('INSERT INTO workouts (program_day_id, profile_id, started_at, is_backdated) VALUES (?, ?, ?, 1)')
+      .run(program_day_id || null, req.profileId, dated.value)
+    : db
+      .prepare('INSERT INTO workouts (program_day_id, profile_id) VALUES (?, ?)')
+      .run(program_day_id || null, req.profileId);
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(row);
 });
@@ -288,6 +325,27 @@ router.patch('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!existing) return res.status(404).json({ error: 'workout not found' });
 
+  // Moving a workout to another day is not just a label change: its sets carry
+  // their own logged_at, and every "which day did I train" query reads THAT,
+  // not the workout row. Shift the whole session by the same delta so the sets
+  // travel with it — otherwise the card moves to yesterday while its volume,
+  // coverage and chart points stay on the original day.
+  let dateShiftSeconds = null;
+  let newIsBackdated = null;
+  if ('started_at' in (req.body || {}) && req.body.started_at !== existing.started_at) {
+    const dated = parseWorkoutDate(req.body.started_at);
+    if (!dated.ok) return res.status(400).json({ error: dated.error });
+    if (dated.value) {
+      const oldMs = Date.parse(existing.started_at.replace(' ', 'T') + 'Z');
+      if (!Number.isFinite(oldMs)) return res.status(400).json({ error: 'existing started_at is unparseable' });
+      dateShiftSeconds = Math.round((dated.ms - oldMs) / 1000);
+      // 12 hours is comfortably past "a same-day correction" and can't be
+      // reached by nudging a session's start time within its own day. Keeps
+      // sets ADDED later (History's add-set) landing on the session's day.
+      newIsBackdated = dated.ms < Date.now() - 12 * 60 * 60 * 1000 ? 1 : 0;
+    }
+  }
+
   const fields = ['notes', 'started_at', 'finished_at', 'feel_rating'];
   const updates = [];
   const values = [];
@@ -296,6 +354,10 @@ router.patch('/:id', (req, res) => {
       updates.push(`${f} = ?`);
       values.push(req.body[f]);
     }
+  }
+  if (newIsBackdated !== null) {
+    updates.push('is_backdated = ?');
+    values.push(newIsBackdated);
   }
   // Server-side snapshot of the workout's exercise list (see db.js migration).
   // Must be null or a JSON array; capped so a runaway client can't bloat rows.
@@ -316,7 +378,33 @@ router.patch('/:id', (req, res) => {
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
   values.push(id);
-  db.prepare(`UPDATE workouts SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+  // Captured before the shift — after it, these are the exercises whose PR
+  // tie-breaks may have changed.
+  const affected = dateShiftSeconds
+    ? db.prepare('SELECT DISTINCT exercise_id FROM sets WHERE workout_id = ?').all(id)
+    : [];
+
+  tx(() => {
+    db.prepare(`UPDATE workouts SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    if (dateShiftSeconds) {
+      const mod = `${dateShiftSeconds >= 0 ? '+' : ''}${dateShiftSeconds} seconds`;
+      db.prepare('UPDATE sets SET logged_at = datetime(logged_at, ?) WHERE workout_id = ?').run(mod, id);
+      // Carry the end of the session along too, so a moved workout keeps its
+      // duration instead of stretching to the day it was moved from. Skipped
+      // when the caller is setting finished_at itself in the same request.
+      if (!('finished_at' in (req.body || {})) && existing.finished_at) {
+        db.prepare('UPDATE workouts SET finished_at = datetime(finished_at, ?) WHERE id = ?').run(mod, id);
+      }
+    }
+  });
+
+  // PR ties resolve to the OLDEST occurrence ("the set that first hit this
+  // weight is the record holder"), so moving a session through time can hand
+  // a record to a different set. Recompute after the shift commits —
+  // recomputePrsForExercise wraps its own non-reentrant tx().
+  for (const { exercise_id } of affected) recomputePrsForExercise(req.profileId, exercise_id);
+
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   res.json(row);
 });
@@ -336,7 +424,7 @@ router.delete('/:id', (req, res) => {
 
 router.patch('/:id/finish', (req, res) => {
   const id = Number(req.params.id);
-  const w = db.prepare('SELECT started_at FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
+  const w = db.prepare('SELECT started_at, is_backdated FROM workouts WHERE id = ? AND profile_id = ?').get(id, req.profileId);
   if (!w) return res.status(404).json({ error: 'workout not found' });
 
   // Cap finish time at last activity + 10 minutes. Covers normal post-set
@@ -377,6 +465,17 @@ router.patch('/:id/finish', (req, res) => {
 
   db.prepare('UPDATE workouts SET finished_at = ?, bw_kg = ?, calories_burned = ? WHERE id = ?')
     .run(finishedAt, bwKg, caloriesBurned, id);
+
+  // A backdated session slots in BEHIND sets that were already logged, and PR
+  // ties resolve to the oldest occurrence — so yesterday's set can be the
+  // rightful holder of a record that today's set is currently credited with.
+  // checkAndUpdatePR only ever compares an incoming set against the standing
+  // record, so it can't see that; a rebuild can.
+  if (w.is_backdated) {
+    const exercises = db.prepare('SELECT DISTINCT exercise_id FROM sets WHERE workout_id = ?').all(id);
+    for (const { exercise_id } of exercises) recomputePrsForExercise(req.profileId, exercise_id);
+  }
+
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
   res.json(row);
 });

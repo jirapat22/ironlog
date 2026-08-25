@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, effectiveLoadKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, effectiveLoadKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -279,6 +279,27 @@ async function renderHistory() {
         return;
       }
 
+      // Logged on the wrong day. The server shifts the whole session — every
+      // set's logged_at travels with it, so volume, coverage and the charts
+      // move too rather than the card alone changing its label.
+      const moveDateBtn = e.target.closest('[data-move-date]');
+      if (moveDateBtn) {
+        e.stopPropagation();
+        const card = moveDateBtn.closest('.history-card');
+        const startedAt = await pickRecentDay({
+          title: 'Move this workout',
+          message: 'Which day did it actually happen? Its sets move with it.'
+        });
+        if (!startedAt) return;
+        try {
+          await API.setWorkoutDate(Number(card.dataset.id), startedAt);
+          haptic(20);
+          toast('Workout moved');
+          await renderHistory();
+        } catch (err) { toast(err.message); }
+        return;
+      }
+
       const delWorkoutBtn = e.target.closest('[data-delete-workout]');
       if (delWorkoutBtn) {
         e.stopPropagation();
@@ -497,6 +518,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
         <textarea class="input" data-history-notes rows="2" data-prev="${escapeHtml(notes)}" placeholder="How did it go?">${escapeHtml(notes)}</textarea>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn btn--ghost btn--sm" data-save-template-history style="flex:1">&#x1F4CB; Save as template</button>
+          <button class="btn btn--ghost btn--sm" data-move-date>&#x1F4C5; Move date</button>
           <button class="btn btn--ghost btn--sm" data-delete-workout style="color:var(--danger)">Delete</button>
         </div>
       </div>`;

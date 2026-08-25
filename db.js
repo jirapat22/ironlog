@@ -459,7 +459,14 @@ function migrateMultiUser() {
     ['rpe', 'INTEGER'],
     ['distance', 'REAL'],
     ['distance_unit', 'TEXT'],
-    ['muscle_tags', 'TEXT'] // JSON array of muscle groups it refreshed
+    ['muscle_tags', 'TEXT'], // JSON array of muscle groups it refreshed
+    // workouts.is_backdated: this session is being logged for an EARLIER day
+    // than the one it was entered on. Stored explicitly rather than inferred
+    // from started_at vs now — the same reason sets snapshot load_multiplier.
+    // Inference can't tell a session logged for yesterday apart from one
+    // legitimately resumed after a long break (/active adopts up to 16h),
+    // and the two need opposite handling for a set's logged_at.
+    ['is_backdated', 'INTEGER NOT NULL DEFAULT 0']
   ]) {
     if (!columnExists('workouts', col)) db.exec(`ALTER TABLE workouts ADD COLUMN ${col} ${type}`);
   }
@@ -1666,6 +1673,12 @@ function sweepStaleWorkouts() {
     `SELECT w.id, w.started_at, MAX(s.logged_at) AS last_set, COUNT(s.id) AS n
      FROM workouts w LEFT JOIN sets s ON s.workout_id = w.id
      WHERE w.finished_at IS NULL AND (w.kind IS NULL OR w.kind != 'activity')
+       -- A backdated session's timestamps are old ON PURPOSE, so this
+       -- heuristic reads it as abandoned and (with no sets yet) DELETES it.
+       -- Losing a half-entered past session to a deploy restart is silent
+       -- data loss. closeStaleWorkouts() still tidies these up the next time
+       -- any workout is created, which is the real cleanup path.
+       AND COALESCE(w.is_backdated, 0) = 0
      GROUP BY w.id
      HAVING COALESCE(MAX(s.logged_at), w.started_at) < datetime('now', '-24 hours')`
   ).all();
