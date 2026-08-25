@@ -153,9 +153,13 @@ router.post('/', (req, res) => {
     // --- 4. Workouts + sets. IDs are NOT preserved: a backup carries IDs from
     // a single global sequence, so reusing them could clobber another profile's
     // rows. We let SQLite assign fresh IDs and remap sets onto them.
+    // is_backdated rides along for the same reason logged_at and
+    // load_multiplier do: it decides where a set ADDED to this workout later
+    // lands. Dropped on restore, adding a set from History to a recovered
+    // past session would stamp it today instead of on the session's own day.
     const insWorkout = db.prepare(
-      `INSERT INTO workouts (profile_id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO workouts (profile_id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned, is_backdated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     // Resolve a concrete load_multiplier for every imported set. Storing NULL
     // left the row resolving through db.js's COALESCE fallback to the
@@ -190,7 +194,8 @@ router.post('/', (req, res) => {
           profileId, programDayId,
           w.started_at, w.finished_at ?? null,
           w.notes ?? null, w.feel_rating ?? null,
-          w.bw_kg ?? null, w.calories_burned ?? null
+          w.bw_kg ?? null, w.calories_burned ?? null,
+          w.is_backdated ? 1 : 0
         ).lastInsertRowid
       );
       importedWorkouts++;

@@ -438,7 +438,8 @@ async function renderWorkout(retriedAfterMissing = false) {
       if (pastBtn) {
         const startedAt = await pickRecentDay({
           title: 'Log a past session',
-          message: 'Which day was this workout? You can log sets into it exactly as you would a live one.'
+          message: 'Which day was this workout? You can log sets into it exactly as you would a live one.',
+          minDaysBack: 1
         });
         if (!startedAt) return;
         pastBtn.disabled = true; pastBtn.textContent = 'Starting…';

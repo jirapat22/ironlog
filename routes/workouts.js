@@ -77,6 +77,15 @@ router.post('/activity', (req, res) => {
 // "54h 8min" session that has nothing to do with actual training time.
 // Doing it here, at the moment a new workout starts, keeps the closed-out
 // duration meaningful regardless of when the user gets around to it.
+// A session counts as backdated only once it's this far back. Twelve hours is
+// comfortably past any same-day start yet well under the 24h that "yesterday"
+// always means, so picking today's date can't flip the flag. It matters:
+// is_backdated makes POST /api/sets stamp synthetic timestamps a minute
+// apart, which is right for a session being reconstructed from memory and
+// wrong for one being logged live (it would compress a real hour-long
+// workout into a 12-minute one).
+const BACKDATED_AFTER_MS = 12 * 60 * 60 * 1000;
+
 // How far back a session may be dated. The picker offers today / yesterday /
 // 2 days ago; this bound is deliberately looser because the client sends a UTC
 // instant derived from ITS local calendar day — "2 days ago" at UTC+13 lands
@@ -98,6 +107,13 @@ function parseWorkoutDate(raw) {
   }
   const ms = Date.parse(s.replace(' ', 'T') + 'Z');
   if (!Number.isFinite(ms)) return { ok: false, error: 'started_at is not a real date' };
+  // Date.parse SILENTLY ROLLS OVER an impossible calendar date rather than
+  // failing: '2026-02-30' comes back as 2 March, '2026-06-31' as 1 July. The
+  // regex above can't see that. Round-tripping catches it, so a caller gets
+  // told its date is wrong instead of quietly getting a different day.
+  if (new Date(ms).toISOString().slice(0, 19).replace('T', ' ') !== s) {
+    return { ok: false, error: 'started_at is not a real calendar date' };
+  }
   const now = Date.now();
   // A minute of slack absorbs clock skew between phone and server.
   if (ms > now + 60000) return { ok: false, error: 'a workout cannot be dated in the future' };
@@ -135,13 +151,15 @@ router.post('/', (req, res) => {
     if (!day) return res.status(404).json({ error: 'program day not found' });
   }
   closeStaleWorkouts(req.profileId);
-  // is_backdated is set from the REQUEST, not inferred from the timestamp:
-  // POST /api/sets uses it to decide whether a set belongs to the session's
-  // day or to right now, and that can't be guessed after the fact.
+  // Supplying a date is not the same as backdating: picking "today" in the
+  // past-session picker yields the current instant, and that session is being
+  // logged live like any other. Flagging it would have given its sets
+  // fabricated one-minute-apart timestamps.
+  const isBackdated = dated.value && dated.ms < Date.now() - BACKDATED_AFTER_MS ? 1 : 0;
   const info = dated.value
     ? db
-      .prepare('INSERT INTO workouts (program_day_id, profile_id, started_at, is_backdated) VALUES (?, ?, ?, 1)')
-      .run(program_day_id || null, req.profileId, dated.value)
+      .prepare('INSERT INTO workouts (program_day_id, profile_id, started_at, is_backdated) VALUES (?, ?, ?, ?)')
+      .run(program_day_id || null, req.profileId, dated.value, isBackdated)
     : db
       .prepare('INSERT INTO workouts (program_day_id, profile_id) VALUES (?, ?)')
       .run(program_day_id || null, req.profileId);
@@ -339,10 +357,10 @@ router.patch('/:id', (req, res) => {
       const oldMs = Date.parse(existing.started_at.replace(' ', 'T') + 'Z');
       if (!Number.isFinite(oldMs)) return res.status(400).json({ error: 'existing started_at is unparseable' });
       dateShiftSeconds = Math.round((dated.ms - oldMs) / 1000);
-      // 12 hours is comfortably past "a same-day correction" and can't be
-      // reached by nudging a session's start time within its own day. Keeps
+      // Same threshold as create: moving a session back to today makes it a
+      // live one again, so sets added afterwards get real timestamps. Keeps
       // sets ADDED later (History's add-set) landing on the session's day.
-      newIsBackdated = dated.ms < Date.now() - 12 * 60 * 60 * 1000 ? 1 : 0;
+      newIsBackdated = dated.ms < Date.now() - BACKDATED_AFTER_MS ? 1 : 0;
     }
   }
 

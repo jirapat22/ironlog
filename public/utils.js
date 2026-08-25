@@ -743,12 +743,16 @@ async function confirmWeightModeFix(exerciseName, newMode) {
 // midnight is the value most likely to tip onto the neighbouring day once
 // converted to UTC, and a session stamped mid-afternoon reads sensibly in
 // History next to real ones. Resolves null if dismissed.
-function pickRecentDay({ title = 'Which day?', message = '', maxDaysBack = 2 } = {}) {
+// minDaysBack skips "Today" for the log-a-past-session flow, where it offers
+// nothing a plain Quick workout doesn't already do and reads as if it would
+// reconstruct this morning. Moving a mis-dated workout back TO today is a
+// real thing to want, so that caller keeps it.
+function pickRecentDay({ title = 'Which day?', message = '', minDaysBack = 0, maxDaysBack = 2 } = {}) {
   return new Promise((resolve) => {
     const sheet = ensureSheet('day-picker-sheet');
     const now = new Date();
     const days = [];
-    for (let back = 0; back <= maxDaysBack; back++) {
+    for (let back = minDaysBack; back <= maxDaysBack; back++) {
       const d = new Date(now);
       d.setDate(d.getDate() - back);
       days.push({
