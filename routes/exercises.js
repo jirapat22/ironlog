@@ -81,6 +81,20 @@ function checkAdminCode(providedCode) {
   return String(providedCode ?? '') === (process.env.ADMIN_CODE || FALLBACK_ADMIN_CODE);
 }
 
+// May this request rewrite a SHARED exercise (one no profile owns, so the edit
+// lands in every profile's catalog, charts and coverage)?
+//
+// The owner of the install always may. Before, everyone went through the admin
+// code — and with ADMIN_CODE unset that code is regenerated on every boot and
+// printed only to the server log, so in practice the owner of a Railway deploy
+// could not edit their own catalog without reading deploy logs. The code
+// remains the path for every OTHER profile, where a deliberate speed bump on
+// "change this for everyone" is the point.
+function canEditSharedCatalog(req) {
+  return !!req.profile?.is_owner || checkAdminCode(req.body?.admin_code);
+}
+
+
 router.get('/', (req, res) => {
   const rows = db
     .prepare(`SELECT ${SELECT_COLS} FROM exercises ORDER BY muscle_group, name`)
@@ -186,7 +200,7 @@ router.patch('/:id', (req, res) => {
     // (e.g. bar_weight_kg, explicitly NOT meant to be gated), so presence-only
     // gating forced the admin code on every save of a shared exercise, even
     // when nothing about its classification was actually changing.
-    if (classificationChanged && existing.created_by_profile_id == null && !checkAdminCode(req.body.admin_code)) {
+    if (classificationChanged && existing.created_by_profile_id == null && !canEditSharedCatalog(req)) {
       return res.status(403).json({ error: 'admin code required to reclassify a shared exercise' });
     }
     updates.push('classification_customized = ?'); values.push(1);
@@ -236,11 +250,12 @@ router.patch('/:id', (req, res) => {
     }
     updates.push('bar_weight_kg = ?'); values.push(v);
   }
-  // How-to text edits are admin-gated: the catalog is shared across profiles,
-  // so casual edits shouldn't rewrite the how-to everyone sees. Code checked
-  // server-side (ADMIN_CODE env, defaulting to the owner's chosen 2210).
+  // How-to text is shared across profiles like the rest of the catalog, so it
+  // takes the same rule: the owner edits it directly, anyone else needs the
+  // code. (The old comment here claimed the fallback code was a fixed 2210 —
+  // it has been a per-boot random value since ADMIN_CODE was introduced.)
   if ('instructions' in (req.body || {})) {
-    if (!checkAdminCode(req.body.admin_code)) {
+    if (!canEditSharedCatalog(req)) {
       return res.status(403).json({ error: 'admin code required to edit how-to text' });
     }
     const v = req.body.instructions;
@@ -407,7 +422,10 @@ router.post('/:id/merge', (req, res) => {
   // logged sets onto the survivor — if either side is shared/seed (not this
   // profile's own custom), that's catalog-wide impact, so it needs the same
   // confirmation as reclassifying/editing a shared exercise.
-  if ([loser, target].some((ex) => ex.created_by_profile_id == null) && !checkAdminCode(req.body && req.body.admin_code)) {
+  // Same rule as reclassify and how-to: merging a shared exercise reassigns
+  // every profile's sets onto the survivor and deletes the other, so the owner
+  // may do it directly and anyone else still needs the code.
+  if ([loser, target].some((ex) => ex.created_by_profile_id == null) && !canEditSharedCatalog(req)) {
     return res.status(403).json({ error: 'admin code required to merge a shared exercise' });
   }
 

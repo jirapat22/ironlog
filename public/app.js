@@ -1,5 +1,5 @@
 // IronLog — main entry point. Imports all tab modules and handles boot/routing.
-import { $, $$, LS, haptic, isIOS, isStandalone, ACCENTS } from './utils.js';
+import { $, $$, LS, haptic, isIOS, isStandalone, ACCENTS, setOwnerProfile } from './utils.js';
 import { API } from './api.js';
 import { refreshBadgeFromCalendar } from './audio.js';
 import { renderWorkout, flushWorkoutNotes } from './workout.js';
@@ -51,6 +51,12 @@ document.addEventListener('visibilitychange', () => {
 // resolves a 4-digit passcode to a profile; an unknown code offers to create a
 // new profile with that code.
 let currentProfile = null;
+// Single funnel for the signed-in profile, so the owner flag utils.js reads
+// can never drift from the profile the rest of the app thinks is active.
+function setCurrentProfile(p) {
+  currentProfile = p || null;
+  setOwnerProfile(!!p?.is_owner);
+}
 let lockBuffer = '';
 let pendingCode = '';   // passcode captured for the create-a-profile flow
 let lockBusy = false;
@@ -111,7 +117,7 @@ async function onCodeComplete() {
   lockBusy = true;
   try {
     const { profile } = await API.login(code);
-    currentProfile = profile;
+    setCurrentProfile(profile);
     hideLock();
   } catch {
     // Unknown code (or network) → offer to create a profile with it.
@@ -123,7 +129,7 @@ async function onCodeComplete() {
 }
 
 function showLock() {
-  currentProfile = null;
+  setCurrentProfile(null);
   renderProfilePill();
   lockBuffer = '';
   pendingCode = '';
@@ -164,7 +170,7 @@ function showCreateForm() {
     if (!name) { errEl.textContent = 'Enter a name'; return; }
     try {
       const { profile } = await API.createProfile({ name, passcode: pendingCode, accent_color: accent });
-      currentProfile = profile;
+      setCurrentProfile(profile);
       hideLock();
     } catch (err) {
       errEl.textContent = err.message;
@@ -307,7 +313,7 @@ document.addEventListener('ironlog:lock', () => {
 
 // Settings changed the profile name/colour — refresh the header pill.
 document.addEventListener('ironlog:profile-updated', (e) => {
-  currentProfile = e.detail;
+  setCurrentProfile(e.detail);
   renderProfilePill();
 });
 
@@ -316,7 +322,7 @@ document.addEventListener('ironlog:profile-updated', (e) => {
   try {
     const status = await API.authStatus();
     if (status.authenticated) {
-      currentProfile = status.profile;
+      setCurrentProfile(status.profile);
       renderProfilePill();
       boot();
     } else {

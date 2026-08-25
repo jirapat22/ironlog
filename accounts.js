@@ -108,7 +108,11 @@ function publicProfile(p) {
     id: p.id,
     name: p.name,
     accent_color: p.accent_color,
-    created_at: p.created_at
+    created_at: p.created_at,
+    // Lets the UI skip the admin-code prompt entirely for the owner instead
+    // of asking, failing, and retrying. Not a security boundary — the server
+    // re-checks on every write.
+    is_owner: !!p.is_owner
   };
 }
 
@@ -164,13 +168,20 @@ function createProfile({ name, passcode, accent_color }) {
     const adopt = first && hasOrphanData();
     const apiKey = adopt ? LEGACY_API_KEY : generateUniqueApiKey();
 
+    // On a FRESH install the is_owner migration runs against an empty profiles
+    // table, so its backfill matches nothing and nobody owns the install — the
+    // first person to sign up would be permanently unable to edit the shared
+    // catalog. Claim ownership here whenever no profile holds it, which also
+    // recovers the case where the owner profile was deleted.
+    const ownerExists = !!db.prepare('SELECT 1 FROM profiles WHERE is_owner = 1 LIMIT 1').get();
+
     const { hash, salt } = hashPasscode(passcode);
     const info = db
       .prepare(
-        `INSERT INTO profiles (name, accent_color, pass_hash, pass_salt, api_key)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO profiles (name, accent_color, pass_hash, pass_salt, api_key, is_owner)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(trimmedName, accent, hash, salt, apiKey);
+      .run(trimmedName, accent, hash, salt, apiKey, ownerExists ? 0 : 1);
     const id = Number(info.lastInsertRowid);
 
     if (first) adoptOrphanData(id);
@@ -230,6 +241,14 @@ function regenerateApiKey(profileId) {
 
 function deleteProfile(profileId) {
   tx(() => {
+    // If this profile owns the install, hand ownership to the oldest remaining
+    // one. Otherwise nobody could edit the shared catalog again without the
+    // admin code, which is regenerated every boot when ADMIN_CODE is unset.
+    const wasOwner = !!db.prepare('SELECT is_owner FROM profiles WHERE id = ?').get(profileId)?.is_owner;
+    if (wasOwner) {
+      const heir = db.prepare('SELECT MIN(id) AS id FROM profiles WHERE id != ?').get(profileId)?.id;
+      if (heir) db.prepare('UPDATE profiles SET is_owner = 1 WHERE id = ?').run(heir);
+    }
     // Delete child rows before parents to respect FK constraints.
     db.prepare('DELETE FROM sets WHERE profile_id = ?').run(profileId);
     for (const t of PER_PROFILE_TABLES) {

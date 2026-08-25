@@ -37,6 +37,14 @@ function haptic(ms = 30) {
 // rare but repeated actions, and re-typing the same code each time (with no
 // memory across sessions) was annoying enough to be worth persisting.
 const ADMIN_CODE_KEY = 'ironlog.adminCode';
+
+// Whether the signed-in profile owns this install. Purely a UI hint — it lets
+// the shared-catalog editors skip an admin-code prompt the server wouldn't
+// have enforced anyway. Never a security boundary: every write is re-checked
+// server-side against the profile's own is_owner flag, not this.
+let ownerProfile = false;
+function setOwnerProfile(v) { ownerProfile = !!v; }
+function isOwnerProfile() { return ownerProfile; }
 function getCachedAdminCode() {
   try { return localStorage.getItem(ADMIN_CODE_KEY) || null; } catch { return null; }
 }
@@ -1377,16 +1385,27 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
   // The code is only collected here; the server verifies it on save (see
   // the save handler below, which clears the cache if it turns out wrong).
   let howtoAdminCode = null;
+  // Tracked separately from howtoAdminCode: the owner unlocks WITHOUT a code,
+  // so a null code no longer means "never unlocked". Conflating them would
+  // have silently dropped the owner's how-to text from the payload.
+  let howtoUnlocked = false;
   containerEl.querySelector('#edit-ex-howto-unlock').onclick = async () => {
-    let code = getCachedAdminCode();
-    if (!code) {
-      code = await promptSheet({ title: 'Admin code', label: 'Enter the admin code to edit how-to text', confirmText: 'Unlock' });
-      if (!code) return;
-      code = code.trim();
+    // The owner of the install edits the shared catalog directly, so asking
+    // for a code here only ever produced a prompt the server would have
+    // waved through. Non-owners still need it.
+    let code = null;
+    if (!isOwnerProfile()) {
+      code = getCachedAdminCode();
+      if (!code) {
+        code = await promptSheet({ title: 'Admin code', label: 'Enter the admin code to edit how-to text', confirmText: 'Unlock' });
+        if (!code) return;
+        code = code.trim();
+      }
     }
     let current = '';
     try { current = (await API.exercise(ex.id)).instructions || ''; } catch { /* keep empty */ }
     howtoAdminCode = code;
+    howtoUnlocked = true;
     containerEl.querySelector('#edit-ex-howto-wrap').innerHTML = `
       <label class="form-label">How-to text (admin)</label>
       <textarea class="input" id="edit-ex-howto" rows="6" placeholder="Step-by-step instructions shown by the ? button">${escapeHtml(current)}</textarea>`;
@@ -1426,9 +1445,9 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       if (fix.convert) payload.convert_stored_weight = true;
     }
     const howtoEl = containerEl.querySelector('#edit-ex-howto');
-    if (howtoEl && howtoAdminCode !== null) {
+    if (howtoEl && howtoUnlocked) {
       payload.instructions = howtoEl.value.trim() || null;
-      payload.admin_code = howtoAdminCode;
+      if (howtoAdminCode) payload.admin_code = howtoAdminCode;
     }
     try {
       const updated = await API.updateExercise(ex.id, payload);
@@ -1444,7 +1463,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       // A cached code we already sent (via howtoAdminCode) turned out wrong —
       // clear it so the next "Unlock" tap re-prompts instead of silently
       // reusing the same bad value.
-      if (err.message === 'admin code required to edit how-to text' && howtoAdminCode) {
+      if (err.message === 'admin code required to edit how-to text' && howtoUnlocked) {
         clearCachedAdminCode();
         toast('Wrong admin code — tap Unlock to try again');
         return;
@@ -1648,6 +1667,7 @@ export {
   stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay,
+  setOwnerProfile, isOwnerProfile,
   enableDragReorder,
   PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,

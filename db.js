@@ -471,6 +471,20 @@ function migrateMultiUser() {
     if (!columnExists('workouts', col)) db.exec(`ALTER TABLE workouts ADD COLUMN ${col} ${type}`);
   }
 
+  // profiles.is_owner: the person whose install this is. Editing a SHARED
+  // exercise rewrites the catalog every profile sees, so it was gated behind
+  // an admin code — but with ADMIN_CODE unset that code is regenerated every
+  // boot and only ever printed to the server log, which made the whole path
+  // unusable rather than merely guarded. The owner edits freely; everybody
+  // else still needs the code.
+  if (!columnExists('profiles', 'is_owner')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0');
+    // The first profile ever created is the owner. Written once here rather
+    // than derived from MIN(id) at read time, so deleting that profile can't
+    // silently promote whoever happens to be next.
+    db.exec('UPDATE profiles SET is_owner = 1 WHERE id = (SELECT MIN(id) FROM profiles)');
+  }
+
   // 2. app_settings: primary key must become (profile_id, key). Rebuild.
   if (tableExists('app_settings') && !columnExists('app_settings', 'profile_id')) {
     tx(() => {
