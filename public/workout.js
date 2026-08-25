@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -426,11 +426,30 @@ async function renderWorkout(retriedAfterMissing = false) {
         <button class="btn btn--primary btn--block" data-start-quick>Quick workout</button>
         <button class="btn btn--ghost btn--block" data-go-programs style="margin-top:8px">Pick a program</button>
         <button class="btn btn--ghost btn--block" data-log-activity style="margin-top:8px">Log a class / run / cardio</button>
+        <button class="btn btn--ghost btn--block" data-log-past style="margin-top:8px">Log a past session</button>
       </div>`;
     root.onclick = async (e) => {
       if (e.target.closest('[data-go-programs]'))
         document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
       if (e.target.closest('[data-log-activity]')) return openActivitySheet();
+      // Same flow as a quick workout, just dated to an earlier day — you then
+      // log sets into it normally and finish as usual.
+      const pastBtn = e.target.closest('[data-log-past]');
+      if (pastBtn) {
+        const startedAt = await pickRecentDay({
+          title: 'Log a past session',
+          message: 'Which day was this workout? You can log sets into it exactly as you would a live one.'
+        });
+        if (!startedAt) return;
+        pastBtn.disabled = true; pastBtn.textContent = 'Starting…';
+        try {
+          const w = await API.startQuickWorkout(startedAt);
+          localStorage.setItem(LS.activeWorkoutId, String(w.id));
+          localStorage.removeItem(LS.activeProgramDayId);
+          renderWorkout();
+        } catch (err) { toast(err.message); pastBtn.disabled = false; pastBtn.textContent = 'Log a past session'; }
+        return;
+      }
       if (e.target.closest('[data-start-quick]')) {
         const btn = e.target.closest('[data-start-quick]');
         btn.disabled = true; btn.textContent = 'Starting…';
@@ -715,11 +734,21 @@ async function renderSessionCoverage() {
   catch { return; }
   const hit = new Set(rows.filter((r) => r.sessions > 0).map((r) => r.muscle_group));
   if (!hit.size) { el.innerHTML = ''; return; }
+  // How many exercises you actually picked for each group this session.
+  // Primary attribution only (see /muscle-coverage), so this counts the
+  // exercises you chose rather than every group they touch — a group hit
+  // only as secondary work keeps its tick and shows no number.
+  const exCount = new Map(rows.map((r) => [r.muscle_group, r.exercises || 0]));
+  const chipLabel = (g) => {
+    const n = exCount.get(g) || 0;
+    if (n > 0) return `${g} ${n}`;
+    return hit.has(g) ? `${g} &#x2713;` : g;
+  };
   el.innerHTML = `
     <div class="cov-strip">
       <div class="cov-strip__title">This workout</div>
       <div class="cov-strip__chips">
-        ${PICKER_GROUP_ORDER.map((g) => `<span class="cov-chip mg-${g}${hit.has(g) ? ' cov-chip--done' : ' cov-chip--zero'}">${g}${hit.has(g) ? ' &#x2713;' : ''}</span>`).join('')}
+        ${PICKER_GROUP_ORDER.map((g) => `<span class="cov-chip mg-${g}${hit.has(g) ? ' cov-chip--done' : ' cov-chip--zero'}" title="${(exCount.get(g) || 0) > 0 ? `${exCount.get(g)} exercise${exCount.get(g) === 1 ? '' : 's'} for ${g}` : hit.has(g) ? `${g} worked as secondary` : `no ${g} work yet`}">${chipLabel(g)}</span>`).join('')}
       </div>
     </div>`;
 }

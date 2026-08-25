@@ -190,15 +190,17 @@ router.get('/muscle-coverage', (req, res) => {
   const workoutId = req.query.workout_id ? Number(req.query.workout_id) : null;
   const tz = Number(req.query.tzOffset);
   const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
+  // e.id rides along so the session strip can show how many EXERCISES hit each
+  // group, not just whether it was hit at all.
   const rows = workoutId
     ? db.prepare(
-        `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles, e.secondary_major
+        `SELECT DISTINCT s.workout_id, e.id AS exercise_id, e.muscle_group, e.secondary_muscles, e.secondary_major
          FROM sets s
          JOIN exercises e ON e.id = s.exercise_id
          WHERE s.profile_id = ? AND s.is_warmup = 0 AND s.workout_id = ?`
       ).all(req.profileId, workoutId)
     : db.prepare(
-        `SELECT DISTINCT s.workout_id, e.muscle_group, e.secondary_muscles, e.secondary_major
+        `SELECT DISTINCT s.workout_id, e.id AS exercise_id, e.muscle_group, e.secondary_muscles, e.secondary_major
          FROM sets s
          JOIN exercises e ON e.id = s.exercise_id
          WHERE s.profile_id = ?
@@ -223,6 +225,13 @@ router.get('/muscle-coverage', (req, res) => {
       ).all(req.profileId, mod, mod);
 
   const sessionsByGroup = new Map(); // muscle_group -> Set(workout_id)
+  // PRIMARY attribution only, deliberately unlike the tick above: a chip's
+  // COUNT answers "how many exercises did I actually pick for this muscle",
+  // so bench must not also add 1 to shoulders and arms. The tick keeps its
+  // secondary crediting, so a group can legitimately show a tick and no
+  // number — that's the indirect-work case, and conflating the two would
+  // make one bench press read as three exercises.
+  const primaryExercisesByGroup = new Map(); // muscle_group -> Set(exercise_id)
   const credit = (group, workoutId) => {
     if (!group) return;
     if (!sessionsByGroup.has(group)) sessionsByGroup.set(group, new Set());
@@ -230,6 +239,10 @@ router.get('/muscle-coverage', (req, res) => {
   };
   for (const row of rows) {
     credit(row.muscle_group, row.workout_id);
+    if (row.muscle_group) {
+      if (!primaryExercisesByGroup.has(row.muscle_group)) primaryExercisesByGroup.set(row.muscle_group, new Set());
+      primaryExercisesByGroup.get(row.muscle_group).add(row.exercise_id);
+    }
     if (!row.secondary_muscles) continue;
     let regions = [];
     try { regions = JSON.parse(row.secondary_muscles); } catch { regions = []; }
@@ -253,7 +266,13 @@ router.get('/muscle-coverage', (req, res) => {
     if (!Array.isArray(groups)) continue;
     for (const g of groups) credit(g, a.workout_id);
   }
-  res.json([...sessionsByGroup.entries()].map(([muscle_group, set]) => ({ muscle_group, sessions: set.size })));
+  res.json([...sessionsByGroup.entries()].map(([muscle_group, set]) => ({
+    muscle_group,
+    sessions: set.size,
+    // 0 for a group credited only through secondaries, or through an
+    // activity's muscle_tags (which log no exercises at all).
+    exercises: primaryExercisesByGroup.get(muscle_group)?.size || 0
+  })));
 });
 
 // Finer breakdown by sub-muscle (upper/mid/lower pec, front/side/rear delt,
