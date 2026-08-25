@@ -247,11 +247,22 @@ router.get('/profile', (req, res) => {
       // exceed the goal — e.g. a heavy lifter on an aggressive cut), the totals
       // legitimately overshoot, so only assert the balance when carbs absorbed
       // the remainder.
+      const macroKcal = macros.proteinG * 4 + macros.carbG * 4 + macros.fatG * 9;
       if (macros.carbG > 0) {
-        const macroKcal = macros.proteinG * 4 + macros.carbG * 4 + macros.fatG * 9;
         assertInvariant(Math.abs(macroKcal - goalKcal) <= 50, 'macro grams do not add up to the calorie goal', {
           profileId: pid, goalKcal, macroKcal, macros
         });
+      } else {
+        // Carbs floored at 0, so the totals legitimately overshoot and the
+        // balance check above cannot hold. Gating on carbG > 0 and asserting
+        // nothing here left the branch where things actually go wrong with no
+        // check at all. The overshoot is only legitimate when protein + fat
+        // ALREADY meet or exceed the goal — that's what makes carbs zero. If
+        // they don't, the carb calculation dropped calories on the floor.
+        assertInvariant(macros.proteinG * 4 + macros.fatG * 9 >= goalKcal - 50,
+          'carbs floored at 0 without protein+fat accounting for the goal', {
+            profileId: pid, goalKcal, macroKcal, macros
+          });
       }
     }
 
@@ -270,7 +281,10 @@ router.get('/profile', (req, res) => {
         profile_complete: profileComplete,
         meta: {
           height_cm:    heightCm || null,
-          age,
+          // null, not 0, for "not set" — height_cm right above uses that
+          // convention and a consumer shouldn't have to know that one field
+          // says 0 and its neighbour says null for the same state.
+          age:          age || null,
           sex,
           activity:     activityKey,
           protein_g_per_kg: macros?.proteinPerKg ?? null

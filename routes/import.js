@@ -1,6 +1,7 @@
 const express = require('express');
 const { db, tx, MUSCLE_GROUPS } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
+const { parseSettingsBag, writeSettings } = require('./settings');
 const { reportHandled } = require('../lib/bugReports');
 
 const router = express.Router();
@@ -12,7 +13,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Invalid backup file (expected version 1)' });
   }
 
-  const { exercises = [], programs = [], workouts = [], bodyweights = [] } = data;
+  const { exercises = [], programs = [], workouts = [], bodyweights = [], settings = {} } = data;
   const profileId = req.profileId;
 
   let importedExercises = 0;
@@ -26,6 +27,15 @@ router.post('/', (req, res) => {
   // Reject unknown muscle groups up front (before the transaction) rather
   // than silently defaulting them — a mislinked group quietly corrupts every
   // chart that aggregates by muscle group.
+  // Settings were EXPORTED but never restored, so every backup silently lost
+  // height, age, activity, goal, the calorie offsets and the unit preference —
+  // the whole TDEE profile. Validated here, before the transaction, so a bad
+  // file is rejected outright rather than half-applied.
+  const settingsBag = parseSettingsBag(settings);
+  if (!settingsBag.ok) {
+    return res.status(400).json({ error: `Invalid backup file: ${settingsBag.error}` });
+  }
+
   const badGroup = exercises.find((e) => e.muscle_group && !MUSCLE_GROUPS.includes(String(e.muscle_group).trim()));
   if (badGroup) {
     return res.status(400).json({
@@ -38,6 +48,7 @@ router.post('/', (req, res) => {
   const backupExById = new Map(exercises.map((e) => [e.id, e]));
 
   tx(() => {
+    writeSettings(profileId, settingsBag.writes);
     // --- 1. Insert any exercises from the backup that don't already exist
     // (matched by name, case-insensitive). The exercise catalog is shared
     // across profiles, so this just tops up missing entries.
@@ -64,7 +75,15 @@ router.post('/', (req, res) => {
         e.name,
         e.muscle_group || 'chest',
         e.notes ?? null,
-        e.is_bodyweight ? 1 : 0,
+        // An assisted exercise is always a bodyweight movement — the machine
+        // offsets YOUR weight. Every in-app path guarantees that pairing;
+        // this one took the two flags independently and could store
+        // is_assisted without is_bodyweight, which no consumer expects.
+        // effectiveLoadKg and db.js's volume SQL check both flags and would
+        // treat such a row as plain weighted load, while pr.js and
+        // checkAndUpdatePR check is_assisted alone and would invert its
+        // ranking — the same row read two opposite ways.
+        (e.is_bodyweight || e.is_assisted) ? 1 : 0,
         e.is_assisted ? 1 : 0,
         equipment,
         // Default weight_mode by equipment, matching the create API — the
@@ -262,6 +281,7 @@ router.post('/', (req, res) => {
   if (warnings.length) warnings.push('Import adds records — re-importing the same backup will create duplicates.');
 
   res.json({
+    imported_settings: settingsBag.writes.length,
     imported_exercises: importedExercises,
     imported_programs: importedPrograms,
     imported_workouts: importedWorkouts,

@@ -59,37 +59,53 @@ function parseNumericSetting(raw, { min, max, allowEmpty }) {
   return { ok: true, value: String(Math.round(n)) };
 }
 
-router.put('/', (req, res) => {
-  const body = req.body || {};
+// Validate a whole bag of settings before any of it is written. Split from the
+// write so the backup importer can reject a bad file UP FRONT, outside its own
+// transaction, instead of discovering it halfway through. Unknown keys are
+// ignored, not an error — a backup from a newer build may carry keys this one
+// doesn't know.
+function parseSettingsBag(body) {
   const allowed = Object.keys(DEFAULTS);
-
-  // Validate EVERYTHING before writing ANYTHING. This used to 400 from inside
-  // the write loop, so a rejected deficit still committed the goal and age
-  // that came before it — and silently dropped the keys after it. The profile
-  // sheet sends all five in one PUT, which made a half-applied profile the
-  // normal outcome of one bad field.
   const writes = [];
-  for (const [k, v] of Object.entries(body)) {
+  for (const [k, v] of Object.entries(body || {})) {
     if (!allowed.includes(k)) continue;
     const spec = NUMERIC_SETTINGS[k];
     if (spec) {
       const parsed = parseNumericSetting(v, spec);
       if (!parsed.ok) {
-        return res.status(400).json({ error: `${k} must be a number between ${spec.min} and ${spec.max}` });
+        return { ok: false, error: `${k} must be a number between ${spec.min} and ${spec.max}` };
       }
       writes.push([k, parsed.value]);
       continue;
     }
     writes.push([k, String(v)]);
   }
+  return { ok: true, writes };
+}
 
+// Caller owns the transaction: db.js's tx() is not reentrant, and the importer
+// already runs inside one.
+function writeSettings(profileId, writes) {
   const stmt = db.prepare(
     'INSERT INTO app_settings (profile_id, key, value) VALUES (?, ?, ?) ON CONFLICT(profile_id, key) DO UPDATE SET value = excluded.value'
   );
-  tx(() => {
-    for (const [k, value] of writes) stmt.run(req.profileId, k, value);
-  });
+  for (const [k, value] of writes) stmt.run(profileId, k, value);
+}
+
+router.put('/', (req, res) => {
+  // Validate EVERYTHING before writing ANYTHING. This used to 400 from inside
+  // the write loop, so a rejected deficit still committed the goal and age
+  // that came before it — and silently dropped the keys after it. The profile
+  // sheet sends all five in one PUT, which made a half-applied profile the
+  // normal outcome of one bad field.
+  const parsed = parseSettingsBag(req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+  tx(() => writeSettings(req.profileId, parsed.writes));
   res.json(getAll(req.profileId));
 });
 
 module.exports = router;
+// Shared with routes/import.js so a restored backup goes through exactly the
+// same range checks a live PUT does — a backup file is untrusted input too.
+module.exports.parseSettingsBag = parseSettingsBag;
+module.exports.writeSettings = writeSettings;

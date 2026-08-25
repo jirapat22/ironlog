@@ -127,8 +127,13 @@ const API = {
   activeWorkout: () => api('/api/workouts/active'),
   exercise: (id) => api(`/api/exercises/${id}`),
   searchExerciseLibrary: (q) => api(`/api/exercises/library/search?q=${encodeURIComponent(q)}`),
-  startWorkout: (programDayId) =>
-    api('/api/workouts', { method: 'POST', body: { program_day_id: programDayId } }),
+  // startedAt (optional) dates the session to an earlier day, same contract as
+  // startQuickWorkout — the server takes program_day_id and started_at together.
+  startWorkout: (programDayId, startedAt) =>
+    api('/api/workouts', {
+      method: 'POST',
+      body: startedAt ? { program_day_id: programDayId, started_at: startedAt } : { program_day_id: programDayId }
+    }),
   // started_at (optional, 'YYYY-MM-DD HH:MM:SS' UTC) logs the session for an
   // earlier day; the server bounds how far back and flags it is_backdated so
   // its sets get stamped on that day too.

@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -238,6 +238,33 @@ async function renderPrograms() {
         return;
       }
 
+      // Same program day, dated to an earlier date. The server takes
+      // program_day_id and started_at together, so this is the ordinary start
+      // path with a date attached — not a separate kind of session.
+      const startPastBtn = e.target.closest('[data-start-day-past]');
+      if (startPastBtn) {
+        haptic();
+        const dayId = Number(startPastBtn.dataset.startDayPast);
+        const startedAt = await pickRecentDay({
+          title: 'Log this day earlier',
+          message: 'Which day did you train it? You log sets into it exactly as you would a live session.',
+          minDaysBack: 1
+        });
+        if (!startedAt) return;
+        startPastBtn.disabled = true;
+        try {
+          const w = await API.startWorkout(dayId, startedAt);
+          localStorage.setItem(LS.activeWorkoutId, String(w.id));
+          localStorage.setItem(LS.activeProgramDayId, String(dayId));
+          localStorage.setItem(LS.activeWorkoutStart, w.started_at);
+          document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'workout' }));
+        } catch (err) {
+          toast(err.message);
+          startPastBtn.disabled = false;
+        }
+        return;
+      }
+
       const startBtn = e.target.closest('[data-start-day]');
       if (startBtn) {
         haptic();
@@ -306,6 +333,7 @@ function dayCardHTML(d, programId, i, total) {
         <button class="btn--icon" data-move-day="down" data-day-id="${d.id}" data-program-id="${programId}" title="Move down" ${i === total - 1 ? 'disabled' : ''}>↓</button>
         <button class="btn btn--ghost btn--sm" data-edit-day="${d.id}" data-program-id="${programId}">Edit</button>
         <button class="btn btn--primary btn--sm" data-start-day="${d.id}" style="flex:1">Start workout</button>
+        <button class="btn btn--ghost btn--sm" data-start-day-past="${d.id}" title="Log this day for an earlier date">&#x1F4C5;</button>
         <button class="btn btn--ghost btn--sm" data-delete-day="${d.id}" data-program-id="${programId}" style="color:var(--danger)" title="Delete day">&times;</button>
       </div>
     </div>
