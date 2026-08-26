@@ -419,6 +419,11 @@ async function renderWorkout(retriedAfterMissing = false) {
   }
 
   if (!activeId) {
+    // No session any more (finished, discarded, swept stale, or localStorage
+    // lost) — a rest timer left over from it has nothing to count down FOR.
+    // Without this it keeps running to completion and beeps at you long
+    // after the workout it belonged to ended.
+    if (isRestActive()) cancelRestCountdown();
     root.innerHTML = `
       <div class="empty">
         <div class="empty__icon">&#x1F4AA;</div>

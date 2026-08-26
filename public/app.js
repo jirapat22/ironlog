@@ -317,6 +317,35 @@ document.addEventListener('ironlog:profile-updated', (e) => {
   renderProfilePill();
 });
 
+// ---------- Keyboard-aware bottom nav ----------
+// iOS anchors position:fixed to the LAYOUT viewport, but the on-screen
+// keyboard shrinks only the VISUAL one. The bottom nav therefore keeps its
+// place in a viewport the user can no longer see all of, and Safari paints it
+// part-way UP the screen, floating over the content — reported as "the bottom
+// tab bar appears in the middle". It shows up on the workout tab because that
+// tab is almost entirely number inputs.
+//
+// Hiding it while the keyboard is up is both the fix and the better
+// behaviour: the bar sits behind the keyboard and can't be tapped anyway.
+function watchKeyboardForNav() {
+  const vv = window.visualViewport;
+  if (!vv) return; // no visualViewport (older desktop browsers) — nothing to do
+  // The URL bar collapsing moves the viewport by roughly 60-90px, so a
+  // threshold well above that keeps normal scrolling from hiding the nav.
+  // A real keyboard takes ~300px.
+  const KEYBOARD_MIN_PX = 150;
+  const sync = () => {
+    const covered = window.innerHeight - vv.height;
+    document.body.classList.toggle('keyboard-open', covered > KEYBOARD_MIN_PX);
+  };
+  vv.addEventListener('resize', sync);
+  vv.addEventListener('scroll', sync);
+  // Blur can land before the viewport settles, so re-check on the way out too.
+  document.addEventListener('focusout', () => setTimeout(sync, 100));
+  sync();
+}
+watchKeyboardForNav();
+
 // ---------- Startup: resolve session, then lock or boot ----------
 (async function start() {
   try {

@@ -213,6 +213,14 @@ body.has-update-banner .app {
   backdrop-filter: blur(10px);
 }
 
+/* While the on-screen keyboard is up the nav is unreachable behind it, and
+   iOS paints it mid-screen over the content (see watchKeyboardForNav in
+   app.js). Removing it outright is the reliable fix — the reserved padding on
+   .app stays, so nothing below it jumps. */
+body.keyboard-open .nav {
+  display: none;
+}
+
 .nav__btn {
   display: flex;
   flex-direction: column;

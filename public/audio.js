@@ -129,12 +129,23 @@ function startRestCountdown(secs = REST_SECONDS) {
   }
 
   const tick = () => {
+    // Deliberately NOT gated on the banner existing. #rest-sticky lives inside
+    // the active-workout render, so it is absent whenever the workout view is
+    // mid-re-render or showing its empty state — and the old `if (!node)
+    // return` sat ABOVE the only code that clears this interval. A rest
+    // running when a session ended therefore spun forever with restState
+    // pinned, and the next workout to recreate the node got an immediate
+    // stale "Rest done": beep, haptic and notification for a rest that had
+    // finished long before. Expiry is a fact about the clock, so it is
+    // handled either way; only the DOM writes are skipped when there's no
+    // banner to write to.
     const node = $('#rest-sticky');
-    if (!node) return;
     const remain = Math.max(0, Math.round((endAt - Date.now()) / 1000));
     if (remain <= 0) {
-      node.classList.add('done');
-      node.innerHTML = `<span>&#x1F514; Rest done — next set</span><button class="rest-sticky__x" data-rest-cancel aria-label="Dismiss">&times;</button>`;
+      if (node) {
+        node.classList.add('done');
+        node.innerHTML = `<span>&#x1F514; Rest done — next set</span><button class="rest-sticky__x" data-rest-cancel aria-label="Dismiss">&times;</button>`;
+      }
       if (restState?.handle) { clearInterval(restState.handle); restState.handle = null; }
       haptic([250, 120, 250, 120, 400]);
       playBeep();
@@ -149,6 +160,7 @@ function startRestCountdown(secs = REST_SECONDS) {
       if (restState) restState.doneTimeout = setTimeout(cancelRestCountdown, 10000);
       return;
     }
+    if (!node) return; // still counting, just nothing on screen to update yet
     const mm = Math.floor(remain / 60);
     const ss = remain % 60;
     node.classList.remove('done', 'hidden');
