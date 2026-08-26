@@ -221,6 +221,15 @@ body.keyboard-open .nav {
   display: none;
 }
 
+/* The update banner is fixed too, and its bottom offset is measured from the
+   nav — so with the keyboard up it suffers the same mid-screen misplacement
+   AND floats over empty space where the nav used to be. It is a "Refresh
+   when you're ready" prompt, so deferring it until typing stops costs
+   nothing. */
+body.keyboard-open .update-banner {
+  display: none;
+}
+
 .nav__btn {
   display: flex;
   flex-direction: column;

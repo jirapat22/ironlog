@@ -121,8 +121,12 @@ let restState = null; // { endAt, handle, doneTimeout, notified }
 
 function startRestCountdown(secs = REST_SECONDS) {
   cancelRestCountdown();
+  // rest_seconds is stored per program-day exercise with no lower bound, and
+  // `0 ?? undefined` is 0, not the default — so a slot set to no rest asked
+  // for a countdown that was over before it began. Nothing to count.
+  if (!(secs > 0)) return;
   const endAt = Date.now() + secs * 1000;
-  restState = { endAt, handle: null, doneTimeout: null, notified: false };
+  restState = { endAt, handle: null, doneTimeout: null, notified: false, finished: false };
 
   if (localStorage.getItem(LS.notifEnabled) === '1') {
     scheduleRestPushBackup(secs);
@@ -142,6 +146,7 @@ function startRestCountdown(secs = REST_SECONDS) {
     const node = $('#rest-sticky');
     const remain = Math.max(0, Math.round((endAt - Date.now()) / 1000));
     if (remain <= 0) {
+      if (restState) restState.finished = true;
       if (node) {
         node.classList.add('done');
         node.innerHTML = `<span>&#x1F514; Rest done — next set</span><button class="rest-sticky__x" data-rest-cancel aria-label="Dismiss">&times;</button>`;
@@ -167,7 +172,13 @@ function startRestCountdown(secs = REST_SECONDS) {
     node.innerHTML = `<span class="rest-sticky__label">Rest</span><span class="rest-sticky__time">${mm}:${String(ss).padStart(2, '0')}</span><button class="rest-sticky__x" data-rest-cancel aria-label="Cancel">&times;</button>`;
   };
   tick();
-  restState.handle = setInterval(tick, 500);
+  // Only start ticking if that first call didn't already end the rest. tick()
+  // runs BEFORE this assignment exists, so its terminal branch cannot clear an
+  // interval that isn't there yet — starting one anyway ran that branch a
+  // second time 500ms later: a duplicate beep and haptic, and an orphaned
+  // auto-dismiss timeout. Reachable via a zero-length rest above, and via any
+  // clock jump that puts endAt in the past.
+  if (restState && !restState.finished) restState.handle = setInterval(tick, 500);
 }
 
 function cancelRestCountdown() {

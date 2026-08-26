@@ -330,17 +330,28 @@ document.addEventListener('ironlog:profile-updated', (e) => {
 function watchKeyboardForNav() {
   const vv = window.visualViewport;
   if (!vv) return; // no visualViewport (older desktop browsers) — nothing to do
-  // The URL bar collapsing moves the viewport by roughly 60-90px, so a
-  // threshold well above that keeps normal scrolling from hiding the nav.
-  // A real keyboard takes ~300px.
+  // A real keyboard covers ~300px. Browser chrome (URL bar, bottom toolbar)
+  // can account for 100-140px on its own though, which is uncomfortably close
+  // to any threshold — and a false positive here means the nav disappears with
+  // no keyboard to explain it, which is worse than the bug being fixed. So
+  // require BOTH: something text-entry focused, AND the viewport actually
+  // shrunk. Chrome moving on its own can never satisfy the first.
   const KEYBOARD_MIN_PX = 150;
+  const isTyping = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true;
+  };
   const sync = () => {
     const covered = window.innerHeight - vv.height;
-    document.body.classList.toggle('keyboard-open', covered > KEYBOARD_MIN_PX);
+    document.body.classList.toggle('keyboard-open', isTyping() && covered > KEYBOARD_MIN_PX);
   };
   vv.addEventListener('resize', sync);
   vv.addEventListener('scroll', sync);
-  // Blur can land before the viewport settles, so re-check on the way out too.
+  // Focus changes and the viewport settling are separate events in either
+  // order, so re-check on both edges. The delay lets the keyboard animation
+  // finish before we measure.
+  document.addEventListener('focusin', () => setTimeout(sync, 100));
   document.addEventListener('focusout', () => setTimeout(sync, 100));
   sync();
 }
