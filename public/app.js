@@ -199,9 +199,29 @@ function showInstallHintIfNeeded() {
     </div>
     <button class="install-hint__close" aria-label="Dismiss">&times;</button>`;
   document.body.appendChild(banner);
+  // The hint is position:fixed directly above the nav, and .app's own
+  // bottom padding only accounts for the nav — so without this the last
+  // element on the page sits under it. On the workout screen that is the
+  // Finish workout / Cancel pair: 36 of their 48px covered, centre
+  // untappable, and the page is already at max scroll so you cannot get out
+  // from under it. Same fix the update banner already carries.
+  const reserve = () => {
+    document.documentElement.style.setProperty('--install-hint-h', `${banner.offsetHeight + 12}px`);
+  };
+  reserve();
+  document.body.classList.add('has-install-hint');
+  // The copy wraps differently on narrow screens and on rotate, so re-measure.
+  const ro = 'ResizeObserver' in window ? new ResizeObserver(reserve) : null;
+  ro?.observe(banner);
+  const release = () => {
+    ro?.disconnect();
+    document.body.classList.remove('has-install-hint');
+    document.documentElement.style.removeProperty('--install-hint-h');
+    banner.remove();
+  };
   banner.querySelector('.install-hint__close').onclick = () => {
     localStorage.setItem(LS.installHintDismissed, '1');
-    banner.remove();
+    release();
   };
 }
 

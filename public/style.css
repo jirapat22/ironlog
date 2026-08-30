@@ -28,6 +28,13 @@
      body.has-update-banner below) — its own height plus the gap above the
      nav it's anchored to. */
   --update-banner-h: 80px;
+  /* Same deal for the iOS "Install IronLog" hint. It is fixed at the same
+     bottom offset as the update banner, so without reserved clearance it
+     covers whatever lands at the end of the page — on the workout screen
+     that is Finish workout / Cancel, unreachable even at max scroll.
+     app.js overwrites this with the hint's real measured height, since the
+     copy wraps to a different number of lines on narrow screens. */
+  --install-hint-h: 92px;
   /* Includes the top safe-area inset (Dynamic Island / notch) so sticky
      sub-headers that offset from the main header stay aligned with it. */
   --header-h: calc(56px + env(safe-area-inset-top));
@@ -132,6 +139,18 @@ button {
    clearance above. */
 body.has-update-banner .app {
   padding-bottom: calc(var(--nav-h) + var(--update-banner-h) + env(safe-area-inset-bottom));
+}
+
+/* The install hint has the same problem and needs the same clearance. */
+body.has-install-hint .app {
+  padding-bottom: calc(var(--nav-h) + var(--install-hint-h) + env(safe-area-inset-bottom));
+}
+
+/* Both at once: they overlap each other (same bottom offset), so the taller
+   one decides the clearance — summing would be wrong, but max() keeps the
+   last element clear of whichever is actually on top. */
+body.has-install-hint.has-update-banner .app {
+  padding-bottom: calc(var(--nav-h) + max(var(--install-hint-h), var(--update-banner-h)) + env(safe-area-inset-bottom));
 }
 
 .app__header {

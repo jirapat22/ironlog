@@ -267,7 +267,14 @@ function init() {
     // Consistency calendar's streak/heat the same as a strength workout,
     // instead of only showing as a small dot. Default 0 preserves today's
     // behavior for every existing and newly-logged activity until toggled.
-    ['workouts', 'counts_as_workout INTEGER NOT NULL DEFAULT 0']
+    ['workouts', 'counts_as_workout INTEGER NOT NULL DEFAULT 0'],
+    // When the row was really created, as opposed to the session's own
+    // started_at (which a backdated workout deliberately sets days in the
+    // past). "Is this workout still in progress?" is a question about the
+    // former; using started_at meant a backdated session could never be
+    // recovered. Left NULL on existing rows — every reader COALESCEs back to
+    // started_at, which is what those rows already meant.
+    ['workouts', 'created_at TEXT']
   ]) {
     const column = def.split(' ')[0];
     if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);

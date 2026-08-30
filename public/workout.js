@@ -2554,6 +2554,15 @@ async function openWorkoutAddExercisePicker() {
 
 function startStickyTimer() {
   if (stickyTimerHandle) clearInterval(stickyTimerHandle);
+  // A backdated session's started_at is days old ON PURPOSE, so counting up
+  // from it is wall-clock time since that day, not time spent training — it
+  // opened at "48:00:04" and climbed. There is no live duration to show for a
+  // session that already happened, so name the day instead and don't tick.
+  if (workoutState?.workout?.is_backdated) {
+    const el = $('#sticky-elapsed');
+    if (el) el.textContent = formatDateShort(workoutState.startedAt);
+    return;
+  }
   const tick = () => {
     const el = $('#sticky-elapsed');
     if (!el) return;
@@ -2683,7 +2692,12 @@ async function finishWorkout() {
       workoutId: id,
       sets: sets.length,
       volume: totalVolume,
-      duration: fmtDuration(workoutState.startedAt, new Date().toISOString()),
+      // The server caps finish time at last-set + 10 minutes and returns the
+      // row it stored, so use ITS finished_at rather than "now". For a
+      // backdated session those differ by days (the summary read "48:02:00"
+      // for 11 minutes of logging); for a live one it also stops a workout
+      // left open in a background tab from inflating the number.
+      duration: fmtDuration(workoutState.startedAt, finishedWorkout?.finished_at || new Date().toISOString()),
       newPRs,
       dayLabel: workoutState.programDay.day_label,
       calories: finishedWorkout.calories_burned ?? null,

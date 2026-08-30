@@ -158,10 +158,10 @@ router.post('/', (req, res) => {
   const isBackdated = dated.value && dated.ms < Date.now() - BACKDATED_AFTER_MS ? 1 : 0;
   const info = dated.value
     ? db
-      .prepare('INSERT INTO workouts (program_day_id, profile_id, started_at, is_backdated) VALUES (?, ?, ?, ?)')
+      .prepare("INSERT INTO workouts (program_day_id, profile_id, started_at, is_backdated, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
       .run(program_day_id || null, req.profileId, dated.value, isBackdated)
     : db
-      .prepare('INSERT INTO workouts (program_day_id, profile_id) VALUES (?, ?)')
+      .prepare("INSERT INTO workouts (program_day_id, profile_id, created_at) VALUES (?, ?, datetime('now'))")
       .run(program_day_id || null, req.profileId);
   const row = db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json(row);
@@ -180,8 +180,14 @@ router.get('/active', (req, res) => {
   const row = db.prepare(
     `SELECT * FROM workouts
      WHERE profile_id = ? AND finished_at IS NULL AND (kind IS NULL OR kind != 'activity')
-       AND started_at >= datetime('now', '-16 hours')
-     ORDER BY started_at DESC LIMIT 1`
+       -- Age off CREATION time, not the session's own date. A backdated
+       -- session's started_at is days old by design, so it never matched
+       -- here: clear localStorage mid-entry and the workout became
+       -- unresumable (the app showed "No active workout" while the row sat
+       -- unfinished). created_at is NULL on pre-migration rows, where
+       -- started_at is the right answer anyway.
+       AND COALESCE(created_at, started_at) >= datetime('now', '-16 hours')
+     ORDER BY COALESCE(created_at, started_at) DESC LIMIT 1`
   ).get(req.profileId);
   res.json(row || null);
 });
