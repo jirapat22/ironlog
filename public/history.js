@@ -548,7 +548,7 @@ async function refreshHistoryCard(workoutId) {
       return;
     }
     const stats = card.querySelector('.history-card__stats');
-    if (stats) stats.innerHTML = `${w.total_sets} sets<br/>${Math.round(w.total_volume).toLocaleString()} kg`;
+    if (stats) stats.innerHTML = `${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>${Math.round(w.total_volume).toLocaleString()} kg`;
     if (wasExpanded) { card.dataset.loaded = ''; await loadHistoryCardBody(card, { showSkeleton: false }); }
   } catch (err) { toast(err.message); }
 }
@@ -621,7 +621,7 @@ function historyCardHTML(w) {
           ${groupBadges ? `<div class="history-card__groups">${groupBadges}</div>` : ''}
         </div>
         <div class="history-card__stats">
-          ${w.total_sets} sets<br/>
+          ${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>
           ${Math.round(w.total_volume).toLocaleString()} kg
           ${w.calories_burned ? `<br/><span style="font-size:11px;color:var(--text-dim)">~${w.calories_burned} kcal</span>` : ''}
         </div>

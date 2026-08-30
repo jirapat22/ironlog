@@ -146,11 +146,16 @@ body.has-install-hint .app {
   padding-bottom: calc(var(--nav-h) + var(--install-hint-h) + env(safe-area-inset-bottom));
 }
 
-/* Both at once: they overlap each other (same bottom offset), so the taller
-   one decides the clearance — summing would be wrong, but max() keeps the
-   last element clear of whichever is actually on top. */
+/* Both at once: they are anchored to the same bottom offset, so the update
+   banner (z-index 60) landed on top of the install hint (50) and covered it —
+   59px of overlap, two messages fighting for one strip. Lift the hint above
+   the banner so they stack, and reserve clearance for both. */
+body.has-update-banner .install-hint {
+  bottom: calc(var(--nav-h) + 12px + var(--update-banner-h) + env(safe-area-inset-bottom));
+}
+
 body.has-install-hint.has-update-banner .app {
-  padding-bottom: calc(var(--nav-h) + max(var(--install-hint-h), var(--update-banner-h)) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--nav-h) + var(--install-hint-h) + var(--update-banner-h) + env(safe-area-inset-bottom));
 }
 
 .app__header {
