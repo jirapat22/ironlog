@@ -229,13 +229,21 @@ function markRowExtrasTouched(row) {
   saveDraft(workoutState.workout.id, workoutState.draft);
 }
 
+// Rows are rendered 1..getSetCount(), so this is also the guard against a
+// stored set_number that is out of all proportion — one such row (from an
+// import, or any client that isn't this one) sized the list at ~1e6 and the
+// whole workout failed to open with "Invalid string length". The server now
+// rejects those on the way in; this keeps a workout that already has one
+// openable rather than permanently lost.
+const MAX_RENDERED_SETS = 100;
+
 function getSetCount(ex) {
   const override = workoutState?.draft?.setCounts?.[ex.exercise_id];
   const loggedMax = Math.max(
     0,
     ...workoutState.loggedSets.filter((s) => s.exercise_id === ex.exercise_id).map((s) => s.set_number)
   );
-  return Math.max(override ?? ex.target_sets, loggedMax);
+  return Math.min(MAX_RENDERED_SETS, Math.max(override ?? ex.target_sets, loggedMax));
 }
 
 // ---------- Log a non-strength activity (class / run / cardio) ----------

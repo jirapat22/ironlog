@@ -120,6 +120,11 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, load
   return beatPreviousBest;
 }
 
+// Sanity ceilings — see the bound checks in POST / below.
+const MAX_WEIGHT = { kg: 2000, lbs: 4400 };
+const MAX_REPS = 1000;
+const MAX_SET_NUMBER = 100;
+
 router.post('/', (req, res) => {
   const {
     workout_id,
@@ -167,6 +172,19 @@ router.post('/', (req, res) => {
   if (nWeight < 0) return res.status(400).json({ error: 'weight cannot be negative' });
   if (!Number.isInteger(nReps) || nReps <= 0) return res.status(400).json({ error: 'reps must be a positive whole number' });
   if (!Number.isInteger(nSetNumber) || nSetNumber <= 0) return res.status(400).json({ error: 'set_number must be a positive whole number' });
+  // Upper bounds. The floor checks above stop negatives, but nothing stopped a
+  // fat-fingered 100000: it was accepted, took the exercise's PR forever, and
+  // turned a session's volume into 800,480 kg. set_number is worse than wrong
+  // data — the workout view sizes each exercise's row list off the highest
+  // set_number it sees, so a single absurd one made the whole workout
+  // unopenable ("Invalid string length" building ~1e6 rows of markup), with no
+  // way back to it from the UI. Bounds are far past any real lift: 2000 kg /
+  // 4400 lbs is roughly double the heaviest loaded machine.
+  if (nWeight > MAX_WEIGHT[weight_unit]) {
+    return res.status(400).json({ error: `weight must be ${MAX_WEIGHT[weight_unit]} ${weight_unit} or less` });
+  }
+  if (nReps > MAX_REPS) return res.status(400).json({ error: `reps must be ${MAX_REPS} or fewer` });
+  if (nSetNumber > MAX_SET_NUMBER) return res.status(400).json({ error: `set_number must be ${MAX_SET_NUMBER} or less` });
   if ((nRpe != null && (!Number.isFinite(nRpe) || nRpe < 0 || nRpe > 10)) ||
       (nRir != null && (!Number.isFinite(nRir) || nRir < 0 || nRir > 10))) {
     return res.status(400).json({ error: 'rpe and rir must be numbers between 0 and 10 when provided' });
@@ -246,6 +264,15 @@ router.patch('/:id', (req, res) => {
       if (f === 'weight' && n < 0) return res.status(400).json({ error: 'weight cannot be negative' });
       if ((f === 'reps' || f === 'set_number') && (!Number.isInteger(n) || n <= 0)) {
         return res.status(400).json({ error: `${f} must be a positive whole number` });
+      }
+      // Same ceilings POST applies — editing a set was a way straight past them.
+      const unit = (req.body && req.body.weight_unit) || existing.weight_unit || 'kg';
+      if (f === 'weight' && n > MAX_WEIGHT[unit]) {
+        return res.status(400).json({ error: `weight must be ${MAX_WEIGHT[unit]} ${unit} or less` });
+      }
+      if (f === 'reps' && n > MAX_REPS) return res.status(400).json({ error: `reps must be ${MAX_REPS} or fewer` });
+      if (f === 'set_number' && n > MAX_SET_NUMBER) {
+        return res.status(400).json({ error: `set_number must be ${MAX_SET_NUMBER} or less` });
       }
       if ((f === 'rpe' || f === 'rir') && (n < 0 || n > 10)) {
         return res.status(400).json({ error: `${f} must be between 0 and 10` });
