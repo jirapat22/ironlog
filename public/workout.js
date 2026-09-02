@@ -805,7 +805,13 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const logged = loggedBySet[key];
     // When the exercise was skipped, only show logged rows on re-render
     if (isSkipped && !logged) continue;
-    const prevSet = lastSets.find((s) => s.set_number === i) || prevReference;
+    // Exact same-numbered set from last time, if there was one. prevSet below
+    // falls back to the last set of that session so weight/reps still prefill
+    // sensibly past where it ended — but a NOTE must not inherit that way, or
+    // one cue written on set 1 gets repeated against every later set as though
+    // you had written it there.
+    const prevExact = lastSets.find((s) => s.set_number === i);
+    const prevSet = prevExact || prevReference;
     const draft = drafts[key];
     // An in-progress, not-yet-saved correction to an ALREADY-logged set —
     // e.g. you notice a mistyped weight and start fixing it. Must win over
@@ -827,7 +833,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     const repsL = pendingEdit?.repsL ?? logged?.reps_l ?? draft?.repsL ?? '';
 
     if (!logged && firstUnloggedSet === null) { firstUnloggedSet = i; nextSetW = w; nextSetU = u; }
-    rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l, prevNote: prevSet?.notes }));
+    rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l, prevNote: prevExact?.notes }));
   }
 
   const trend = pastTrendFor(ex);
@@ -1276,6 +1282,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
         ${logged && !isWarmup ? `<button class="set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}" data-toggle-form title="Form broke down on this set — won't count toward progressing next time">&#x26A0;&#xFE0F;</button>` : ''}
         <button data-rest class="rest-timer">rest</button>
       </div>
+      ${!logged && prevNote ? `<div class="set-row__last-note" title="What you noted on this set last time">&#x270E; ${escapeHtml(prevNote)}</div>` : ''}
       ${hintsHTML}
       <div class="set-row__extras">
         <input class="set-row__note" data-note placeholder="${escapeHtml(notePlaceholder)}" value="${escapeHtml(note)}"/>

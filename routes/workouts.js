@@ -200,6 +200,11 @@ router.get('/history', (req, res) => {
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
+              -- So the list can mark which sessions carry notes. Without this
+              -- a workout with notes looked identical to one without, and the
+              -- only way to find them was opening every card in turn.
+              (SELECT COUNT(*) FROM sets sn
+                WHERE sn.workout_id = w.id AND TRIM(COALESCE(sn.notes, '')) <> '') as set_note_count,
               COALESCE(SUM(CASE WHEN s.is_warmup = 0
                 THEN ${effectiveVolumeLoadKgSql('s', 'ex', 'w')} * s.reps
                 ELSE 0 END), 0) as total_volume,

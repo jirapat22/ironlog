@@ -1770,6 +1770,34 @@ body.keyboard-open .update-banner {
   font-weight: 600;
 }
 
+/* Note preview on a collapsed history card — the only thing distinguishing a
+   session you wrote something in from one you didn't. */
+.history-card__note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Last session's note for THIS set, shown on the row before you log it. It
+   used to live only in the note field's placeholder, which is hidden behind
+   the pencil — so the cue never actually reached anyone mid-workout. */
+.set-row.done .set-row__last-note { display: none; }
+
+.set-row__last-note {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .history-ex__set-note {
   color: var(--text-dim);
   font-size: 12px;

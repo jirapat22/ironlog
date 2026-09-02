@@ -612,6 +612,21 @@ function historyCardHTML(w) {
   const groupBadges = [...subsByGroup.entries()].map(([g, subs]) =>
     `<span class="badge badge--mg mg-${PICKER_GROUP_ORDER.includes(g) ? g : 'other'}">${escapeHtml(g)}${subs.size ? ' · ' + [...subs].map(escapeHtml).join(' · ') : ''}</span>`
   ).join('');
+  // A note was only ever visible once the card was expanded, at the very
+  // bottom — so you had to remember which session you wrote in and open them
+  // one at a time. Preview it on the card itself, and mark set-level notes
+  // too (a session where only a set was annotated has no workout note at all).
+  const noteText = (w.notes || '').trim();
+  const setNotes = Number(w.set_note_count) || 0;
+  const noteBits = [];
+  if (noteText) {
+    const oneLine = noteText.replace(/\s+/g, ' ');
+    noteBits.push(escapeHtml(oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine));
+  }
+  if (setNotes) noteBits.push(`${setNotes} set note${setNotes === 1 ? '' : 's'}`);
+  const notePreview = noteBits.length
+    ? `<div class="history-card__note">&#x270E; ${noteBits.join(' · ')}</div>`
+    : '';
   return `
     <div class="history-card" data-id="${w.id}" ${exAttr}>
       <button class="history-card__head">
@@ -619,6 +634,7 @@ function historyCardHTML(w) {
           <div class="history-card__title">${escapeHtml(w.day_label || 'Workout')}</div>
           <div class="history-card__meta">${started.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${dur}${w.feel_rating ? ' · ' + feelEmoji(w.feel_rating) : ''}</div>
           ${groupBadges ? `<div class="history-card__groups">${groupBadges}</div>` : ''}
+          ${notePreview}
         </div>
         <div class="history-card__stats">
           ${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>
