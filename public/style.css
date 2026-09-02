@@ -1784,18 +1784,27 @@ body.keyboard-open .update-banner {
 
 /* Last session's note for THIS set, shown on the row before you log it. It
    used to live only in the note field's placeholder, which is hidden behind
-   the pencil — so the cue never actually reached anyone mid-workout. */
+   the pencil — so the cue never actually reached anyone mid-workout.
+   Styled as a callout rather than dim italic text: the first attempt read
+   as quiet enough to scan straight past, which fails the same way hiding
+   it did. Amber keeps it distinct from the orange progression hint that
+   sits above it on the same card. */
 .set-row.done .set-row__last-note { display: none; }
 
 .set-row__last-note {
   grid-column: 1 / -1;
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-dim);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(240, 169, 44, 0.12);
+  border: 1px solid rgba(240, 169, 44, 0.32);
+  color: #f0a92c;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  /* Wrap rather than truncate - a cue you can only half-read is no cue. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .history-ex__set-note {
