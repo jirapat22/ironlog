@@ -295,12 +295,16 @@ async function openSettingsSheet() {
         const outliers = await API.unitOutliers();
         resultEl.innerHTML = !outliers.length
           ? `<div class="card__subtitle" style="margin-top:8px">No mix-ups found — every exercise looks consistent.</div>`
-          : `<div class="card__subtitle" style="margin-top:8px">${outliers.length} set${outliers.length !== 1 ? 's' : ''} logged in an unusual unit for that exercise. Fix a real mistake in History; if it's actually correct, mark it fine so it stops showing up here:</div>
+          : `<div class="card__subtitle" style="margin-top:8px">${outliers.length} set${outliers.length !== 1 ? 's' : ''} logged in a different unit from the sessions either side of it:</div>
              <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
                ${outliers.map((o) => `
-                 <div class="settings-row" data-outlier-row="${o.set_id}" style="font-size:13px">
-                   <span>${escapeHtml(o.exercise_name)} — ${fmtSetWeight(o.weight, o.weight_unit)} (usually ${o.usual_unit}) · ${formatDateShort(o.logged_at)}</span>
-                   <button class="btn btn--ghost btn--sm" data-mark-unit-ok="${o.set_id}">Looks fine</button>
+                 <div class="settings-row" data-outlier-row="${o.set_id}" style="font-size:13px;align-items:flex-start">
+                   <span>${escapeHtml(o.exercise_name)} — ${fmtSetWeight(o.weight, o.weight_unit)} × ${o.reps} · ${formatDateShort(o.logged_at)}<br/>
+                     <span style="color:var(--text-dim)">${escapeHtml(o.unit_history || `usually ${o.usual_unit}`)}</span></span>
+                   <span style="display:flex;gap:6px;flex-shrink:0">
+                     <button class="btn btn--ghost btn--sm" data-open-workout="${o.workout_id}">Open</button>
+                     <button class="btn btn--ghost btn--sm" data-mark-unit-ok="${o.set_id}">Fine</button>
+                   </span>
                  </div>`).join('')}
              </div>`;
       } catch (err) { toast(err.message); }
@@ -344,6 +348,17 @@ async function openSettingsSheet() {
       openMislogSheet(flag, {
         onResolved: () => { sheet.querySelector(`[data-suspicious-row="${setId}"]`)?.remove(); }
       });
+      return;
+    }
+
+    // "I can't jump or look at the workout itself" — without the session in
+    // front of you there is no way to tell a real slip from a deliberate
+    // choice, which is most of what made this list unusable.
+    const openWorkoutBtn = e.target.closest('[data-open-workout]');
+    if (openWorkoutBtn) {
+      const workoutId = Number(openWorkoutBtn.dataset.openWorkout);
+      hideSheet(sheet);
+      document.dispatchEvent(new CustomEvent('ironlog:history-focus', { detail: { workoutId } }));
       return;
     }
 

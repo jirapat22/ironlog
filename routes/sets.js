@@ -2,7 +2,7 @@ const express = require('express');
 const { db, effectiveVolumeLoadKgSql } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { computeImprovedFlags } = require('../lib/improved');
-const { findSuspiciousSets } = require('../lib/mislog');
+const { findSuspiciousSets, findUnitOutliers } = require('../lib/mislog');
 
 const router = express.Router();
 
@@ -327,34 +327,21 @@ router.patch('/:id', (req, res) => {
 // Confirmed-fine sets (unit_reviewed) are excluded so a real intentional
 // lbs/kg switch doesn't get re-flagged on every check.
 router.get('/unit-outliers', (req, res) => {
+  // Deliberately NOT filtered to unit_reviewed = 0 here: a dismissed set is
+  // still part of the picture when working out which unit an exercise usually
+  // uses, and whether a given session stands alone. findUnitOutliers drops
+  // reviewed rows at reporting time instead.
   const rows = db.prepare(
-    `SELECT s.id, s.exercise_id, e.name AS exercise_name, s.weight, s.weight_unit, s.reps, s.logged_at
-     FROM sets s JOIN exercises e ON e.id = s.exercise_id
-     WHERE s.profile_id = ? AND s.is_warmup = 0 AND s.unit_reviewed = 0
-     ORDER BY s.exercise_id, s.logged_at`
+    `SELECT s.id, s.exercise_id, s.workout_id, e.name AS exercise_name,
+            s.weight, s.weight_unit, s.reps, s.logged_at, s.unit_reviewed
+       FROM sets s JOIN exercises e ON e.id = s.exercise_id
+      WHERE s.profile_id = ? AND s.is_warmup = 0
+      ORDER BY s.exercise_id, s.logged_at`
   ).all(req.profileId);
 
-  const byExercise = new Map();
-  for (const r of rows) {
-    if (!byExercise.has(r.exercise_id)) byExercise.set(r.exercise_id, []);
-    byExercise.get(r.exercise_id).push(r);
-  }
-
-  const outliers = [];
-  for (const sets of byExercise.values()) {
-    const kg = sets.filter((s) => s.weight_unit !== 'lbs');
-    const lbs = sets.filter((s) => s.weight_unit === 'lbs');
-    const [majority, minority] = kg.length >= lbs.length ? [kg, lbs] : [lbs, kg];
-    if (minority.length && majority.length >= minority.length * 2) {
-      for (const s of minority) {
-        outliers.push({
-          set_id: s.id, exercise_name: s.exercise_name, weight: s.weight,
-          weight_unit: s.weight_unit, reps: s.reps, logged_at: s.logged_at,
-          usual_unit: majority[0].weight_unit
-        });
-      }
-    }
-  }
+  const nameById = new Map(rows.map((r) => [r.id, r.exercise_name]));
+  const outliers = findUnitOutliers(rows)
+    .map((o) => ({ ...o, exercise_name: nameById.get(o.set_id) || '' }));
   res.json(outliers);
 });
 

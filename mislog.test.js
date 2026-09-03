@@ -201,3 +201,78 @@ test('flagged sets come back heaviest first', () => {
   const found = findSuspiciousSets(history([80, 82.5, 85, 85, 500, 900]));
   assert.deepStrictEqual(found.map((f) => f.compare_kg), [900, 500]);
 });
+
+// ---------------------------------------------------------------------------
+// kg/lbs outliers. The bar here is the real report that prompted the rewrite:
+// 43 flags, none of them mistakes, because the user had switched units.
+// ---------------------------------------------------------------------------
+
+const { findUnitOutliers } = require('./lib/mislog');
+
+// One session per entry; "kg"/"lbs" is that whole session's unit.
+function units(seq, { exercise_id = 1, setsPerSession = 1 } = {}) {
+  const rows = [];
+  let id = 1;
+  seq.forEach((unit, i) => {
+    for (let n = 0; n < setsPerSession; n++) {
+      rows.push({
+        id: id++,
+        exercise_id,
+        workout_id: 500 + i,
+        logged_at: `2026-0${1 + Math.floor(i / 28)}-${String((i % 28) + 1).padStart(2, '0')} 10:00:00`,
+        weight: 50,
+        weight_unit: unit,
+        reps: 10,
+        unit_reviewed: 0
+      });
+    }
+  });
+  return rows;
+}
+
+test('a changeover between units is never reported', () => {
+  // The actual complaint: months in lbs, then a switch to kg. Every lbs
+  // session was previously flagged.
+  const found = findUnitOutliers(units(['lbs','lbs','lbs','lbs','kg','kg','kg','kg','kg','kg','kg','kg']));
+  assert.deepStrictEqual(found, []);
+});
+
+test('a sustained run in the other unit is a choice, not a slip', () => {
+  // Cable Crunch: four lbs sessions in the middle of a kg history.
+  const found = findUnitOutliers(units(['kg','kg','kg','lbs','lbs','lbs','lbs','kg','kg','kg','kg','kg']));
+  assert.deepStrictEqual(found, []);
+});
+
+test('one stray session surrounded by the usual unit IS reported', () => {
+  const found = findUnitOutliers(units(['kg','kg','kg','lbs','kg','kg','kg']));
+  assert.strictEqual(found.length, 1);
+  assert.strictEqual(found[0].weight_unit, 'lbs');
+  assert.strictEqual(found[0].usual_unit, 'kg');
+});
+
+test('every set of a stray session is reported, but the session is one decision', () => {
+  const found = findUnitOutliers(units(['kg','kg','kg','lbs','kg','kg','kg'], { setsPerSession: 3 }));
+  assert.strictEqual(found.length, 3);
+  assert.strictEqual(new Set(found.map((f) => f.workout_id)).size, 1);
+});
+
+test('a near-even split has no "usual" to be an outlier from', () => {
+  const found = findUnitOutliers(units(['kg','lbs','kg','lbs','kg','lbs']));
+  assert.deepStrictEqual(found, []);
+});
+
+test('an exercise with almost no history is left alone', () => {
+  const found = findUnitOutliers(units(['kg','lbs']));
+  assert.deepStrictEqual(found, []);
+});
+
+test('a reviewed set stays dismissed', () => {
+  const rows = units(['kg','kg','kg','lbs','kg','kg','kg']);
+  rows.find((r) => r.weight_unit === 'lbs').unit_reviewed = 1;
+  assert.deepStrictEqual(findUnitOutliers(rows), []);
+});
+
+test('the row explains the exercise\'s unit story', () => {
+  const found = findUnitOutliers(units(['kg','kg','kg','lbs','kg','kg','kg']));
+  assert.strictEqual(found[0].unit_history, '6 sessions in kg, 1 in lbs');
+});

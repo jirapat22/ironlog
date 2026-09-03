@@ -114,6 +114,11 @@ async function renderHistory() {
         card.scrollIntoView({ behavior: 'smooth', block: 'start' });
         card.classList.add('history-card--flash');
         setTimeout(() => card.classList.remove('history-card--flash'), 1800);
+        // ...and open it. Landing beside a collapsed card still leaves you a
+        // tap away from the session you came to look at, which is the whole
+        // reason for the link. Deferred a tick because list.onclick, which
+        // does the expanding, is wired further down this same function.
+        setTimeout(() => card.querySelector('.history-card__head')?.click(), 0);
       }
     } else {
       applyFilters(); // apply the persisted kind filter immediately on load
