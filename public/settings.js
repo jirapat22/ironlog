@@ -1,6 +1,7 @@
 import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, isIOS, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, ACCENTS, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
+import { openMislogSheet } from './workout.js';
 import { reportBugManually, reportHandled } from './bugreport.js';
 
 async function openSettingsSheet() {
@@ -84,6 +85,12 @@ async function openSettingsSheet() {
             <button class="btn btn--ghost btn--sm" id="check-unit-outliers">Check</button>
           </div>
           <div id="unit-outliers-result"></div>
+          <div class="settings-row" style="margin-top:10px">
+            <span>Check for mislogged weights</span>
+            <button class="btn btn--ghost btn--sm" id="check-suspicious">Check</button>
+          </div>
+          <div class="card__subtitle">Finds sets far heavier or lighter than your own history for that exercise — a missed decimal or an extra zero. These also block that exercise's next-weight suggestion until reviewed.</div>
+          <div id="suspicious-result"></div>
         </div>
 
         <div class="settings-group__title">Ideas &amp; Bugs</div>
@@ -299,6 +306,44 @@ async function openSettingsSheet() {
       } catch (err) { toast(err.message); }
       outlierBtn.disabled = false;
       outlierBtn.textContent = 'Check';
+      return;
+    }
+
+    const suspiciousBtn = e.target.closest('#check-suspicious');
+    if (suspiciousBtn) {
+      const resultEl = sheet.querySelector('#suspicious-result');
+      suspiciousBtn.disabled = true;
+      suspiciousBtn.textContent = '…';
+      try {
+        const flagged = await API.suspiciousSets();
+        resultEl.innerHTML = !flagged.length
+          ? `<div class="card__subtitle" style="margin-top:8px">Nothing looks mislogged — every set is in line with your history.</div>`
+          : `<div class="card__subtitle" style="margin-top:8px">${flagged.length} set${flagged.length !== 1 ? 's' : ''} to check:</div>
+             <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
+               ${flagged.map((f) => `
+                 <div class="settings-row" data-suspicious-row="${f.set_id}" style="font-size:13px">
+                   <span>${escapeHtml(f.exercise_name)} — ${escapeHtml(String(f.weight))}${escapeHtml(f.weight_unit)} × ${f.reps} · ${escapeHtml(formatDateShort(f.logged_at))}<br/>
+                     <span style="color:var(--text-dim)">${f.reason === 'decimal_slip'
+                       ? `usually around ${Math.round(f.typical_kg)}kg`
+                       : `best is ${Math.round(f.best_ever_kg)}kg`}</span></span>
+                   <button class="btn btn--ghost btn--sm" data-review-suspicious="${f.set_id}">Review</button>
+                 </div>`).join('')}
+             </div>`;
+      } catch (err) { toast(err.message); }
+      suspiciousBtn.disabled = false;
+      suspiciousBtn.textContent = 'Check';
+      return;
+    }
+
+    const reviewSuspicious = e.target.closest('[data-review-suspicious]');
+    if (reviewSuspicious) {
+      const setId = Number(reviewSuspicious.dataset.reviewSuspicious);
+      const flagged = await API.suspiciousSets().catch(() => []);
+      const flag = flagged.find((f) => f.set_id === setId);
+      if (!flag) { sheet.querySelector(`[data-suspicious-row="${setId}"]`)?.remove(); return; }
+      openMislogSheet(flag, {
+        onResolved: () => { sheet.querySelector(`[data-suspicious-row="${setId}"]`)?.remove(); }
+      });
       return;
     }
 

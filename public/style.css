@@ -1936,6 +1936,16 @@ body.keyboard-open .update-banner {
   color: #f0a92c;
 }
 
+/* A suggestion blocked because one of the sets it reads looks mislogged.
+   Red rather than the amber used for a form flag: amber says "noted", this
+   says "the number below is wrong and nothing here can be trusted until you
+   look". */
+.prog-hint--mislog {
+  background: rgba(233, 88, 74, 0.1);
+  border: 1px solid rgba(233, 88, 74, 0.4);
+  color: #ff9d8f;
+}
+
 .prog-hint__main {
   font-weight: 600;
 }

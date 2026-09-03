@@ -274,7 +274,11 @@ function init() {
     // former; using started_at meant a backdated session could never be
     // recovered. Left NULL on existing rows — every reader COALESCEs back to
     // started_at, which is what those rows already meant.
-    ['workouts', 'created_at TEXT']
+    ['workouts', 'created_at TEXT'],
+    // Mirrors unit_reviewed, for the weight sanity check: once you confirm a
+    // set really was that heavy it stops being queried, and from then on it
+    // counts toward your best ever for that exercise.
+    ['sets', 'weight_reviewed INTEGER NOT NULL DEFAULT 0']
   ]) {
     const column = def.split(' ')[0];
     if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);

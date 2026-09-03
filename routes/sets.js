@@ -1,7 +1,8 @@
 const express = require('express');
-const { db } = require('../db');
+const { db, effectiveVolumeLoadKgSql } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { computeImprovedFlags } = require('../lib/improved');
+const { findSuspiciousSets } = require('../lib/mislog');
 
 const router = express.Router();
 
@@ -285,7 +286,7 @@ router.patch('/:id', (req, res) => {
   // `reps` also sent in the same request is ignored in favor of the
   // per-side breakdown (mirrors POST's behavior).
   const bodyHasSides = 'reps_r' in (req.body || {}) || 'reps_l' in (req.body || {});
-  const fields = ['weight', 'weight_unit', ...(bodyHasSides ? [] : ['reps']), 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag'];
+  const fields = ['weight', 'weight_unit', ...(bodyHasSides ? [] : ['reps']), 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag', 'weight_reviewed'];
   const updates = [];
   const values = [];
   for (const f of fields) {
@@ -355,6 +356,50 @@ router.get('/unit-outliers', (req, res) => {
     }
   }
   res.json(outliers);
+});
+
+// ---------------------------------------------------------------------------
+// Sets whose weight is out of all proportion to your own history for that
+// exercise — a missed decimal, an extra zero, a number typed into the wrong
+// row. Worth its own endpoint because the progression suggestion is built
+// from the heaviest set of your last session: one bad row silently becomes
+// that exercise's best and every recommendation after it is nonsense.
+//
+// Compared on EFFECTIVE load (per-arm doubling, bodyweight plus added) so a
+// lift is judged on what it actually moved. Assisted lifts carry their
+// assistance figure separately — see lib/mislog.js for why that one is
+// compared on the raw number instead.
+// ---------------------------------------------------------------------------
+router.get('/suspicious', (req, res) => {
+  const rows = db.prepare(
+    `SELECT s.id, s.exercise_id, s.workout_id, s.logged_at, s.weight, s.weight_unit,
+            s.reps, s.weight_reviewed,
+            e.name AS exercise_name, e.is_assisted, e.is_bodyweight,
+            ${effectiveVolumeLoadKgSql('s', 'e', 'w')} AS load_kg,
+            (CASE WHEN s.weight_unit = 'lbs' THEN s.weight * 0.45359237 ELSE s.weight END) AS assist_kg
+       FROM sets s
+       JOIN exercises e ON e.id = s.exercise_id
+       JOIN workouts w ON w.id = s.workout_id
+      WHERE s.profile_id = ? AND s.is_warmup = 0
+      ORDER BY s.logged_at`
+  ).all(req.profileId);
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const flagged = findSuspiciousSets(rows.map((r) => ({
+    id: r.id,
+    exercise_id: r.exercise_id,
+    workout_id: r.workout_id,
+    logged_at: r.logged_at,
+    weight: r.weight,
+    weight_unit: r.weight_unit,
+    reps: r.reps,
+    weight_reviewed: r.weight_reviewed,
+    is_assisted: !!r.is_assisted,
+    loadKg: r.load_kg,
+    assistKg: r.assist_kg
+  })));
+
+  res.json(flagged.map((f) => ({ ...f, exercise_name: byId.get(f.set_id)?.exercise_name || '' })));
 });
 
 router.delete('/:id', (req, res) => {

@@ -501,7 +501,7 @@ async function renderWorkout(retriedAfterMissing = false) {
     }
     const savedListExIds = savedList?.length ? savedList.map((e) => e.exercise_id) : [];
 
-    const [days, last, settings, recentSessions, freshExercises] = await Promise.all([
+    const [days, last, settings, recentSessions, freshExercises, suspicious] = await Promise.all([
       programDayId
         ? fetchDayDetails(programDayId)
         : Promise.resolve({ day_label: 'Quick Workout', exercises: [], id: null }),
@@ -518,7 +518,12 @@ async function renderWorkout(retriedAfterMissing = false) {
       // to be re-fetched live or an edit made mid-workout (or to an exercise
       // swapped in outside the day's own template, or in a quick workout
       // with no day template to refresh against at all) never shows up.
-      savedListExIds.length ? API.exercisesByIds(savedListExIds).catch(() => []) : Promise.resolve([])
+      savedListExIds.length ? API.exercisesByIds(savedListExIds).catch(() => []) : Promise.resolve([]),
+      // Sets whose weight is out of proportion to your own history. The
+      // progression suggestion is read from the heaviest set of your last
+      // session, so one bad row silently drives every recommendation for that
+      // exercise until it's dealt with.
+      API.suspiciousSets().catch(() => [])
     ]);
     await syncUserBodyweight();
 
@@ -533,7 +538,8 @@ async function renderWorkout(retriedAfterMissing = false) {
       openExtras: new Set(),
       draft,
       preferredUnit: settings.preferred_unit || 'kg',
-      showEquiv: settings.show_weight_equiv !== '0'
+      showEquiv: settings.show_weight_equiv !== '0',
+      suspicious: suspicious || []
     };
 
     // Reconstruct any exercises that were added mid-workout (not in the program template).
@@ -852,7 +858,16 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   const referenceU = firstUnloggedSet !== null ? nextSetU : lastLogged?.weight_unit;
   const recStillMatches = !rec || referenceW == null
     || (Number(referenceW) === Number(rec.recWeight) && referenceU === rec.recUnit);
-  const hint = !recStillMatches ? '' : rec ? buildProgressionHint(rec, trend) : (lastSets.length ? '' : firstTimeHintHTML());
+  // A suggestion is only as good as what it read. If one of the sets it is
+  // built from looks mislogged, showing "increase to 855kg" would be worse
+  // than showing nothing — so say what's wrong and offer to fix it instead.
+  // Deliberately scoped to the sets actually feeding THIS recommendation: an
+  // old bad row elsewhere in the exercise's history still turns up in the
+  // Settings scan, but doesn't hold today's lifting hostage.
+  const suspect = suspiciousInSets(lastSets);
+  const hint = suspect
+    ? mislogHintHTML(suspect)
+    : !recStillMatches ? '' : rec ? buildProgressionHint(rec, trend) : (lastSets.length ? '' : firstTimeHintHTML());
 
   // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
   const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
@@ -961,6 +976,88 @@ function trendBadgeHTML(status, trend, rec) {
     return `<button class="prog-hint__badge prog-hint__badge--up" data-badge-title="Going up" data-badge-msg="${escapeHtml(msg)}">&#x2B06; Going up</button>`;
   }
   return '';
+}
+
+// Review panel for a set the weight check flagged. Fixing it has to be
+// possible from here rather than "go and find it in History": the flag is
+// shown mid-workout, and a suggestion you can't unblock in ten seconds is
+// just an obstacle.
+async function openMislogSheet(flag, { onResolved } = {}) {
+  const sheet = ensureSheet('mislog-sheet');
+  const unit = flag.weight_unit;
+  const why = flag.reason === 'decimal_slip'
+    ? `You usually log around ${Math.round(flag.typical_kg)}kg for this exercise.`
+    : `Your best on this lift is ${Math.round(flag.best_ever_kg)}kg.`;
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head"><button class="btn--icon" data-close-sheet>&larr;</button><div class="sheet__title">Check this set</div><span style="width:40px"></span></div>
+      <div class="sheet__body">
+        <div class="card__subtitle">${escapeHtml(flag.exercise_name || 'This exercise')} &middot; ${escapeHtml(formatDateShort(flag.logged_at))}</div>
+        <div class="prog-hint prog-hint--mislog" style="margin-top:10px">
+          <div class="prog-hint__main">${escapeHtml(String(flag.weight))}${escapeHtml(unit)} &times; ${flag.reps}</div>
+          <div class="prog-hint__sub">${escapeHtml(why)}</div>
+        </div>
+        ${flag.suggestion ? `
+        <button class="btn btn--primary btn--block" id="ml-apply" style="margin-top:14px">
+          Change to ${escapeHtml(String(flag.suggestion.weight))}${escapeHtml(unit)}
+        </button>
+        <div class="card__subtitle" style="margin-top:6px">Looks like a ${escapeHtml(flag.suggestion.reason)}.</div>` : ''}
+
+        <label class="form-label" style="margin-top:16px">Or set it yourself</label>
+        <div class="set-edit__row">
+          <input class="input" id="ml-weight" type="text" inputmode="decimal" value="${escapeHtml(String(flag.weight))}" style="flex:1"/>
+          <span style="align-self:center;color:var(--text-dim)">${escapeHtml(unit)}</span>
+          <input class="input" id="ml-reps" type="text" inputmode="numeric" value="${flag.reps}" style="flex:1"/>
+          <span style="align-self:center;color:var(--text-dim)">reps</span>
+        </div>
+        <button class="btn btn--block" id="ml-save" style="margin-top:10px">Save</button>
+
+        <button class="btn btn--ghost btn--block" id="ml-fine" style="margin-top:18px">That's correct — stop asking</button>
+        <div class="card__subtitle" style="margin-top:6px">Marks this set as checked. It'll count toward your best from now on.</div>
+      </div>
+    </div>`;
+  showSheet(sheet);
+
+  const done = async () => { hideSheet(sheet); await onResolved?.(); };
+  const patchSet = async (body) => {
+    try { await API.updateSet(flag.set_id, body); haptic(10); await done(); }
+    catch (err) { toast(err.message); }
+  };
+
+  sheet.querySelector('[data-close-sheet]').onclick = () => hideSheet(sheet);
+  const applyBtn = sheet.querySelector('#ml-apply');
+  if (applyBtn) applyBtn.onclick = () => patchSet({ weight: flag.suggestion.weight });
+  sheet.querySelector('#ml-save').onclick = () => {
+    const w = parseFloat(sheet.querySelector('#ml-weight').value);
+    const r = parseInt(sheet.querySelector('#ml-reps').value, 10);
+    if (!Number.isFinite(w) || w < 0) return toast('Enter a weight');
+    if (!Number.isInteger(r) || r <= 0) return toast('Enter the reps');
+    patchSet({ weight: w, reps: r });
+  };
+  // Confirming keeps the set exactly as logged and stops it being raised
+  // again — from then on it counts as part of your history like any other.
+  sheet.querySelector('#ml-fine').onclick = () => patchSet({ weight_reviewed: 1 });
+}
+
+// The first flagged set among the ones a recommendation is read from, if any.
+function suspiciousInSets(lastSets) {
+  const flags = workoutState?.suspicious || [];
+  if (!flags.length || !lastSets?.length) return null;
+  const ids = new Set(lastSets.map((s) => s.id));
+  return flags.find((f) => ids.has(f.set_id)) || null;
+}
+
+function mislogHintHTML(f) {
+  const typed = fmtSetWeight(f.weight, f.weight_unit, false, !!f.is_assisted);
+  const why = f.reason === 'decimal_slip'
+    ? `you usually log around ${Math.round(f.typical_kg)}kg here`
+    : `your best on this lift is ${Math.round(f.best_ever_kg)}kg`;
+  return `
+    <div class="prog-hint prog-hint--mislog">
+      <div class="prog-hint__main">&#x26A0; Check a logged set before I suggest a weight</div>
+      <div class="prog-hint__sub">${escapeHtml(typed)} &times; ${f.reps} on ${escapeHtml(formatDateShort(f.logged_at))} &mdash; ${escapeHtml(why)}</div>
+      <button class="btn btn--ghost btn--sm" data-review-mislog="${f.set_id}" style="margin-top:8px">Review</button>
+    </div>`;
 }
 
 function buildProgressionHint(rec, trend = []) {
@@ -1464,6 +1561,15 @@ function wireWorkoutView() {
       delete workoutState.draft.inputs[`${exId}-${current}`];
       saveDraft(workoutState.workout.id, workoutState.draft);
       renderWorkoutView();
+      return;
+    }
+
+    // Card-level, not row-level: the Review button lives in the progression
+    // box, so it has to be handled BEFORE the `.set-row` guard below returns.
+    const reviewBtn = e.target.closest('[data-review-mislog]');
+    if (reviewBtn) {
+      const flag = (workoutState?.suspicious || []).find((f) => f.set_id === Number(reviewBtn.dataset.reviewMislog));
+      if (flag) openMislogSheet(flag, { onResolved: renderWorkout });
       return;
     }
 
@@ -2872,5 +2978,8 @@ function openWorkoutNewExerciseForm(picker, { onBack, onCreated }) {
 export {
   renderWorkout, workoutState, flushWorkoutNotes,
   userBwKg, syncUserBodyweight, loadKg, e1RMForSet,
-  saveAsTemplate, openActivitySheet, ACTIVITY_TYPES
+  saveAsTemplate, openActivitySheet, ACTIVITY_TYPES,
+  // Settings' full scan reuses the same review panel, so a set fixed there
+  // behaves exactly like one fixed from the workout card.
+  openMislogSheet
 };
