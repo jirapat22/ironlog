@@ -687,11 +687,27 @@ function renderWorkoutView() {
   const loggedByExerciseSet = {};
   for (const s of loggedSets) loggedByExerciseSet[`${s.exercise_id}-${s.set_number}`] = s;
 
-  // Program-day "last" wins; otherwise fall back to this exercise's most recent
-  // performance anywhere (covers quick workouts + mid-workout-added exercises).
+  // Whichever session is genuinely the most recent wins — the program day's
+  // own last, or this exercise's last performance anywhere (a quick workout,
+  // another day, an exercise added mid-session).
+  //
+  // The program day's used to win outright, on the reasoning that same-slot
+  // sessions compare like with like. But doing a lift somewhere else does not
+  // un-do it: reported as "Single arm lat pulldown says last time 22 days but
+  // i just did 2 days ago", with the card offering to ease back in from a
+  // three-week layoff that never happened. Recency is the honest answer, and
+  // it is what every other surface (History, Progress) already shows.
   const lastByExercise = workoutState.lastByExercise || {};
+  const newestAt = (sets) => (sets?.length ? sets.reduce((m, s) => (String(s.logged_at) > String(m) ? s.logged_at : m), sets[0].logged_at) : '');
+  const pickLast = (exId) => {
+    const fromDay = lastSetsByExercise[exId];
+    const fromAnywhere = lastByExercise[exId];
+    if (!fromDay?.length) return fromAnywhere || [];
+    if (!fromAnywhere?.length) return fromDay;
+    return newestAt(fromAnywhere) > newestAt(fromDay) ? fromAnywhere : fromDay;
+  };
   const bodyHTML = programDay.exercises
-    .map((ex) => exerciseCardHTML(ex, lastSetsByExercise[ex.exercise_id] || lastByExercise[ex.exercise_id] || [], loggedByExerciseSet))
+    .map((ex) => exerciseCardHTML(ex, pickLast(ex.exercise_id), loggedByExerciseSet))
     .join('');
 
   root.innerHTML = `

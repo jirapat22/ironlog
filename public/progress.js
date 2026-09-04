@@ -1052,7 +1052,13 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
     const mixedFactors = !exercise?.is_bodyweight && new Set(sets.map(factorOf)).size > 1;
     const currentFactor = exercise?.weight_mode === 'per_arm' ? 2 : 1;
 
-    const recentSets = [...sets].reverse().slice(0, 15);
+    // Newest first. Capped in the initial view because a well-used exercise
+    // runs to hundreds of sets, but the cap used to be the end of the list
+    // with nothing saying so — reported as "recent sets doesn't show the
+    // whole one, there is a cap". The rest are now a tap away.
+    const allSets = [...sets].reverse();
+    const SETS_SHOW_DEFAULT = 15;
+    let setsExpanded = false;
     const prRows = [...prs].sort((a, b) => a.reps - b.reps);
 
     // Collapsed to one headline row by default — a rep-max row per distinct
@@ -1064,6 +1070,22 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
       const hasMore = prRows.length > PR_SHOW_DEFAULT;
       return `${visible.map((r) => `<div class="history-activity__line"><span>${r.reps}-rep max</span><strong>${fmtSetWeight(r.weight, r.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} · ${formatDateShort(r.achieved_at)}</strong></div>`).join('')}
         ${hasMore ? `<button class="bw-toggle" data-pr-toggle>${expanded ? '▲ Show less' : `▼ ${prRows.length - PR_SHOW_DEFAULT} more`}</button>` : ''}`;
+    };
+
+    const renderSetRows = (expanded) => {
+      if (!allSets.length) return '<div class="bw-current__empty">No sets logged yet.</div>';
+      const visible = expanded ? allSets : allSets.slice(0, SETS_SHOW_DEFAULT);
+      const hidden = allSets.length - visible.length;
+      return `${visible.map((s) => {
+        const rm = calcE1RM(s, exercise, bwKg);
+        return `
+        <div class="history-activity__line history-activity__line--link" data-jump-set data-workout-id="${s.workout_id}" role="button" tabindex="0">
+          <span>${formatDateShort(s.logged_at)}</span>
+          <strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}${rm ? ` · ~${Math.round(rm)}kg 1RM` : ''}</strong>
+        </div>`;
+      }).join('')}
+        ${hidden > 0 ? `<button class="bw-toggle" data-sets-toggle>▼ ${hidden} more</button>`
+          : allSets.length > SETS_SHOW_DEFAULT ? `<button class="bw-toggle" data-sets-toggle>▲ Show less</button>` : ''}`;
     };
 
     sheet.innerHTML = `
@@ -1087,20 +1109,14 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
             <div id="pr-list">${renderPrRows(prExpanded)}</div>` : ''}
           <div class="form-label" style="margin-top:14px">Recent sets <span style="color:var(--text-dim);font-weight:400">· tap to fix in History</span></div>
           ${exercise?.weight_mode === 'per_arm' && !exercise?.is_bodyweight ? `<div class="card__subtitle" style="margin:-2px 0 6px">Logged per arm/side — the 1RM counts both sides, so it reads about double the weight shown.</div>` : ''}
-          ${recentSets.length ? recentSets.map((s) => {
-            const rm = calcE1RM(s, exercise, bwKg);
-            return `
-            <div class="history-activity__line history-activity__line--link" data-jump-set data-workout-id="${s.workout_id}" role="button" tabindex="0">
-              <span>${formatDateShort(s.logged_at)}</span>
-              <strong>${fmtSetWeight(s.weight, s.weight_unit, exercise?.is_bodyweight, exercise?.is_assisted)} × ${s.reps}${s.rpe != null ? ` @${s.rpe}` : ''}${rm ? ` · ~${Math.round(rm)}kg 1RM` : ''}</strong>
-            </div>`;
-          }).join('') : '<div class="bw-current__empty">No sets logged yet.</div>'}
+          <div id="recent-sets-list">${renderSetRows(setsExpanded)}</div>
         </div>
       </div>`;
     sheet.onclick = (e) => {
       if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
       if (e.target.closest('[data-view-history]')) { hideSheet(sheet); return jumpToHistory({ exerciseName: name }); }
       if (e.target.closest('[data-pr-toggle]')) { prExpanded = !prExpanded; sheet.querySelector('#pr-list').innerHTML = renderPrRows(prExpanded); return; }
+      if (e.target.closest('[data-sets-toggle]')) { setsExpanded = !setsExpanded; sheet.querySelector('#recent-sets-list').innerHTML = renderSetRows(setsExpanded); return; }
       const normalise = e.target.closest('[data-normalise-factors]');
       if (normalise) {
         normalise.disabled = true;
