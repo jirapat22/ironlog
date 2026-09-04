@@ -1041,6 +1041,17 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
     const days = [...byDay.keys()].sort();
     const values = days.map((d) => Math.round(byDay.get(d)));
 
+    // Sets carry the per-arm factor they were logged under, frozen at the
+    // time. Answering "just going forward" when an exercise's per-arm setting
+    // is changed leaves both factors in the same history, and the e1RM chart
+    // then shows a cliff where nothing actually changed: the same 9kg x 10
+    // reads ~24kg before the flip and ~12kg after. Worth naming on the screen
+    // where that cliff is visible, rather than leaving it to look like a
+    // collapse in strength.
+    const factorOf = (s) => s.load_multiplier ?? (exercise?.weight_mode === 'per_arm' ? 2 : 1);
+    const mixedFactors = !exercise?.is_bodyweight && new Set(sets.map(factorOf)).size > 1;
+    const currentFactor = exercise?.weight_mode === 'per_arm' ? 2 : 1;
+
     const recentSets = [...sets].reverse().slice(0, 15);
     const prRows = [...prs].sort((a, b) => a.reps - b.reps);
 
@@ -1063,6 +1074,12 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
           <span style="width:40px"></span>
         </div>
         <div class="sheet__body">
+          ${mixedFactors ? `
+            <div class="prog-hint prog-hint--mislog" style="margin-bottom:12px">
+              <div class="prog-hint__main">&#x26A0; Older sets are counted differently</div>
+              <div class="prog-hint__sub">Some sets here count both sides and some count one, so the 1RM halves partway along the chart. That's how they're counted, not what you lifted.</div>
+              <button class="btn btn--ghost btn--sm" data-normalise-factors style="margin-top:8px">Count them all as ${currentFactor === 2 ? 'both sides' : 'one side'}</button>
+            </div>` : ''}
           ${days.length >= 2 ? `<div class="chart-wrap" style="height:160px"><canvas id="ex-detail-chart"></canvas></div>` : `<div class="bw-current__empty">Log this exercise across 2+ sessions to see a trend.</div>`}
           <button class="btn btn--ghost btn--sm" data-view-history style="width:100%;margin:10px 0 2px">View full history →</button>
           ${prRows.length ? `<div class="form-label" style="margin-top:14px">Personal records</div>
@@ -1083,6 +1100,22 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
       if (e.target.closest('[data-close-sheet]')) return hideSheet(sheet);
       if (e.target.closest('[data-view-history]')) { hideSheet(sheet); return jumpToHistory({ exerciseName: name }); }
       if (e.target.closest('[data-pr-toggle]')) { prExpanded = !prExpanded; sheet.querySelector('#pr-list').innerHTML = renderPrRows(prExpanded); return; }
+      const normalise = e.target.closest('[data-normalise-factors]');
+      if (normalise) {
+        normalise.disabled = true;
+        // Re-stamps every set's factor to the exercise's current setting. The
+        // numbers you typed are untouched; only how they are counted changes.
+        API.updateExercise(exerciseId, { weight_mode: exercise.weight_mode || 'combined', recompute_past_sets: true })
+          .then((r) => {
+            haptic(10);
+            toast(r.recomputed_sets ? `${r.recomputed_sets} sets recounted` : 'Nothing to change');
+            hideSheet(sheet);
+            openExerciseDetailSheet(exerciseId, displayName);
+          })
+          .catch((err) => { toast(err.message); normalise.disabled = false; });
+        return;
+      }
+
       const jumpSet = e.target.closest('[data-jump-set]');
       if (jumpSet) { hideSheet(sheet); return jumpToHistory({ exerciseName: name, workoutId: Number(jumpSet.dataset.workoutId) }); }
     };

@@ -327,11 +327,21 @@ router.patch('/:id', (req, res) => {
   // is not consent to rewrite logged weights.
   const modeActuallyChanged = newWeightMode && newWeightMode !== (existing.weight_mode || 'combined');
   const wantsRewrite = !!(req.body.recompute_past_sets && weightModeRequested);
-  const willRewriteSets = wantsRewrite && modeActuallyChanged;
+  // Re-stamping load_multiplier to match the CURRENT mode is idempotent and
+  // never touches a typed number, so it does not need the mode to have just
+  // changed. It has to be runnable on its own: answering "just going forward"
+  // to the fix prompt leaves the exercise with mixed multipliers for good, and
+  // there was no way back — a second PATCH with the same mode hit the
+  // modeActuallyChanged guard and did nothing. That state is visible as a
+  // cliff in the e1RM chart, where the same weight and reps read ~24kg before
+  // the flip and ~12kg after, so it needs a repair path.
+  // convert_stored_weight is a different matter: it halves or doubles every
+  // logged weight, is irreversible, and stays gated on an actual mode change.
+  const willRewriteSets = wantsRewrite && (modeActuallyChanged || !req.body.convert_stored_weight);
   // Reported back so a caller whose cached mode was stale can say "already set
   // to X, past sets weren't touched" rather than showing a success toast for a
   // rewrite that never happened.
-  const modeUnchanged = wantsRewrite && !modeActuallyChanged;
+  const modeUnchanged = wantsRewrite && !modeActuallyChanged && !!req.body.convert_stored_weight;
 
   let recomputedSets = 0;
   try {
