@@ -719,28 +719,55 @@ function confirmSheet({ title, message = '', confirmText = 'Confirm', cancelText
 // double what one arm actually lifted, and needs halving (or the reverse).
 // Returns { recompute, convert } — both false if "just going forward".
 async function confirmWeightModeFix(exerciseName, newMode) {
-  const fixPast = await confirmSheet({
-    title: 'Fix past sets too?',
-    message: newMode === 'combined'
-      ? `Also update your already-logged sets for ${exerciseName} so they stop being doubled for volume/charts? Only the numbers you already entered stay as-is — just how they're counted changes.`
-      : `Also update your already-logged sets for ${exerciseName} so they start being doubled for volume/charts (one arm's weight × 2)? Only the numbers you already entered stay as-is — just how they're counted changes.`,
-    confirmText: 'Fix past sets too',
-    cancelText: 'Just going forward'
-  });
-  if (!fixPast) return { recompute: false, convert: false };
+  // Was two stacked yes/no sheets ("Fix past sets too?" then "were you
+  // actually entering the combined total the whole time?"). Reported as
+  // confusing, and it is: the real question is a single one with three
+  // outcomes, and answering it wrongly either mangles logged numbers or
+  // leaves the exercise counted two ways at once. Asked directly instead,
+  // with each button stating what happens to your data.
+  const perArm = newMode === 'per_arm';
+  const sheet = ensureSheet('weight-mode-sheet');
+  sheet.innerHTML = `
+    <div class="sheet__inner">
+      <div class="sheet__head">
+        <button class="btn--icon" data-close-sheet>&larr;</button>
+        <div class="sheet__title">Your past sets</div>
+        <span style="width:40px"></span>
+      </div>
+      <div class="sheet__body">
+        <div class="card__subtitle">${escapeHtml(exerciseName)} is now set to <strong>${perArm ? 'per side' : 'combined'}</strong>, so from here on the weight you type means ${perArm ? '<strong>one side</strong>' : '<strong>both sides added together</strong>'}.</div>
+        <div class="form-label" style="margin-top:16px">In the sets you have already logged, what did the number mean?</div>
 
-  // The destructive branch is the CONFIRM, never the cancel. confirmSheet wires
-  // its header back-arrow to the same handler as cancelText, so having "convert
-  // it" on cancel meant the universal back-out affordance silently halved or
-  // doubled every logged weight for the exercise. danger:true styles it too.
-  const convert = await confirmSheet({
-    title: 'One more thing',
-    message: `For those past sets, were you actually entering ${newMode === 'per_arm' ? 'the combined total (both sides added up)' : "just one side's weight"} the whole time? Then the number itself needs converting, not just how it's counted — every past entry gets ${newMode === 'per_arm' ? 'halved' : 'doubled'}. This can't be undone.`,
-    confirmText: newMode === 'per_arm' ? 'Yes — halve my past entries' : 'Yes — double my past entries',
-    cancelText: 'No, the numbers are already right',
-    danger: true
+        <button class="btn btn--block" data-wm="recount" style="margin-top:10px;text-align:left">
+          ${perArm ? 'One side' : 'Both sides added together'}
+        </button>
+        <div class="card__subtitle" style="margin-top:4px">Leaves every logged number exactly as it is, and starts counting each set as ${perArm ? 'double' : 'a single total'}.</div>
+
+        <button class="btn btn--block" data-wm="convert" style="margin-top:14px;text-align:left">
+          ${perArm ? 'Both sides added together' : 'One side'}
+        </button>
+        <div class="card__subtitle" style="margin-top:4px">${perArm ? 'Halves' : 'Doubles'} every logged number so the weight actually lifted stays the same. Changes your entries and cannot be undone.</div>
+
+        <button class="btn btn--ghost btn--block" data-wm="skip" style="margin-top:18px;text-align:left">
+          Leave my old sets alone
+        </button>
+        <div class="card__subtitle" style="margin-top:4px">Old sets keep counting the old way. Your 1RM and charts will step up or down at the point the two meet.</div>
+      </div>
+    </div>`;
+  showSheet(sheet);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val) => { if (settled) return; settled = true; hideSheet(sheet); resolve(val); };
+    sheet.onclick = (e) => {
+      if (e.target.closest('[data-close-sheet]')) return finish({ recompute: false, convert: false });
+      const btn = e.target.closest('[data-wm]');
+      if (!btn) return;
+      const choice = btn.dataset.wm;
+      if (choice === 'recount') return finish({ recompute: true, convert: false });
+      if (choice === 'convert') return finish({ recompute: true, convert: true });
+      return finish({ recompute: false, convert: false });
+    };
   });
-  return { recompute: true, convert };
 }
 
 // Day chooser for logging (or re-dating) a session that happened earlier.

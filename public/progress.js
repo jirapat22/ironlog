@@ -1078,7 +1078,8 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
             <div class="prog-hint prog-hint--mislog" style="margin-bottom:12px">
               <div class="prog-hint__main">&#x26A0; Older sets are counted differently</div>
               <div class="prog-hint__sub">Some sets here count both sides and some count one, so the 1RM halves partway along the chart. That's how they're counted, not what you lifted.</div>
-              <button class="btn btn--ghost btn--sm" data-normalise-factors style="margin-top:8px">Count them all as ${currentFactor === 2 ? 'both sides' : 'one side'}</button>
+              <button class="btn btn--ghost btn--sm" data-normalise-factors style="margin-top:8px">Count every set as ${currentFactor === 2 ? 'both sides' : 'one side'}</button>
+              <div class="card__subtitle" style="margin-top:6px">Your logged weights don't change — only how they're added up. To use the other basis instead, change this exercise's per-side setting first.</div>
             </div>` : ''}
           ${days.length >= 2 ? `<div class="chart-wrap" style="height:160px"><canvas id="ex-detail-chart"></canvas></div>` : `<div class="bw-current__empty">Log this exercise across 2+ sessions to see a trend.</div>`}
           <button class="btn btn--ghost btn--sm" data-view-history style="width:100%;margin:10px 0 2px">View full history →</button>
