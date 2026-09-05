@@ -1599,6 +1599,9 @@ body.keyboard-open .update-banner {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  /* The whole row is the collapse target (see progress.js) - say so. */
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .bw-current {
@@ -1762,8 +1765,17 @@ body.keyboard-open .update-banner {
 
 .history-ex__set-n {
   color: var(--text-dim);
-  min-width: 48px;
+  /* Wide enough for "Warm-up", so a warm-up row doesn't push its weight out
+     of line with the working sets above and below it. */
+  min-width: 64px;
   font-weight: 600;
+}
+
+/* A warm-up doesn't count toward volume, PRs or progression, so it reads as
+   secondary to the working sets it sits between rather than as a peer. */
+.history-ex__set--warmup {
+  opacity: 0.72;
+  border-style: dashed;
 }
 
 .history-ex__set-w {

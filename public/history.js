@@ -471,16 +471,30 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     const exHTML = [...grouped.values()].map((g) => `
       <div class="history-ex" data-ex="${g.exerciseId}">
         <div class="history-ex__head">
-          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g)}${!g.isBodyweight && (g.equipment !== 'barbell' || g.weightMode === 'per_arm') ? `<button class="badge badge--weightmode ${g.weightMode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-history-weightmode="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="What does the weight you enter mean? Tap to flip.">${g.weightMode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}</div>
+          <!-- The space before the weight-mode badge is load-bearing: without
+               it the two badges butt together with no gap at all and read as
+               one run-on phrase, "⬆ Going upper arm/side ×2". -->
+          <div class="history-ex__name">${escapeHtml(g.name)}${g.muscle ? ` ${muscleTagHTML(g.muscle, g.sub)}` : ''} ${trendBadgeHTML(g)} ${!g.isBodyweight && (g.equipment !== 'barbell' || g.weightMode === 'per_arm') ? `<button class="badge badge--weightmode ${g.weightMode === 'per_arm' ? '' : 'badge--weightmode-off'}" data-history-weightmode="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="What does the weight you enter mean? Tap to flip.">${g.weightMode === 'per_arm' ? 'per arm/side ×2' : 'total'}</button>` : ''}</div>
           <button class="history-ex__remove" data-remove-ex="${g.exerciseId}" data-ex-name="${escapeHtml(g.name)}" title="Remove exercise">&#x2715;</button>
         </div>
         <div class="history-ex__sets">
           ${g.sets.map((s) => `
-            <button class="history-ex__set" data-edit-set="${s.id}">
-              <span class="history-ex__set-n">Set ${s.set_number}</span>
+            <button class="history-ex__set${s.is_warmup ? ' history-ex__set--warmup' : ''}" data-edit-set="${s.id}">
+              <!-- Warm-ups were indistinguishable from working sets here: the
+                   only difference was a missing 1RM figure, which reads as
+                   absent data rather than "this one didn't count". They are
+                   excluded from volume, PRs and progression, so a set list you
+                   can't tell them apart in isn't one you can check your own
+                   numbers against. -->
+              <span class="history-ex__set-n">${s.is_warmup ? 'Warm-up' : `Set ${s.set_number}`}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${fmtReps(s.reps, s.reps_r, s.reps_l)}</span>
               ${s.is_pr ? `<span class="history-ex__set-pr" ${badgeAttrs('New PR', `New personal record: ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps} reps.`)}>&#x1F3C6;</span>` : ''}
               ${s.improved_from_last ? `<span class="history-ex__set-pr" ${badgeAttrs('Improved from last time', improvedFromLastMsg(s.improved_from_last, s.is_bodyweight, s.is_assisted))}>&#x1F4C8;</span>` : ''}
+              <!-- A form flag actively holds back the next-weight suggestion
+                   ("Hit 8+, but form was flagged — repeating 75kg"). It was
+                   shown only in the live workout, so the screen you go to when
+                   asking why you aren't progressing gave no sign of it. -->
+              ${s.form_flag ? `<span class="history-ex__set-pr" ${badgeAttrs('Form broke down', 'You flagged this set for form. It still counts toward your volume, but it is ignored when deciding whether to add weight next time.')}>&#x26A0;&#xFE0F;</span>` : ''}
               ${showEquiv && !s.is_bodyweight && !s.is_assisted && weightEquiv(s.weight, s.weight_unit) ? `<span class="history-ex__set-aux">${weightEquiv(s.weight, s.weight_unit)}</span>` : ''}
               ${!s.is_warmup && !s.is_bodyweight && !s.is_assisted && s.reps > 0 && s.weight > 0 ? `<span class="history-ex__set-aux">~${Math.round(e1RM(effectiveLoadKg(s, s, null), s.reps))}kg 1RM</span>` : ''}
               ${s.rir != null ? `<span class="history-ex__set-rpe">RIR ${s.rir}</span>` : ''}

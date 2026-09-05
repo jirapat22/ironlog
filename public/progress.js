@@ -148,7 +148,16 @@ async function renderProgress() {
       return;
     }
 
-    const toggle = e.target.closest('[data-ps-toggle]');
+    // The whole header row collapses its section, not just the caret. The
+    // caret is 20×18px sitting at the end of a 324px-wide row that plainly
+    // reads as a header, so the natural tap — on the title — did nothing at
+    // all, and the one target that worked was less than half the 44px touch
+    // minimum. History's cards already use their whole head as the button.
+    // Other controls that live in a header (+ Log, Expand all) keep theirs.
+    const head = e.target.closest('.progress-section__head');
+    const hitOtherControl = !!e.target.closest('button:not([data-ps-toggle])');
+    const toggle = e.target.closest('[data-ps-toggle]')
+      || (head && !hitOtherControl ? head.querySelector('[data-ps-toggle]') : null);
     if (toggle) {
       const sectionId = toggle.dataset.psToggle;
       const section = document.getElementById(sectionId);
