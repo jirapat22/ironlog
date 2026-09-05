@@ -664,7 +664,7 @@ async function fetchDayDetails(dayId) {
 
 function renderWorkoutView() {
   const root = $('#view-workout');
-  const { programDay, last, workout, loggedSets } = workoutState;
+  const { programDay, workout, loggedSets } = workoutState;
 
   // This full rebuild runs on plenty of actions unrelated to whatever row the
   // user has open (adding a set on another exercise, skipping a different
@@ -674,40 +674,11 @@ function renderWorkoutView() {
     [...root.querySelectorAll('.set-row.extras-open')].map((el) => `${el.dataset.ex}-${el.dataset.set}`)
   );
 
-  const lastSetsByExercise = {};
-  if (last?.sets) {
-    for (const s of last.sets) {
-      if (!lastSetsByExercise[s.exercise_id]) lastSetsByExercise[s.exercise_id] = [];
-      lastSetsByExercise[s.exercise_id].push(s);
-    }
-    for (const arr of Object.values(lastSetsByExercise))
-      arr.sort((a, b) => a.set_number - b.set_number);
-  }
-
   const loggedByExerciseSet = {};
   for (const s of loggedSets) loggedByExerciseSet[`${s.exercise_id}-${s.set_number}`] = s;
 
-  // Whichever session is genuinely the most recent wins — the program day's
-  // own last, or this exercise's last performance anywhere (a quick workout,
-  // another day, an exercise added mid-session).
-  //
-  // The program day's used to win outright, on the reasoning that same-slot
-  // sessions compare like with like. But doing a lift somewhere else does not
-  // un-do it: reported as "Single arm lat pulldown says last time 22 days but
-  // i just did 2 days ago", with the card offering to ease back in from a
-  // three-week layoff that never happened. Recency is the honest answer, and
-  // it is what every other surface (History, Progress) already shows.
-  const lastByExercise = workoutState.lastByExercise || {};
-  const newestAt = (sets) => (sets?.length ? sets.reduce((m, s) => (String(s.logged_at) > String(m) ? s.logged_at : m), sets[0].logged_at) : '');
-  const pickLast = (exId) => {
-    const fromDay = lastSetsByExercise[exId];
-    const fromAnywhere = lastByExercise[exId];
-    if (!fromDay?.length) return fromAnywhere || [];
-    if (!fromAnywhere?.length) return fromDay;
-    return newestAt(fromAnywhere) > newestAt(fromDay) ? fromAnywhere : fromDay;
-  };
   const bodyHTML = programDay.exercises
-    .map((ex) => exerciseCardHTML(ex, pickLast(ex.exercise_id), loggedByExerciseSet))
+    .map((ex) => exerciseCardHTML(ex, lastSetsForExercise(ex.exercise_id), loggedByExerciseSet))
     .join('');
 
   root.innerHTML = `
@@ -858,7 +829,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
     rows.push(setRowHTML(ex, i, { w, u, r, rir, note, repsR, repsL, logged, isNext: !logged && firstUnloggedSet === i, prevRepsR: prevSet?.reps_r, prevRepsL: prevSet?.reps_l, prevNote: prevExact?.notes }));
   }
 
-  const trend = pastTrendFor(ex);
+  const trend = pastTrendFor(ex, lastSets);
 
   // Bug report: the banner ("Increase weight → 65kg") kept showing even
   // after the number you were actually about to log (or already logged
@@ -982,7 +953,12 @@ function trendBadgeHTML(status, trend, rec) {
     return `<button class="prog-hint__badge prog-hint__badge--decline" data-badge-title="Decline" data-badge-msg="${escapeHtml(msg)}">&#x2198; Decline</button>`;
   }
   if (status === 'plateau') {
-    const [prior] = trend.slice(-2);
+    // The LAST session, not the one before it. Both are the same weight (that
+    // is what a plateau is), so only the date gave it away — the badge read
+    // "same weight as your last session" over the date of the session before
+    // that one. Easy to miss until pastTrendFor started admitting sessions
+    // from outside the program day, which widened the gap between the two.
+    const prior = trend[trend.length - 1];
     const msg = prior ? `Same weight as your last session — ${label(prior)}.` : 'Same weight as your last session.';
     return `<button class="prog-hint__badge prog-hint__badge--plateau" data-badge-title="Plateau" data-badge-msg="${escapeHtml(msg)}">&#x23F8; Plateau</button>`;
   }
@@ -1163,13 +1139,39 @@ function firstTimeHintHTML() {
 // Last 3 finished sessions' top set for this exercise, oldest → newest.
 // Shared by the live progression hint and the post-workout summary (the
 // latter appends today's own best set on top, via classifyTrend below).
-function pastTrendFor(ex) {
-  const sessions = (workoutState?.recentSessions || []).slice(0, 3);
-  return sessions.map((session) => {
-    const exSets = (session.sets || []).filter((s) => s.exercise_id === ex.exercise_id && !s.is_warmup);
-    if (!exSets.length) return null;
-    return exSets.reduce((best, s) => loadKg(s, ex) >= loadKg(best, ex) ? s : best, exSets[0]);
-  }).filter(Boolean).reverse();
+//
+// Drawn from the program day's recent sessions PLUS the session `lastSets`
+// came from. Since lastSetsForExercise started answering by recency, that
+// session can be one this program day never saw, and leaving it out drew a
+// trend whose newest point contradicted the "Last:" line directly above it:
+// "⬆ Increase weight → 70kg × 6" beside a "⏸ Plateau" badge, over a trend
+// reading "60kg → 60kg → 60kg" and a tooltip citing a session three weeks
+// before the one the card was actually quoting.
+//
+// Sets the weight check has flagged are dropped entirely. A mislogged 800kg
+// otherwise becomes a trend point in its own right — "80kg → 800kg → 80kg ↘"
+// manufactures a decline out of nothing, on the very card that is supposed to
+// stop one bad row steering anything.
+function pastTrendFor(ex, lastSets = []) {
+  const flagged = new Set((workoutState?.suspicious || []).map((f) => f.set_id));
+  const usable = (sets) => (sets || []).filter(
+    (s) => s.exercise_id === ex.exercise_id && !s.is_warmup && !flagged.has(s.id)
+  );
+
+  // Keyed by workout so the recency-picked session merges with the program
+  // day's own list instead of being counted twice when it's one of them.
+  const byWorkout = new Map();
+  for (const session of workoutState?.recentSessions || []) {
+    const exSets = usable(session.sets);
+    if (exSets.length) byWorkout.set(session.id, exSets);
+  }
+  const latest = usable(lastSets);
+  if (latest.length) byWorkout.set(latest[0].workout_id, latest);
+
+  return [...byWorkout.values()]
+    .map((sets) => sets.reduce((best, s) => (loadKg(s, ex) >= loadKg(best, ex) ? s : best), sets[0]))
+    .sort((a, b) => String(a.logged_at).localeCompare(String(b.logged_at)))
+    .slice(-3);
 }
 
 // Which unit you've actually logged most for this exercise across the last
@@ -1825,17 +1827,38 @@ function attachHoldRepeat(container) {
   });
 }
 
-// Same "last session's sets for this exercise" resolution exerciseCardHTML
-// uses when building lastSetsByExercise, but callable for one exercise at a
-// time from event handlers that only have workoutState, not that render pass's
-// local variables.
+// The most recent logged_at in a set list — the yardstick for which of two
+// sessions actually happened last.
+function newestLoggedAt(sets) {
+  if (!sets?.length) return '';
+  return sets.reduce((newest, s) => (String(s.logged_at) > String(newest) ? s.logged_at : newest), sets[0].logged_at);
+}
+
+// "Last session's sets for this exercise" — whichever session is genuinely the
+// most recent: the program day's own last, or this exercise's last performance
+// anywhere (a quick workout, another day, an exercise added mid-session).
+//
+// The program day's used to win outright, on the reasoning that same-slot
+// sessions compare like with like. But doing a lift somewhere else does not
+// un-do it: reported as "Single arm lat pulldown says last time 22 days but i
+// just did 2 days ago", with the card offering to ease back in from a
+// three-week layoff that never happened. Recency is the honest answer, and it
+// is what every other surface (History, Progress) already shows.
+//
+// One function rather than two: the card render used to do this inline while
+// the live handlers below kept the old program-day-wins rule, so the two
+// disagreed about which session "last" meant. That put "⬆ Increase weight →
+// 70kg" on a card and then deleted it the instant you touched the weight
+// field — even to type the 70kg it had just recommended — because the check
+// behind that deletion was recomputing against a three-week-old session.
 function lastSetsForExercise(exId) {
-  const { last } = workoutState;
-  if (last?.sets) {
-    const arr = last.sets.filter((s) => s.exercise_id === exId).sort((a, b) => a.set_number - b.set_number);
-    if (arr.length) return arr;
-  }
-  return workoutState.lastByExercise?.[exId] || [];
+  const fromDay = (workoutState?.last?.sets || [])
+    .filter((s) => s.exercise_id === exId)
+    .sort((a, b) => a.set_number - b.set_number);
+  const fromAnywhere = workoutState?.lastByExercise?.[exId] || [];
+  if (!fromDay.length) return fromAnywhere;
+  if (!fromAnywhere.length) return fromDay;
+  return newestLoggedAt(fromAnywhere) > newestLoggedAt(fromDay) ? fromAnywhere : fromDay;
 }
 
 // exerciseCardHTML suppresses the progression banner when the recommendation
@@ -2820,7 +2843,7 @@ async function finishWorkout() {
       if (rec.isProgression) { readyToGoUp.push({ name: ex.name, rec }); continue; }
       if (rec.isStale || rec.isFormHeld) continue;
       const todayBest = logged.reduce((best, s) => loadKg(s, ex) >= loadKg(best, ex) ? s : best, logged[0]);
-      const status = classifyTrend([...pastTrendFor(ex), todayBest], rec);
+      const status = classifyTrend([...pastTrendFor(ex, lastSetsForExercise(ex.exercise_id)), todayBest], rec);
       if (status === 'up') goingUp.push({ name: ex.name });
       else if (status) worthALook.push({ name: ex.name, status });
     }
