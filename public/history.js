@@ -549,6 +549,16 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
   }
 }
 
+// The stats tile on a strength card. One function because refreshHistoryCard
+// used to patch this markup back in by hand after an edit and its copy had no
+// calorie line — so editing, adding or deleting any set silently wiped the
+// kcal figure off that card until the next full reload.
+function strengthStatsHTML(w) {
+  return `${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>
+          ${Math.round(w.total_volume).toLocaleString()} kg
+          ${w.calories_burned ? `<br/><span style="font-size:11px;color:var(--text-dim)">~${w.calories_burned} kcal</span>` : ''}`;
+}
+
 async function refreshHistoryCard(workoutId) {
   try {
     const history = await API.history();
@@ -567,7 +577,7 @@ async function refreshHistoryCard(workoutId) {
       return;
     }
     const stats = card.querySelector('.history-card__stats');
-    if (stats) stats.innerHTML = `${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>${Math.round(w.total_volume).toLocaleString()} kg`;
+    if (stats) stats.innerHTML = strengthStatsHTML(w);
     if (wasExpanded) { card.dataset.loaded = ''; await loadHistoryCardBody(card, { showSkeleton: false }); }
   } catch (err) { toast(err.message); }
 }
@@ -655,11 +665,7 @@ function historyCardHTML(w) {
           ${groupBadges ? `<div class="history-card__groups">${groupBadges}</div>` : ''}
           ${notePreview}
         </div>
-        <div class="history-card__stats">
-          ${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>
-          ${Math.round(w.total_volume).toLocaleString()} kg
-          ${w.calories_burned ? `<br/><span style="font-size:11px;color:var(--text-dim)">~${w.calories_burned} kcal</span>` : ''}
-        </div>
+        <div class="history-card__stats">${strengthStatsHTML(w)}</div>
       </button>
       <div class="history-card__body"></div>
     </div>`;
@@ -676,7 +682,7 @@ async function openEditSetSheet(setId, workoutId) {
     const sets = await API.workoutSets(workoutId);
     const set = sets.find((s) => s.id === setId);
     if (!set) throw new Error('Set not found');
-    setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rir: set.rir ?? null, notes: set.notes || '' };
+    setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rir: set.rir ?? null, notes: set.notes || '', isWarmup: !!set.is_warmup };
     renderSetEditSheet();
   } catch (err) {
     sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
@@ -691,7 +697,7 @@ async function openAddSetSheet(exerciseId, workoutId, nextSetNumber, exName) {
     const priors = sets.filter((s) => s.exercise_id === exerciseId).sort((a, b) => b.set_number - a.set_number);
     prior = priors[0];
   } catch { /* use defaults */ }
-  setEditState = { mode: 'add', workoutId, exerciseId, exerciseName: prior?.exercise_name || exName || '', setNumber: nextSetNumber, weight: prior?.weight ?? 0, weight_unit: prior?.weight_unit || 'kg', reps: prior?.reps ?? 10, rir: null, notes: '' };
+  setEditState = { mode: 'add', workoutId, exerciseId, exerciseName: prior?.exercise_name || exName || '', setNumber: nextSetNumber, weight: prior?.weight ?? 0, weight_unit: prior?.weight_unit || 'kg', reps: prior?.reps ?? 10, rir: null, notes: '', isWarmup: false };
   renderSetEditSheet();
   showSheet(sheet);
 }
@@ -741,6 +747,15 @@ function renderSetEditSheet() {
         </div>
         <label class="form-label" style="margin-top:14px">Notes</label>
         <input class="input" id="se-notes" value="${escapeHtml(s.notes)}" placeholder="Optional"/>
+        <!-- The one thing this sheet could show but not change. History now
+             labels warm-ups, so a set marked wrong in the gym is visible here
+             with no way to correct it — and the difference is not cosmetic:
+             a warm-up is left out of volume, PRs and the next-weight
+             suggestion. -->
+        <button class="btn btn--block ${s.isWarmup ? 'btn--primary' : 'btn--ghost'}" id="se-warmup" style="margin-top:16px;text-align:left">
+          ${s.isWarmup ? '&#x2713; Warm-up set' : 'Mark as warm-up'}
+        </button>
+        <div class="card__subtitle" style="margin-top:4px">Warm-ups don't count toward your volume, records or next-weight suggestion.</div>
         <button class="btn btn--primary btn--block" id="se-save" style="margin-top:20px">${s.mode === 'edit' ? 'Save changes' : 'Add set'}</button>
         ${s.mode === 'edit' ? `<button class="btn btn--ghost btn--block" id="se-delete" style="margin-top:10px;color:var(--danger)">Delete set</button>` : ''}
       </div>
@@ -778,6 +793,16 @@ function renderSetEditSheet() {
       });
       haptic(10); return;
     }
+    const warmupBtn = e.target.closest('#se-warmup');
+    if (warmupBtn) {
+      // Held in state and written by Save, like everything else on this sheet
+      // — backing out with the arrow shouldn't leave the flag flipped.
+      s.isWarmup = !s.isWarmup;
+      warmupBtn.innerHTML = s.isWarmup ? '&#x2713; Warm-up set' : 'Mark as warm-up';
+      warmupBtn.classList.toggle('btn--primary', s.isWarmup);
+      warmupBtn.classList.toggle('btn--ghost', !s.isWarmup);
+      haptic(10); return;
+    }
     if (e.target.closest('#se-save')) {
       const weight = parseFloat(document.getElementById('se-weight').value || '0');
       const reps = parseInt(document.getElementById('se-reps').value || '0', 10);
@@ -786,9 +811,9 @@ function renderSetEditSheet() {
       if (weight < 0 || Number.isNaN(weight) || !reps) return toast('Enter weight and reps');
       try {
         if (s.mode === 'edit') {
-          await API.updateSet(s.setId, { weight, weight_unit: unit, reps, rir: s.rir, notes });
+          await API.updateSet(s.setId, { weight, weight_unit: unit, reps, rir: s.rir, notes, is_warmup: s.isWarmup ? 1 : 0 });
         } else {
-          await API.logSet({ workout_id: s.workoutId, exercise_id: s.exerciseId, set_number: s.setNumber, weight, weight_unit: unit, reps, rir: s.rir, notes });
+          await API.logSet({ workout_id: s.workoutId, exercise_id: s.exerciseId, set_number: s.setNumber, weight, weight_unit: unit, reps, rir: s.rir, notes, is_warmup: s.isWarmup ? 1 : 0 });
         }
         hideSheet(sheet); haptic(20); await refreshHistoryCard(s.workoutId);
       } catch (err) { toast(err.message); }
