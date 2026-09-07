@@ -1263,7 +1263,15 @@ function recommendForNext(ex, lastSets) {
   }
 
   const repsList = workingSets.map((s) => s.reps).join(', ');
-  const setsLabel = workingSets.length === 1 ? '1 set' : `${workingSets.length} sets`;
+  // workingSets is only the sets at the TOP weight, and deliberately so — a
+  // lighter back-off set shouldn't be able to block a weight increase. But
+  // this label describes the SESSION, so counting only the top-weight sets
+  // made it state something untrue: reported as 'Shown "Last: 1 x set" while
+  // I did 2 sets but diff weights'. Say how many of the session's sets the
+  // quoted weight covers whenever it isn't all of them.
+  const setsLabel = workingSets.length === lastSets.length
+    ? (workingSets.length === 1 ? '1 set' : `${workingSets.length} sets`)
+    : `${workingSets.length} of ${lastSets.length} sets`;
   const minReps = Math.min(...workingSets.map((s) => s.reps));
 
   // Per-side (L/R) sets store the WEAKER side's count as reps — a set can
