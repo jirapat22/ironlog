@@ -554,7 +554,7 @@ router.get('/:id/sets', (req, res) => {
   if (!owned) return res.status(404).json({ error: 'workout not found' });
   const rows = db
     .prepare(
-      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.sub_muscle, e.is_bodyweight, e.is_assisted, e.equipment, e.weight_mode, s.is_warmup
+      `SELECT s.*, e.name as exercise_name, e.muscle_group, e.sub_muscle, e.is_bodyweight, e.is_assisted, e.equipment, e.step_override, e.weight_mode, s.is_warmup
        FROM sets s
        JOIN exercises e ON e.id = s.exercise_id
        WHERE s.workout_id = ?

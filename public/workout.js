@@ -1245,9 +1245,11 @@ function recommendForNext(ex, lastSets) {
   const bestWeight = unit === bestSet.weight_unit
     ? bestSet.weight
     : +fromKg(toKg(bestSet.weight, bestSet.weight_unit), unit).toFixed(2);
-  const step = stepForExercise(unit, ex);
   const isBw = !!ex.is_bodyweight;
   const isAssisted = !!ex.is_assisted;
+  // Assisted lifts progress DOWNWARD (less help), so the gap that matters
+  // sits below the current figure — same asymmetry the stepper handles.
+  const step = stepForExercise(unit, ex, bestWeight, isAssisted ? -1 : 1);
 
   let recWeight, isProgression;
   if (allHit && !isStale) {
@@ -1797,7 +1799,8 @@ function fireStep(btn, rowCtx) {
   const unit = row?.querySelector('[data-unit]')?.textContent?.trim() || 'kg';
   const exId = row ? Number(row.dataset.ex) : null;
   const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId);
-  const step = Number(btn.dataset.step) * (field === 'weight' ? stepForExercise(unit, ex) : 1);
+  const dir = Number(btn.dataset.step);
+  const step = dir * (field === 'weight' ? stepForExercise(unit, ex, v, dir) : 1);
   let next = v + step;
   if (next < 0) next = 0;
   input.value = field === 'weight' ? String(+next.toFixed(2)) : String(Math.floor(next));

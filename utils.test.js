@@ -88,3 +88,63 @@ test('daysAgo/humanAgo: relative-time boundaries', async () => {
   assert.strictEqual(humanAgo(iso(10)), '1 week ago');
   assert.strictEqual(humanAgo(iso(35)), '1 month ago');
 });
+
+// ---------------------------------------------------------------------------
+// stepForExercise — the +/− increment. A rack of light dumbbells runs
+// 6, 7, 8, 9, 10 and only then 12, 14, 16, so a flat 2kg step below 10 offers
+// weights that aren't on the rack and skips ones that are.
+// ---------------------------------------------------------------------------
+
+const DB = { name: 'Lateral Raise', equipment: 'dumbbell' };
+
+test('stepForExercise: dumbbells step 1kg below 10, 2kg at and above it', async () => {
+  const { stepForExercise } = await utilsPromise;
+  assert.strictEqual(stepForExercise('kg', DB, 4), 1);
+  assert.strictEqual(stepForExercise('kg', DB, 9), 1);
+  assert.strictEqual(stepForExercise('kg', DB, 10), 2);
+  assert.strictEqual(stepForExercise('kg', DB, 22.5), 2);
+});
+
+test('stepForExercise: the 10kg boundary is asymmetric, because the rack is', async () => {
+  const { stepForExercise } = await utilsPromise;
+  // Up from 10 lands on 12 (the next dumbbell); down from 10 lands on 9.
+  assert.strictEqual(stepForExercise('kg', DB, 10, 1), 2);
+  assert.strictEqual(stepForExercise('kg', DB, 10, -1), 1);
+  // Well clear of the boundary it doesn't matter which way you're going.
+  assert.strictEqual(stepForExercise('kg', DB, 20, -1), 2);
+  assert.strictEqual(stepForExercise('kg', DB, 5, -1), 1);
+});
+
+test('stepForExercise: omitting the weight keeps the old coarse step', async () => {
+  const { stepForExercise } = await utilsPromise;
+  assert.strictEqual(stepForExercise('kg', DB), 2);
+});
+
+test('stepForExercise: only dumbbells get the fine low end', async () => {
+  const { stepForExercise } = await utilsPromise;
+  // A near-empty barbell is still 2.5kg/side, and a stack is still a stack.
+  assert.strictEqual(stepForExercise('kg', { name: 'Bench Press', equipment: 'barbell' }, 5), 5);
+  assert.strictEqual(stepForExercise('kg', { name: 'Cable Fly', equipment: 'cable' }, 5), 2.5);
+});
+
+test('stepForExercise: lbs is untouched — US racks are not spaced this way', async () => {
+  const { stepForExercise } = await utilsPromise;
+  assert.strictEqual(stepForExercise('lbs', DB, 8), 5);
+  assert.strictEqual(stepForExercise('lbs', DB, 20), 5);
+});
+
+test('stepForExercise: a custom increment still overrides everything', async () => {
+  const { stepForExercise } = await utilsPromise;
+  const ex = { name: 'Lateral Raise', equipment: 'dumbbell', step_override: 0.5 };
+  assert.strictEqual(stepForExercise('kg', ex, 4), 0.5);
+  assert.strictEqual(stepForExercise('kg', ex, 40), 0.5);
+});
+
+test('stepForExercise: equipment beats the name — the History sheet bug', async () => {
+  const { stepForExercise } = await utilsPromise;
+  // "Lateral Raise" contains no dumbbell-ish word, so name-only guessing fell
+  // through to barbell and stepped this by 5kg in History's edit sheet while
+  // the workout card stepped it by 2.
+  assert.strictEqual(stepForExercise('kg', { name: 'Lateral Raise' }, 20), 5);
+  assert.strictEqual(stepForExercise('kg', { name: 'Lateral Raise', equipment: 'dumbbell' }, 20), 2);
+});

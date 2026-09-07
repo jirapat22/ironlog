@@ -276,7 +276,24 @@ function readRepRangeInputs(rootEl, minSel, maxSel) {
   return { ok: true, rep_min: min.value, rep_max: max.value };
 }
 
-function stepForExercise(unit, ex) {
+// Light dumbbells are not spaced like heavy ones. A rack runs 6, 7, 8, 9, 10
+// and only then jumps to 12, 14, 16 — so a flat 2kg step skipped every odd
+// size below 10, offering weights that aren't on the rack and hiding ones
+// that are. Reported as "Dumbells per arm. Lower than 10 it doesnt go up by
+// 2 anymore".
+const DUMBBELL_FINE_BELOW_KG = 10;
+
+/**
+ * @param {string} unit  'kg' or 'lbs'
+ * @param {object} ex    the exercise — needs `equipment` to be right; without
+ *                       it the name is used as a weak fallback.
+ * @param {number} [weight] the value being stepped FROM. Omit and you get the
+ *                       coarse step, which is what every caller got before.
+ * @param {number} [dir] +1 up, -1 down. The dumbbell boundary is asymmetric:
+ *                       up from 10 is 12, but down from 10 is 9, because the
+ *                       gap being crossed sits below the number either way.
+ */
+function stepForExercise(unit, ex, weight = null, dir = 1) {
   // A per-exercise custom increment (stored in kg) overrides the equipment
   // default entirely — e.g. a pin-loaded machine that jumps 20kg per stack
   // notch instead of the generic 2.5kg machine default.
@@ -298,7 +315,12 @@ function stepForExercise(unit, ex) {
   }
   // kg
   if (equipment === 'barbell') return 5;      // 2.5 kg/side
-  if (equipment === 'dumbbell') return 2;     // standard DB increment
+  if (equipment === 'dumbbell') {
+    // Which gap is actually being crossed. Stepping DOWN from 10 crosses the
+    // 9→10 gap, not the 10→12 one, so the reference nudges below the number.
+    const ref = Number.isFinite(weight) && dir < 0 ? weight - 0.01 : weight;
+    return Number.isFinite(ref) && ref < DUMBBELL_FINE_BELOW_KG ? 1 : 2;
+  }
   return 2.5;                                  // cable / machine
 }
 

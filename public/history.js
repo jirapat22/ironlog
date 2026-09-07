@@ -682,7 +682,12 @@ async function openEditSetSheet(setId, workoutId) {
     const sets = await API.workoutSets(workoutId);
     const set = sets.find((s) => s.id === setId);
     if (!set) throw new Error('Set not found');
-    setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rir: set.rir ?? null, notes: set.notes || '', isWarmup: !!set.is_warmup };
+    // equipment/step_override ride along so the +/− buttons here move by the
+    // same increment the workout view uses. Passing just a name left the
+    // helper guessing from the text, and it only recognises a dumbbell if the
+    // word is IN the name — so Lateral Raise stepped 5kg in this sheet and
+    // 2kg on the card, for the same set.
+    setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, equipment: set.equipment, stepOverride: set.step_override ?? null, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rir: set.rir ?? null, notes: set.notes || '', isWarmup: !!set.is_warmup };
     renderSetEditSheet();
   } catch (err) {
     sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
@@ -697,7 +702,7 @@ async function openAddSetSheet(exerciseId, workoutId, nextSetNumber, exName) {
     const priors = sets.filter((s) => s.exercise_id === exerciseId).sort((a, b) => b.set_number - a.set_number);
     prior = priors[0];
   } catch { /* use defaults */ }
-  setEditState = { mode: 'add', workoutId, exerciseId, exerciseName: prior?.exercise_name || exName || '', setNumber: nextSetNumber, weight: prior?.weight ?? 0, weight_unit: prior?.weight_unit || 'kg', reps: prior?.reps ?? 10, rir: null, notes: '', isWarmup: false };
+  setEditState = { mode: 'add', workoutId, exerciseId, exerciseName: prior?.exercise_name || exName || '', equipment: prior?.equipment, stepOverride: prior?.step_override ?? null, setNumber: nextSetNumber, weight: prior?.weight ?? 0, weight_unit: prior?.weight_unit || 'kg', reps: prior?.reps ?? 10, rir: null, notes: '', isWarmup: false };
   renderSetEditSheet();
   showSheet(sheet);
 }
@@ -771,7 +776,8 @@ function renderSetEditSheet() {
       let v = parseFloat(input.value || '0');
       if (Number.isNaN(v)) v = 0;
       const unit = document.getElementById('se-unit').textContent.trim();
-      const delta = Number(wStep.dataset.seStep) * stepForExercise(unit, { name: s.exerciseName });
+      const dir = Number(wStep.dataset.seStep);
+      const delta = dir * stepForExercise(unit, { name: s.exerciseName, equipment: s.equipment, step_override: s.stepOverride }, v, dir);
       let next = v + delta; if (next < 0) next = 0;
       input.value = String(+next.toFixed(2)); updateWeightEq(); haptic(10); return;
     }
