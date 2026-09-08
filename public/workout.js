@@ -171,6 +171,57 @@ function updateRowEquiv(row) {
   eqEl.textContent = weightHintText(w, u, ex);
 }
 
+// "If I put the weight up, how many reps is the same set?" — the question you
+// actually ask standing at the rack, which a bare 1RM number doesn't answer.
+// Each unlogged row remembers the weight and reps it was rendered with, and
+// once you move the weight off that baseline this reports the rep count at the
+// new weight that matches it, via the same Epley estimate the rest of the app
+// uses. Comparison runs on EFFECTIVE load so a per-arm or bodyweight lift is
+// judged on what it actually moves.
+const EQUIV_HIDE_MS = 6000;
+const equivHideTimers = new WeakMap();
+
+function equivalentRepsText(row) {
+  const exId = Number(row.dataset.ex);
+  const ex = workoutState?.programDay?.exercises?.find((e) => e.exercise_id === exId);
+  if (!ex) return '';
+  const baseW = parseFloat(row.dataset.baseW);
+  const baseR = parseInt(row.dataset.baseR, 10);
+  const baseU = row.dataset.baseU || 'kg';
+  if (!Number.isFinite(baseW) || !Number.isFinite(baseR) || baseR <= 0) return '';
+
+  const w = parseFloat(row.querySelector('[data-field="weight"] .num-input__field')?.value);
+  const u = row.querySelector('[data-unit]')?.textContent.trim() || baseU;
+  if (!Number.isFinite(w)) return '';
+
+  const baseLoad = loadKg({ weight: baseW, weight_unit: baseU }, ex);
+  const newLoad = loadKg({ weight: w, weight_unit: u }, ex);
+  if (!(baseLoad > 0) || !(newLoad > 0)) return '';
+  // Same weight as you started on — nothing to convert, and saying so would
+  // just be noise on a row you haven't really touched.
+  if (Math.abs(baseLoad - newLoad) < 0.01) return '';
+
+  const target1RM = e1RM(baseLoad, baseR);
+  const reps = Math.round(30 * (target1RM / newLoad - 1));
+  const baseLabel = `${fmtSetWeight(baseW, baseU, !!ex.is_bodyweight, !!ex.is_assisted)} × ${baseR}`;
+  // Past the estimated 1RM of the set you started from there is no rep count
+  // that matches — better to say that than to round up to a fictional single.
+  if (reps < 1) return `&#x21C4; heavier than a single at ${escapeHtml(baseLabel)}`;
+  return `&#x21C4; &asymp; ${reps} rep${reps === 1 ? '' : 's'} matches ${escapeHtml(baseLabel)}`;
+}
+
+function updateRowEquivalence(row) {
+  const el = row?.querySelector('[data-equiv]');
+  if (!el) return;
+  const html = equivalentRepsText(row);
+  el.innerHTML = html;
+  el.hidden = !html;
+  // "Only while you're changing things": it fades out once the row has been
+  // left alone, so a card you're only reading doesn't carry an extra line.
+  clearTimeout(equivHideTimers.get(el));
+  if (html) equivHideTimers.set(el, setTimeout(() => { el.hidden = true; }, EQUIV_HIDE_MS));
+}
+
 // Picks which draft bucket a row's in-progress edits belong in: an already
 // LOGGED row (has a set id) gets workoutState.draft.pendingEdits, keyed by
 // set id — a still-unconfirmed row gets draft.inputs, keyed by exercise+set
@@ -859,10 +910,15 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
   const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
 
-  const skipLabel = isSkipped ? 'Skipped — tap to undo' : 'Done with this exercise';
-  const cardClasses = `exercise-card${isComplete ? ' exercise-card--complete' : ''}${isSkipped ? ' exercise-card--skipped' : ''}`;
-
   const hasLoggedSets = workoutState.loggedSets.some((s) => s.exercise_id === ex.exercise_id);
+  // Stopping at 2 of 3 sets is still training the exercise, so the card reads
+  // as done — same brightness, same ✓ — as one where every set was logged.
+  // It used to be dimmed to 55%, which made a session you finished early look
+  // like one you'd abandoned. An exercise skipped with NOTHING logged is a
+  // different thing and keeps the dimming: you didn't train it.
+  const skippedUntouched = isSkipped && !hasLoggedSets;
+  const skipLabel = skippedUntouched ? 'Skipped — tap to undo' : isSkipped ? '&#x21A9; Undo' : 'Done with this exercise';
+  const cardClasses = `exercise-card${isComplete ? ' exercise-card--complete' : ''}${skippedUntouched ? ' exercise-card--skipped' : ''}${isSkipped && !skippedUntouched ? ' exercise-card--ended-early' : ''}`;
 
   // Superset pairing is PDE-level (ex.id, not ex.exercise_id) — only resolvable
   // for program-day exercises still carrying their PDE id (mid-workout adds
@@ -911,7 +967,7 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
         <button class="set-count-btn" data-add-set-row="${ex.exercise_id}" aria-label="Add a set">+</button>
         ${hasLoggedSets ? `<button class="undo-set-btn" data-undo-set="${ex.exercise_id}" title="Undo last set">&#x21A9; Undo</button>` : ''}
       </div>
-      <button class="exercise-card__skip" data-skip-ex="${ex.exercise_id}" ${isComplete && !isSkipped ? 'style="display:none"' : ''}>${skipLabel}</button>
+      <button class="exercise-card__skip${isSkipped && !skippedUntouched ? ' exercise-card__skip--quiet' : ''}" data-skip-ex="${ex.exercise_id}" ${isComplete && !isSkipped ? 'style="display:none"' : ''} ${isSkipped && !skippedUntouched ? 'title="Bring the remaining sets back"' : ''}>${skipLabel}</button>
     </div>
   `;
 }
@@ -1384,7 +1440,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   // re-opens mid-workout.
   const notePlaceholder = !logged && prevNote ? prevNote : 'Form cue, tempo, etc.';
   return `
-    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}>
+    <div class="set-row ${logged ? 'done' : ''} ${isNext ? 'set-row--next' : ''} ${isWarmup ? 'warmup' : ''}" data-ex="${ex.exercise_id}" data-set="${setNumber}" data-rir="${effRir}" data-warmup="${isWarmup ? 1 : 0}" data-pristine="1" ${logged ? `data-set-id="${logged.id}"` : ''}${!logged && Number.isFinite(Number(w)) && Number(w) > 0 && r ? ` data-base-w="${Number(w)}" data-base-u="${u}" data-base-r="${r}"` : ''}>
       <button class="set-row__num" data-toggle-warmup title="Tap to mark as warmup">${isWarmup ? 'W' : setNumber}</button>
       <div class="num-input" data-field="weight">
         <button class="num-input__btn" data-step="-1">−</button>
@@ -1408,6 +1464,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
         <button data-rest class="rest-timer">rest</button>
       </div>
       ${!logged && prevNote ? `<div class="set-row__last-note" title="What you noted on this set last time">&#x270E; ${escapeHtml(prevNote)}</div>` : ''}
+      ${!logged ? '<div class="set-row__equiv" data-equiv hidden></div>' : ''}
       ${hintsHTML}
       <div class="set-row__extras">
         <input class="set-row__note" data-note placeholder="${escapeHtml(notePlaceholder)}" value="${escapeHtml(note)}"/>
@@ -1654,11 +1711,12 @@ function wireWorkoutView() {
       unitBtn.classList.toggle('kg', next === 'kg');
       markRowTouched(row);
       updateRowEquiv(row);
+      updateRowEquivalence(row);
       return;
     }
 
     const stepBtn = e.target.closest('.num-input__btn');
-    if (stepBtn) { fireStep(stepBtn, row); updateRowEquiv(row); return; }
+    if (stepBtn) { fireStep(stepBtn, row); updateRowEquiv(row); updateRowEquivalence(row); return; }
 
     const confirm = e.target.closest('[data-confirm]');
     if (confirm) return row.dataset.justConfirmed === '1' ? deleteLoggedSet(row) : confirmSet(row);
@@ -1717,6 +1775,7 @@ function wireWorkoutView() {
       delete row.dataset.justConfirmed;
       markRowTouched(row);
       updateRowEquiv(row);
+      updateRowEquivalence(row);
       refreshProgressionHint(Number(row.dataset.ex));
       return;
     }
@@ -2112,7 +2171,11 @@ function moveNextHighlight(exId) {
 function checkExerciseComplete(exId) {
   const card = document.querySelector(`.exercise-card[data-ex="${exId}"]`);
   if (!card) return;
-  const isSkipped = card.classList.contains('exercise-card--skipped');
+  // Either flavour of "done with this one" counts: --skipped is one you never
+  // started, --ended-early one you stopped part-way. Both hide their unlogged
+  // rows, so both must keep their undo button on screen.
+  const isSkipped = card.classList.contains('exercise-card--skipped')
+    || card.classList.contains('exercise-card--ended-early');
   const visibleRows = [...card.querySelectorAll('.set-row')].filter((r) => !r.classList.contains('hidden'));
   const allDone = isSkipped || (visibleRows.length > 0 && visibleRows.every((r) => !!r.dataset.setId));
   card.classList.toggle('exercise-card--complete', allDone);
@@ -2196,11 +2259,19 @@ function skipRemainingForExercise(exerciseId) {
   saveDraft(workoutState.workout.id, workoutState.draft);
 
   unlogged.forEach((r) => r.classList.add('hidden'));
-  card.classList.add('exercise-card--skipped', 'exercise-card--complete');
+  // Mirrors exerciseCardHTML's rule (see the comment there): an exercise you
+  // logged sets on reads as finished, one you never started stays dimmed.
+  // This patches the DOM in place rather than re-rendering, so it has to make
+  // the same call — otherwise the card looks abandoned until something else
+  // forces a full render, then quietly brightens.
+  const loggedHere = rows.length - unlogged.length > 0;
+  card.classList.add('exercise-card--complete', loggedHere ? 'exercise-card--ended-early' : 'exercise-card--skipped');
   const skipBtn = card.querySelector('[data-skip-ex]');
   if (skipBtn) {
     skipBtn.style.display = '';
-    skipBtn.textContent = 'Skipped — tap to undo';
+    skipBtn.classList.toggle('exercise-card__skip--quiet', loggedHere);
+    if (loggedHere) skipBtn.title = 'Bring the remaining sets back';
+    skipBtn.innerHTML = loggedHere ? '&#x21A9; Undo' : 'Skipped — tap to undo';
   }
 
   toast(`Skipped ${unlogged.length} remaining set${unlogged.length > 1 ? 's' : ''}`);

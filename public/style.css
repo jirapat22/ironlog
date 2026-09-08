@@ -1803,6 +1803,26 @@ body.keyboard-open .update-banner {
    sits above it on the same card. */
 .set-row.done .set-row__last-note { display: none; }
 
+/* "If I put the weight up, how many reps is the same set?" - shown only while
+   the weight or reps are being changed, then fades out again (see
+   updateRowEquivalence). Blue rather than the amber note or the orange
+   progression hint: it is arithmetic about the row you're on, not a cue from
+   last time or a recommendation. */
+.set-row__equiv {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  color: #7fb4ff;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .set-row__last-note {
   grid-column: 1 / -1;
   margin-top: 6px;
@@ -2150,6 +2170,24 @@ body.keyboard-open .update-banner {
   border-style: solid;
   border-color: var(--accent-dim);
   color: var(--accent);
+}
+
+/* An exercise you stopped part-way through. Deliberately carries NO styling
+   of its own: finishing at 2 of 3 sets is still training it, and the card
+   should read exactly as done as one where every set was logged. The class
+   exists so the undo button and the completion check can tell the two apart
+   in JS. (Contrast .exercise-card--skipped above, which dims to 55% - that
+   one is for an exercise with nothing logged against it at all.) */
+
+/* The way back from "done with this exercise" when sets were logged. Quiet
+   on purpose: the card is meant to look finished, so the undo sits there
+   without competing with the tick. */
+.exercise-card__skip--quiet {
+  border-color: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 
 .unit-pick {
