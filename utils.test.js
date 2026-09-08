@@ -148,3 +148,46 @@ test('stepForExercise: equipment beats the name — the History sheet bug', asyn
   assert.strictEqual(stepForExercise('kg', { name: 'Lateral Raise' }, 20), 5);
   assert.strictEqual(stepForExercise('kg', { name: 'Lateral Raise', equipment: 'dumbbell' }, 20), 2);
 });
+
+// ---------- pickMostRecentSets ----------
+// The workout card and the Programs day preview both answer "what did I last
+// lift on this?". They used to decide it independently and disagreed: a lift
+// trained in a quick workout read 72.5kg on one screen and 65kg on the other.
+
+const dayS = [{ set_number: 1, logged_at: '2026-09-01 18:30:00', weight: 65 }];
+const anywhereS = [{ set_number: 1, logged_at: '2026-09-04 18:30:00', weight: 72.5 }];
+
+test('pickMostRecentSets: the newer session wins, wherever it happened', async () => {
+  const { pickMostRecentSets } = await utilsPromise;
+  // Trained elsewhere more recently — doing a lift somewhere else does not un-do it.
+  assert.strictEqual(pickMostRecentSets(dayS, anywhereS), anywhereS);
+  // Program day is the newer one: it wins just the same.
+  assert.strictEqual(pickMostRecentSets(anywhereS, dayS), anywhereS);
+});
+
+test('pickMostRecentSets: a missing side never beats a present one', async () => {
+  const { pickMostRecentSets } = await utilsPromise;
+  assert.strictEqual(pickMostRecentSets([], anywhereS), anywhereS);
+  assert.strictEqual(pickMostRecentSets(dayS, []), dayS);
+  assert.strictEqual(pickMostRecentSets(undefined, anywhereS), anywhereS);
+  assert.strictEqual(pickMostRecentSets(dayS, undefined), dayS);
+  assert.deepStrictEqual(pickMostRecentSets(undefined, undefined), []);
+});
+
+test('pickMostRecentSets: ties keep the program day, the like-for-like slot', async () => {
+  const { pickMostRecentSets } = await utilsPromise;
+  const a = [{ logged_at: '2026-09-01 18:30:00' }];
+  const b = [{ logged_at: '2026-09-01 18:30:00' }];
+  assert.strictEqual(pickMostRecentSets(a, b), a);
+});
+
+test('newestLoggedAt: reads the newest stamp regardless of array order', async () => {
+  const { newestLoggedAt } = await utilsPromise;
+  assert.strictEqual(newestLoggedAt([
+    { logged_at: '2026-09-01 10:00:00' },
+    { logged_at: '2026-09-05 10:00:00' },
+    { logged_at: '2026-09-03 10:00:00' },
+  ]), '2026-09-05 10:00:00');
+  assert.strictEqual(newestLoggedAt([]), '');
+  assert.strictEqual(newestLoggedAt(undefined), '');
+});

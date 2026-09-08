@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -112,10 +112,20 @@ async function renderPrograms() {
     // GET per day (N+1 — a handful of programs easily meant 15-20 concurrent
     // requests just to paint this tab).
     const allDayIds = full.flatMap((p) => p.days.map((d) => d.id));
+    const allExIds = [...new Set(full.flatMap((p) => p.days.flatMap((d) => (d.exercises || []).map((e) => e.exercise_id))))];
     if (allDayIds.length) {
       try {
-        const lastByDay = await API.lastByDay(allDayIds);
-        for (const dayId of allDayIds) applyLastTrained(dayId, lastByDay[dayId]);
+        // Two batched requests, not one: the day's own last session tells you
+        // when you last trained THIS day, but the per-exercise last tells you
+        // what you actually last lifted — and they disagree the moment you do
+        // a lift somewhere else. The workout card already prefers whichever is
+        // newer; this preview has to agree or the same lift reads two
+        // different "last" numbers on adjacent screens.
+        const [lastByDay, lastByEx] = await Promise.all([
+          API.lastByDay(allDayIds),
+          allExIds.length ? API.lastByExercise(allExIds) : Promise.resolve({}),
+        ]);
+        for (const dayId of allDayIds) applyLastTrained(dayId, lastByDay[dayId], lastByEx);
       } catch { /* best-effort decoration */ }
     }
 
@@ -343,26 +353,35 @@ function dayCardHTML(d, programId, i, total) {
 // Pure DOM-paint step, given an already-fetched `last` workout (or null) for
 // this day — the fetch itself is now batched at the call site instead of one
 // request per day.
-function applyLastTrained(dayId, last) {
+function applyLastTrained(dayId, last, lastByExercise = {}) {
   const el = document.querySelector(`[data-last="${dayId}"]`);
   if (el) el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
-  if (!last?.sets?.length) return;
 
-  // Best non-warmup set per exercise (heaviest, ties broken by more reps) —
-  // gives a load to plan from before the user even taps Start.
-  const bestByEx = new Map();
-  for (const s of last.sets) {
-    if (s.is_warmup) continue;
-    const cur = bestByEx.get(s.exercise_id);
-    if (!cur || s.weight > cur.weight || (s.weight === cur.weight && s.reps > cur.reps)) {
-      bestByEx.set(s.exercise_id, s);
-    }
-  }
   const dayCard = document.querySelector(`[data-day-id="${dayId}"]`);
   if (!dayCard) return;
-  for (const [exId, s] of bestByEx) {
-    const lastEl = dayCard.querySelector(`[data-ex-last="${exId}"]`);
-    if (lastEl) lastEl.textContent = ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}`;
+
+  // Best non-warmup set (heaviest, ties broken by more reps) — gives a load to
+  // plan from before the user even taps Start.
+  const bestOf = (sets) => {
+    let best = null;
+    for (const s of sets || []) {
+      if (s.is_warmup) continue;
+      if (!best || s.weight > best.weight || (s.weight === best.weight && s.reps > best.reps)) best = s;
+    }
+    return best;
+  };
+  const dayByEx = new Map();
+  for (const s of last?.sets || []) {
+    if (!dayByEx.has(s.exercise_id)) dayByEx.set(s.exercise_id, []);
+    dayByEx.get(s.exercise_id).push(s);
+  }
+
+  for (const lastEl of dayCard.querySelectorAll('[data-ex-last]')) {
+    const exId = Number(lastEl.dataset.exLast);
+    // Same rule as the workout card, from one shared definition — these two
+    // surfaces answering it separately is exactly how they drifted apart.
+    const s = bestOf(pickMostRecentSets(dayByEx.get(exId), lastByExercise[exId]));
+    if (s) lastEl.textContent = ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}`;
   }
 }
 

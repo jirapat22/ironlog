@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -1897,13 +1897,6 @@ function attachHoldRepeat(container) {
   });
 }
 
-// The most recent logged_at in a set list — the yardstick for which of two
-// sessions actually happened last.
-function newestLoggedAt(sets) {
-  if (!sets?.length) return '';
-  return sets.reduce((newest, s) => (String(s.logged_at) > String(newest) ? s.logged_at : newest), sets[0].logged_at);
-}
-
 // "Last session's sets for this exercise" — whichever session is genuinely the
 // most recent: the program day's own last, or this exercise's last performance
 // anywhere (a quick workout, another day, an exercise added mid-session).
@@ -1925,10 +1918,7 @@ function lastSetsForExercise(exId) {
   const fromDay = (workoutState?.last?.sets || [])
     .filter((s) => s.exercise_id === exId)
     .sort((a, b) => a.set_number - b.set_number);
-  const fromAnywhere = workoutState?.lastByExercise?.[exId] || [];
-  if (!fromDay.length) return fromAnywhere;
-  if (!fromAnywhere.length) return fromDay;
-  return newestLoggedAt(fromAnywhere) > newestLoggedAt(fromDay) ? fromAnywhere : fromDay;
+  return pickMostRecentSets(fromDay, workoutState?.lastByExercise?.[exId]);
 }
 
 // exerciseCardHTML suppresses the progression banner when the recommendation

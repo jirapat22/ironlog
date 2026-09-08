@@ -283,6 +283,35 @@ function readRepRangeInputs(rootEl, minSel, maxSel) {
 // 2 anymore".
 const DUMBBELL_FINE_BELOW_KG = 10;
 
+// ---------- "which session was actually last" ----------
+// Shared because this rule has now drifted apart twice. The workout card and
+// the Programs day preview each answer "what did I last lift on this?", and
+// each used to decide it independently: the card preferred whichever session
+// was genuinely newest, while the preview took the program day's own last
+// session outright. So a lift trained in a quick workout read 72.5kg on the
+// card and 65kg on the Programs screen — and a lift the day had never seen
+// showed no history at all there, despite being trained two days ago.
+
+function newestLoggedAt(sets) {
+  if (!sets?.length) return '';
+  return sets.reduce((newest, s) => (String(s.logged_at) > String(newest) ? s.logged_at : newest), sets[0].logged_at);
+}
+
+/**
+ * Pick whichever set list is genuinely the most recent. Doing a lift somewhere
+ * else does not un-do it, so recency wins over same-slot tidiness.
+ * @param {Array} fromDay       sets for this exercise in the program day's own last session
+ * @param {Array} fromAnywhere  sets from this exercise's last performance anywhere
+ */
+function pickMostRecentSets(fromDay, fromAnywhere) {
+  const day = fromDay || [];
+  const anywhere = fromAnywhere || [];
+  if (!day.length) return anywhere;
+  if (!anywhere.length) return day;
+  return newestLoggedAt(anywhere) > newestLoggedAt(day) ? anywhere : day;
+}
+
+
 /**
  * @param {string} unit  'kg' or 'lbs'
  * @param {object} ex    the exercise — needs `equipment` to be right; without
@@ -1713,7 +1742,7 @@ function isStandalone() {
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
   formatDateShort, daysAgo, humanAgo, fmtDuration,
-  stepForExercise, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
+  stepForExercise, newestLoggedAt, pickMostRecentSets, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay,
   setOwnerProfile, isOwnerProfile,
