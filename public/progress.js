@@ -444,6 +444,10 @@ async function renderVolumeSection() {
       API.weeklyVolume(8),
       API.weekVolumeCompare().catch(() => null)
     ]);
+    // Tab switched (or Progress re-rendered) while those were in flight: the
+    // node we are about to paint is no longer on the page, and a newer render
+    // is already doing this properly. Painting it would be invisible work.
+    if (!root.isConnected) return;
     if (!rows.length) {
       root.innerHTML = `<div class="bw-current__empty">Log some working sets to see weekly volume by muscle group.</div>`;
       return;
@@ -513,7 +517,17 @@ async function renderVolumeSection() {
             </div>`).join('')}
         </div>` : ''}`;
 
+    // Every tap on the Progress tab re-runs renderProgress(), which replaces
+    // this whole view and fires this render again without awaiting it. So a
+    // render that started before the switch can finish after it, by which
+    // point the root it captured is detached: the innerHTML above lands in a
+    // node no longer in the document, and this lookup finds nothing.
+    // new Chart(null) then throws "can't acquire context from the given item"
+    // — reported from an iPhone, where a slow connection makes the window
+    // between the two taps wide. The other three chart renderers here already
+    // bail on a missing canvas; this one was the only one that didn't.
     const canvas = document.getElementById('volume-chart');
+    if (!canvas) return;
     if (chartInstances.volume) chartInstances.volume.destroy();
     const d = chartDefaults();
     chartInstances.volume = new Chart(canvas, {
@@ -722,6 +736,11 @@ async function renderOverloadCharts() {
   root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
   try {
     const [history, bwRows] = await Promise.all([API.strengthHistory(), API.bodyweight().catch(() => [])]);
+    // Same stale-render guard as the volume section: a newer render is already
+    // painting these, and chartInstances is shared — carrying on would destroy
+    // the live chart objects it just created and redraw them from data fetched
+    // before the switch.
+    if (!root.isConnected) return;
     const bwKg = bwRows.length ? toKg(bwRows[0].weight, bwRows[0].weight_unit) : 0;
 
     for (const key of Object.keys(chartInstances)) {
@@ -1229,6 +1248,9 @@ async function renderBodyweightSection() {
   let rows = [];
   try { rows = await API.bodyweight(); }
   catch (err) { currentEl.innerHTML = `<div class="bw-current__empty">${escapeHtml(err.message)}</div>`; return; }
+  // Progress was re-rendered while that was in flight — these nodes are off
+  // the page now and a newer render owns #bw-chart.
+  if (!currentEl.isConnected) return;
 
   if (!rows.length) {
     currentEl.innerHTML = `<div class="bw-current__empty">No entries yet. Tap + Log to add your first one.</div>`;
