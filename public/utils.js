@@ -1699,7 +1699,11 @@ function setupPickerFilter(pickerEl) {
   const chipsBar = pickerEl.querySelector('[data-picker-chips]');
   const apply = () => {
     const q = (search?.value || '').trim().toLowerCase();
-    const activeChip = chipsBar?.querySelector('.picker-chip--active')?.dataset.chip || '';
+    // Read the chips bar live rather than closing over it: the search input
+    // outlives the list, so the listener bound to it on the first build would
+    // otherwise keep consulting a bar that a later rebuild has replaced, and
+    // filter by a chip that is no longer on screen.
+    const activeChip = pickerEl.querySelector('[data-picker-chips] .picker-chip--active')?.dataset.chip || '';
     pickerEl.querySelectorAll('.picker-row').forEach((r) => {
       r.classList.toggle('hidden', !!q && !r.dataset.name.includes(q));
     });
@@ -1709,8 +1713,17 @@ function setupPickerFilter(pickerEl) {
       g.classList.toggle('hidden', !matchesChip || !anyRow);
     });
   };
-  if (search) search.addEventListener('input', apply);
-  if (chipsBar) {
+  // Callers re-run this on every list rebuild (sort change, sub-muscle split),
+  // so guard per element or the search box collects a fresh listener each time
+  // and apply() runs once per rebuild-so-far. The chips bar is rebuilt with the
+  // list, so its flag is absent on the new node and it wires up again — which
+  // is exactly what we want.
+  if (search && !search.dataset.pickerWired) {
+    search.dataset.pickerWired = '1';
+    search.addEventListener('input', apply);
+  }
+  if (chipsBar && !chipsBar.dataset.pickerWired) {
+    chipsBar.dataset.pickerWired = '1';
     chipsBar.addEventListener('click', (e) => {
       const chip = e.target.closest('.picker-chip');
       if (!chip) return;

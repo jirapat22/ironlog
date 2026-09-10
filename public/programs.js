@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -631,6 +631,7 @@ async function persistEditRowOrder() {
 // Persists across re-opens (back-navigation from edit/create sub-forms calls
 // openPicker again) within a session, same tier as other lightweight prefs.
 let dayPickerSort = 'frequent';
+let dayPickerSubGroup = false;
 
 // Two modes: add (default) appends the pick to the day; swap (`swapPde` = a
 // program_day_exercises id) replaces that slot's exercise in place — sets,
@@ -641,7 +642,23 @@ async function openPicker({ swapPde = null } = {}) {
   const swapping = swapPde ? editDayState.day.exercises.find((x) => x.id === swapPde) : null;
   const currentIds = new Set(editDayState.day.exercises.map((e) => e.exercise_id));
 
+  // One row shape for both groupings. The inline sub-muscle tag is dropped
+  // when the list is already split by sub-muscle — the heading right above
+  // the row is already saying it.
+  const pickRowHTML = (ex, g, showSubTag) => `
+    <div class="picker-row-wrap">
+      <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
+        <span>${escapeHtml(ex.name)}${showSubTag && ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
+        <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
+      </button>
+      <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
+    </div>`;
+
   function buildList() {
+    // Keep whichever muscle-group chip was open across a rebuild (changing the
+    // sort, flipping the sub-muscle split). Without this the list snapped back
+    // to "All" and you lost your place every time you touched a control.
+    const prevChip = picker.querySelector('.picker-chip--active')?.dataset.chip ?? '';
     const groups = {};
     for (const ex of allExercises) {
       if (!groups[ex.muscle_group]) groups[ex.muscle_group] = [];
@@ -649,20 +666,21 @@ async function openPicker({ swapPde = null } = {}) {
     }
     for (const g of Object.keys(groups)) groups[g] = sortExercisesBy(groups[g], dayPickerSort);
     const keys = [...new Set([...PICKER_GROUP_ORDER, ...Object.keys(groups)])].filter((k) => groups[k]);
-    picker.querySelector('#picker-sort').innerHTML = exerciseSortHTML(dayPickerSort);
-    picker.querySelector('#picker-list').innerHTML = pickerChipsHTML(keys) + keys.map((g) => `
+    const activeChip = prevChip === '' || keys.includes(prevChip) ? prevChip : '';
+    picker.querySelector('#picker-sort').innerHTML = exerciseSortHTML(dayPickerSort) + subGroupToggleHTML(dayPickerSubGroup);
+    picker.querySelector('#picker-list').innerHTML = pickerChipsHTML(keys, activeChip) + keys.map((g) => `
       <div class="picker-group" data-group="${g}">
         <div class="picker-group__title mg-title mg-${g}">${escapeHtml(g)}</div>
-        ${groups[g].map((ex) => `
-          <div class="picker-row-wrap">
-            <button class="picker-row ${currentIds.has(ex.id) ? 'picker-row--added' : ''}" data-pick="${ex.id}" data-name="${escapeHtml(ex.name).toLowerCase()}">
-              <span>${escapeHtml(ex.name)}${ex.sub_muscle ? ` <span class="picker-row__sub mg-title mg-${g}${subMuscleShadeClass(g, ex.sub_muscle)}">${escapeHtml(ex.sub_muscle)}</span>` : ''}</span>
-              <span class="picker-row__state">${currentIds.has(ex.id) ? 'added' : '+'}</span>
-            </button>
-            <button class="picker-row__edit" data-edit-ex="${ex.id}" title="Edit">&#x270E;</button>
-          </div>`).join('')}
+        ${dayPickerSubGroup
+          ? groupBySubMuscle(g, groups[g]).map(({ sub, exercises: exs }) => `
+              <div class="picker-subgroup__title mg-title mg-${g}${subMuscleShadeClass(g, sub)}">${escapeHtml(sub || 'General')}</div>
+              ${exs.map((ex) => pickRowHTML(ex, g, false)).join('')}
+            `).join('')
+          : groups[g].map((ex) => pickRowHTML(ex, g, true)).join('')}
       </div>`).join('');
-    setupPickerFilter(picker);
+    // Re-apply straight away: the chip we just restored has to actually filter
+    // the freshly-built rows, not just look selected.
+    setupPickerFilter(picker)();
   }
 
   picker.innerHTML = `
@@ -690,6 +708,8 @@ async function openPicker({ swapPde = null } = {}) {
 
     const sortBtn = e.target.closest('[data-sort]');
     if (sortBtn) { dayPickerSort = sortBtn.dataset.sort; buildList(); return; }
+
+    if (e.target.closest('[data-subgroup-toggle]')) { dayPickerSubGroup = !dayPickerSubGroup; buildList(); return; }
 
     const editExBtn = e.target.closest('[data-edit-ex]');
     if (editExBtn) {
