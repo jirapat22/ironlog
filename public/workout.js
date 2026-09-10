@@ -459,6 +459,10 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
 // ---------- Workout rendering ----------
 async function renderWorkout(retriedAfterMissing = false) {
   workoutEnding = false;
+  // A fresh mount (tab switch, reload, a different workout) starts in the
+  // normal view — reorder is a thing you step into deliberately, not a mode
+  // to come back and find yourself still in.
+  reorderMode = false;
   const root = $('#view-workout');
   let activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
 
@@ -713,6 +717,14 @@ async function fetchDayDetails(dayId) {
   return API.dayDetails(dayId);
 }
 
+// Compact reorder mode. An exercise card carries hints, set rows and count
+// controls, so a full card runs most of a phone screen tall — moving a
+// just-added exercise from the bottom to the top meant dragging blind across
+// several screens. Flipping this on collapses every card to one line, so the
+// whole session is visible at once and the same move is a short drag. Purely
+// a display state: the drag/drop machinery underneath is untouched.
+let reorderMode = false;
+
 function renderWorkoutView() {
   const root = $('#view-workout');
   const { programDay, workout, loggedSets } = workoutState;
@@ -738,12 +750,13 @@ function renderWorkoutView() {
         <div>
           <div class="workout-sticky__name">${escapeHtml(programDay.day_label)}</div>
         </div>
+        ${programDay.exercises.length > 1 ? `<button class="workout-sticky__reorder${reorderMode ? ' workout-sticky__reorder--on' : ''}" data-reorder-toggle>${reorderMode ? '&#x2713; Done' : '&#x21C5; Reorder'}</button>` : ''}
         <div class="workout-sticky__time" id="sticky-elapsed">0:00</div>
       </div>
       <div id="rest-sticky" class="rest-sticky hidden"></div>
       <div id="session-coverage"></div>
     </div>
-    <div id="exercise-list">${bodyHTML}</div>
+    <div id="exercise-list"${reorderMode ? ' class="exercise-list--reorder"' : ''}>${bodyHTML}</div>
     <button class="btn btn--ghost btn--block" data-add-workout-ex style="margin-top:12px">+ Add exercise to this workout</button>
     <div class="workout-notes-wrap">
       <label class="form-label">Workout notes</label>
@@ -1530,6 +1543,19 @@ function wireWorkoutView() {
   root.onclick = async (e) => {
     const badgeBtn = e.target.closest('[data-badge-title]');
     if (badgeBtn) { showBadgeDetail(badgeBtn.dataset.badgeTitle, badgeBtn.dataset.badgeMsg); return; }
+
+    // Toggled by class rather than a re-render so the list doesn't jump back
+    // to the top mid-rearrange, and so a drop (which only writes the draft)
+    // leaves you exactly where you were.
+    const reorderBtn = e.target.closest('[data-reorder-toggle]');
+    if (reorderBtn) {
+      reorderMode = !reorderMode;
+      document.getElementById('exercise-list')?.classList.toggle('exercise-list--reorder', reorderMode);
+      reorderBtn.innerHTML = reorderMode ? '&#x2713; Done' : '&#x21C5; Reorder';
+      reorderBtn.classList.toggle('workout-sticky__reorder--on', reorderMode);
+      haptic(10);
+      return;
+    }
 
     if (e.target.closest('[data-finish-workout]')) return finishWorkout();
     if (e.target.closest('[data-cancel-workout]')) return cancelWorkout();

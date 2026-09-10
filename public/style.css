@@ -4074,3 +4074,93 @@ body.keyboard-open .update-banner {
   opacity: 0.85;
   margin: 10px 0 6px 4px;
 }
+
+/* ---------- Compact reorder mode (live workout) ----------
+   An exercise card carries hints, set rows and count controls, so a full card
+   runs most of a phone screen tall. A newly added exercise lands at the end of
+   the list, and moving it to the top meant dragging across several screens of
+   content you couldn't see past — reported as "hard to gauge and see".
+   This collapses every card to a single line, so the whole session is visible
+   at once and the same move is a short drag. Presentation only: the drag/drop
+   machinery is untouched, and completed/skipped states stay readable so you
+   can still tell what you've finished while rearranging. */
+.exercise-list--reorder::before {
+  content: 'Drag to reorder — tap Done when you’re finished';
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 0 2px 8px;
+}
+
+.exercise-list--reorder .exercise-card {
+  position: relative;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.exercise-list--reorder .exercise-card__head {
+  margin-bottom: 0;
+  flex-wrap: nowrap;
+  gap: 0;
+  min-height: 52px;
+  padding-right: 12px;
+}
+
+/* Everything that gives a card its height. */
+.exercise-list--reorder .exercise-card__head-actions,
+.exercise-list--reorder .exercise-card__superset-tag,
+.exercise-list--reorder .set-rows,
+.exercise-list--reorder .set-count-controls,
+.exercise-list--reorder .exercise-card__skip,
+.exercise-list--reorder .prog-hint,
+.exercise-list--reorder .set-row__equiv {
+  display: none !important;
+}
+
+/* The whole row becomes the grab target. A 44px handle is a small mark to hit
+   repeatedly on a list you're actively rearranging, and the row has nothing
+   else to tap while in this mode. */
+.exercise-list--reorder .exercise-card__drag {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  z-index: 2;
+  justify-content: flex-start;
+  padding-left: 14px;
+  font-size: 17px;
+  border-radius: var(--radius);
+}
+.exercise-list--reorder .exercise-card__drag:active {
+  background: rgba(224, 122, 60, 0.14);
+  color: var(--accent);
+}
+
+.exercise-list--reorder .exercise-card__title-block { padding-left: 44px; }
+
+.exercise-list--reorder .exercise-card__name,
+.exercise-list--reorder .card__subtitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.exercise-list--reorder .exercise-card__name { font-size: 14px; }
+.exercise-list--reorder .card__subtitle { font-size: 11px; margin-top: 1px; }
+
+.workout-sticky__reorder {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  margin-left: auto;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+.workout-sticky__reorder--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0c0c0c;
+}
