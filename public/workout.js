@@ -121,6 +121,98 @@ function clearDraftInput(workoutId, exId, setNum) {
   }
 }
 
+// ---------- Offline set outbox ----------
+// Reading works offline — the service worker caches every view, so all four
+// tabs render with full data on no signal. That made the app LOOK fully
+// usable in a basement gym right up to the moment you tapped ✓ and got
+// "Failed to fetch" (the raw browser string) with the set simply dropped.
+// Bad signal is the normal condition where this app gets used, so a log that
+// can't reach the server is parked here and replayed when it can.
+//
+// Deliberately only new set logs. Edits, deletes, RIR and finishing still
+// need a connection: they all act on a server-assigned set id, and the sets
+// owning those ids may themselves still be sitting in this queue.
+const SET_OUTBOX_KEY = 'ironlog.setOutbox';
+const SET_OUTBOX_MAX = 300;
+
+function readSetOutbox() {
+  try { return JSON.parse(localStorage.getItem(SET_OUTBOX_KEY) || '[]'); } catch { return []; }
+}
+
+function writeSetOutbox(items) {
+  try { localStorage.setItem(SET_OUTBOX_KEY, JSON.stringify(items.slice(-SET_OUTBOX_MAX))); } catch { /* quota */ }
+}
+
+// A queued set is identified by the slot it occupies in the session, not by
+// a server id it doesn't have yet — so re-tapping ✓ on a row that's already
+// waiting corrects that entry instead of logging the set twice.
+function outboxSlot(p) {
+  return `${p.workout_id}:${p.exercise_id}:${p.set_number}:${p.is_warmup ? 1 : 0}`;
+}
+
+function queueSet(payload) {
+  const slot = outboxSlot(payload);
+  writeSetOutbox([...readSetOutbox().filter((p) => outboxSlot(p) !== slot), payload]);
+}
+
+function queuedSetsFor(workoutId) {
+  return readSetOutbox().filter((p) => p.workout_id === workoutId);
+}
+
+// Cancelling or discarding deletes the workout server-side, so anything
+// still queued for it has nowhere to land. Drop it here rather than let the
+// next flush POST into a 404 and quietly bin it.
+function dropQueuedSetsFor(workoutId) {
+  writeSetOutbox(readSetOutbox().filter((p) => p.workout_id !== workoutId));
+}
+
+// True only for failures where the request never reached the server, which
+// are the ones a replay can fix. A 4xx/5xx means it arrived and was refused;
+// replaying that just fails again and blocks everything queued behind it.
+function isNetworkFailure(err) {
+  return !err?.reported && !err?.unauthorized && !/timed out/i.test(err?.message || '');
+}
+
+let flushingSetOutbox = false;
+
+async function flushSetOutbox({ silent = false } = {}) {
+  if (flushingSetOutbox || !navigator.onLine) return 0;
+  const items = readSetOutbox();
+  if (!items.length) return 0;
+  flushingSetOutbox = true;
+  const keep = [];
+  let sent = 0;
+  try {
+    for (let i = 0; i < items.length; i++) {
+      try {
+        await API.logSet(items[i]);
+        sent++;
+      } catch (err) {
+        if (isNetworkFailure(err)) {
+          // Still nothing out there. Keep this one and everything behind it,
+          // in order, so sets replay in the sequence they were performed.
+          keep.push(...items.slice(i));
+          break;
+        }
+        // The server saw it and said no (workout finished or deleted, stale
+        // payload). Drop it rather than let it jam the queue forever.
+      }
+    }
+  } finally {
+    writeSetOutbox(keep);
+    flushingSetOutbox = false;
+  }
+  if (sent && !silent) toast(`Synced ${sent} set${sent === 1 ? '' : 's'} logged offline`);
+  return sent;
+}
+
+// Coming back into signal is the one moment the user isn't looking for a
+// sync button, so do it for them — then re-render, because the rows that
+// were "waiting" are now real sets with ids, PR flags and hints.
+window.addEventListener('online', async () => {
+  if (await flushSetOutbox()) renderWorkout();
+});
+
 // The small readout under a set row's weight. For a per-arm exercise it shows
 // the TOTAL (both sides) alongside what you typed, so per-arm and total are
 // visible SIMULTANEOUSLY — you enter one dumbbell's weight and immediately see
@@ -463,6 +555,10 @@ async function renderWorkout(retriedAfterMissing = false) {
   // normal view — reorder is a thing you step into deliberately, not a mode
   // to come back and find yourself still in.
   reorderMode = false;
+  // Drain anything logged on no signal before we read the workout back, so
+  // the sets we're about to paint include them rather than showing them as
+  // still-waiting for one render and then jumping.
+  await flushSetOutbox({ silent: true });
   const root = $('#view-workout');
   let activeId = Number(localStorage.getItem(LS.activeWorkoutId) || 0);
 
@@ -754,6 +850,7 @@ function renderWorkoutView() {
         <div class="workout-sticky__time" id="sticky-elapsed">0:00</div>
       </div>
       <div id="rest-sticky" class="rest-sticky hidden"></div>
+      <div id="pending-sets-banner"></div>
       <div id="session-coverage"></div>
     </div>
     <div id="exercise-list"${reorderMode ? ' class="exercise-list--reorder"' : ''}>${bodyHTML}</div>
@@ -787,7 +884,31 @@ function renderWorkoutView() {
     }, { rowSel: '.exercise-card', idKey: 'ex', draggingClass: 'exercise-card--dragging' });
   }
 
+  applyPendingSetRows();
   renderSessionCoverage();
+}
+
+// Re-dress the rows whose sets are still sitting in the offline outbox. The
+// list is rebuilt from workoutState + the server's logged sets, neither of
+// which knows about the queue, so without this a reload on no signal shows
+// every waiting set as blank and un-logged — exactly the "did that save?"
+// doubt the outbox exists to remove.
+function applyPendingSetRows() {
+  const workoutId = workoutState?.workout?.id;
+  if (!workoutId) return;
+  const queued = queuedSetsFor(workoutId);
+  updatePendingBanner();
+  for (const p of queued) {
+    const row = document.querySelector(
+      `.set-row[data-ex="${p.exercise_id}"][data-set="${p.set_number}"][data-warmup="${p.is_warmup ? 1 : 0}"]`
+    );
+    if (!row || row.dataset.setId) continue;
+    const wIn = row.querySelector('[data-field="weight"] .num-input__field');
+    const rIn = row.querySelector('[data-field="reps"] .num-input__field');
+    if (wIn) wIn.value = String(p.weight);
+    if (rIn) rIn.value = String(p.reps);
+    markRowPending(row);
+  }
 }
 
 // Live "muscle groups already hit this workout" strip — same primary +
@@ -1995,6 +2116,9 @@ async function confirmSet(row) {
   const checkBtn = row.querySelector('[data-confirm]');
   if (checkBtn?.disabled) return;
   primeAudio();
+  // Set once we know exactly what we tried to send; the catch parks it in
+  // the offline outbox when the request never made it out.
+  let logPayload = null;
 
   const exId = Number(row.dataset.ex);
   const setNumber = Number(row.dataset.set);
@@ -2058,14 +2182,17 @@ async function confirmSet(row) {
       toast('Updated');
       refreshProgressionHint(exId);
     } else {
-      const res = await API.logSet({
+      // Kept in a variable so the catch can park it in the offline outbox
+      // verbatim rather than trying to reconstruct it from the DOM.
+      logPayload = {
         workout_id: workoutState.workout.id,
         exercise_id: exId,
         set_number: setNumber,
         weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir,
         notes: note,
         is_warmup: isWarmup ? 1 : 0
-      });
+      };
+      const res = await API.logSet(logPayload);
       // The set was persisted server-side regardless — this only guards
       // against touching workoutState after Finish/Cancel already nulled it
       // out while this request was in flight.
@@ -2159,9 +2286,54 @@ async function confirmSet(row) {
       }
     }
   } catch (err) {
-    toast(err.message);
+    // A new log that never reached the server is kept rather than lost —
+    // you finish the session normally and it syncs when signal returns.
+    // Edits (logPayload still null here) have a server id to reconcile
+    // against and stay a plain failure.
+    if (logPayload && isNetworkFailure(err)) {
+      queueSet(logPayload);
+      markRowPending(row);
+      updatePendingBanner();
+      cascadePrefillSiblings(row, logPayload.weight, logPayload.weight_unit, logPayload.reps);
+      moveNextHighlight(logPayload.exercise_id);
+      haptic(30);
+      startRestCountdown(
+        workoutState?.programDay?.exercises?.find((x) => x.exercise_id === logPayload.exercise_id)?.rest_seconds ?? undefined
+      );
+      toast('No signal — set saved on this phone, will sync');
+    } else {
+      toast(err.message);
+    }
   } finally {
     if (checkBtn) checkBtn.disabled = false;
+  }
+}
+
+// A queued set looks done-but-waiting: greyed like a logged row, ✓ replaced
+// by a clock, and the controls that need a server id (delete, RIR, form
+// flag) left off. The numbers stay editable — re-tapping ✓ replaces the
+// queued entry rather than adding a second one (see outboxSlot).
+function updatePendingBanner() {
+  const banner = document.getElementById('pending-sets-banner');
+  const workoutId = workoutState?.workout?.id;
+  if (!banner || !workoutId) return;
+  const n = queuedSetsFor(workoutId).length;
+  banner.innerHTML = n
+    ? `<div class="pending-banner">&#x21BB; ${n} set${n === 1 ? '' : 's'} waiting for signal — they'll sync on their own</div>`
+    : '';
+}
+
+function markRowPending(row) {
+  row.classList.add('pending');
+  row.classList.remove('set-row--next');
+  const check = row.querySelector('[data-confirm]');
+  if (check) check.innerHTML = '&#x21BB;';
+  let tag = row.querySelector('.set-row__pending-tag');
+  if (!tag) {
+    tag = document.createElement('span');
+    tag.className = 'set-row__pending-tag';
+    tag.textContent = 'waiting for signal';
+    row.querySelector('.set-row__hints')?.appendChild(tag);
   }
 }
 
@@ -2846,6 +3018,7 @@ async function cancelWorkout() {
   const id = workoutState?.workout?.id;
   if (id) {
     clearDraft(id);
+    dropQueuedSetsFor(id);
     try { await API.deleteWorkout(id); } catch { /* sets cascade-delete with workout */ }
   }
   localStorage.removeItem(LS.activeWorkoutId);
@@ -2861,6 +3034,26 @@ async function finishWorkout() {
   if (workoutEnding) return;
   const id = workoutState?.workout?.id;
   if (!id) return;
+  // Sets logged on no signal have to land BEFORE the workout closes, or the
+  // summary, the PRs and everything History shows are computed from a
+  // session that's missing them.
+  if (queuedSetsFor(id).length) {
+    if (await flushSetOutbox({ silent: true })) return renderWorkout();
+    const waiting = queuedSetsFor(id).length;
+    if (waiting) {
+      const ok = await confirmSheet({
+        title: 'Still offline',
+        message: waiting === 1
+          ? "A set logged on this phone hasn't reached the server yet. Finish now and it'll be missing from this session — or keep it open and it'll sync the moment you have signal."
+          : `${waiting} sets logged on this phone haven't reached the server yet. Finish now and they'll be missing from this session — or keep it open and they'll sync the moment you have signal.`,
+        confirmText: 'Finish anyway',
+        cancelText: 'Keep it open',
+        danger: true
+      });
+      if (!ok) return;
+      dropQueuedSetsFor(id);
+    }
+  }
   if ((workoutState.loggedSets || []).length === 0) {
     // Nothing logged — discard instead of saving an empty workout that would
     // just clutter History.
@@ -2868,6 +3061,7 @@ async function finishWorkout() {
     const ok = await confirmSheet({ title: 'Nothing logged', message: 'No sets were logged. Discard this workout?', confirmText: 'Discard', danger: true });
     if (!ok) { workoutEnding = false; return; }
     clearDraft(id);
+    dropQueuedSetsFor(id);
     try { await API.deleteWorkout(id); } catch { /* sets cascade with the workout */ }
     localStorage.removeItem(LS.activeWorkoutId);
     localStorage.removeItem(LS.activeProgramDayId);

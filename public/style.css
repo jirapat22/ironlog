@@ -1396,6 +1396,40 @@ body.keyboard-open .update-banner {
   border-color: var(--accent);
 }
 
+/* A set logged with no signal: captured, not yet on the server. Reads as
+   "done but waiting" rather than either "done" (a lie) or untouched (the
+   old behaviour, which is what made a failed log feel like lost work). */
+.set-row.pending {
+  opacity: 0.75;
+}
+
+.set-row.pending .set-check {
+  background: transparent;
+  border-color: var(--warn, #ffb347);
+  color: var(--warn, #ffb347);
+  font-size: 19px;
+}
+
+.set-row__pending-tag {
+  font-size: 10px;
+  color: var(--warn, #ffb347);
+  letter-spacing: 0.02em;
+}
+
+.pending-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 0 -4px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn, #ffb347) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #ffb347) 45%, transparent);
+  color: var(--warn, #ffb347);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* Always-visible RIR line under each set's inputs (RIR + note toggle + rest) */
 .set-row__rir {
   grid-column: 1 / -1;
