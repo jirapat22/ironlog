@@ -1431,6 +1431,12 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   // other hints. data-eq stays in the DOM unconditionally: updateRowEquiv()
   // needs it to live-update as weight/unit change, even before there's
   // anything to show.
+  // The kg/lbs toggle rides on that same second line. It used to own a
+  // 52px column in the main row, which — together with the two ± steppers —
+  // squeezed each number field down to 20px on a 390px iPhone: "102.5"
+  // rendered as "10" and a sliced digit. It's a per-set override of a
+  // setting you pick once, so it's the cheapest thing in that row to move
+  // off it, and it stays glued to the weight it applies to.
   const improvedBadge = improvedBadgeHTML(logged, isBw, isAssisted);
   const hintsHTML = `<div class="set-row__hints">${e1rmBadge}${perArmBadge}${improvedBadge}${prBadge}</div>`;
   // Optional per-side rep breakdown (right/left) for dumbbell-type per-arm
@@ -1460,8 +1466,10 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
         <input class="num-input__field" type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" value="${wStr}" placeholder="${wPlaceholder}" aria-label="weight"/>
         <button class="num-input__btn" data-step="1">+</button>
       </div>
-      <span class="set-row__weight-eq" data-eq>${weightHintText(w, u, ex)}</span>
-      <button class="unit-toggle ${u === 'kg' ? 'kg' : 'lbs'}" data-unit>${u}</button>
+      <div class="set-row__wmeta">
+        <button class="unit-toggle unit-toggle--inline ${u === 'kg' ? 'kg' : 'lbs'}" data-unit>${u}</button>
+        <span class="set-row__weight-eq" data-eq>${weightHintText(w, u, ex)}</span>
+      </div>
       <div class="num-input" data-field="reps">
         <button class="num-input__btn" data-step="-1">−</button>
         <input class="num-input__field" type="text" inputmode="numeric" pattern="[0-9]*" value="${r ?? ''}" aria-label="reps"/>
