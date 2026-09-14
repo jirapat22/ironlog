@@ -889,6 +889,22 @@ body.keyboard-open .update-banner {
   border-color: var(--mg);
 }
 
+/* Hit only as secondary work: the group's colour, but outlined rather than
+   filled. Filled has to mean "I chose an exercise for this" or the strip
+   can't answer the one question it exists for. */
+.cov-chip--secondary {
+  color: var(--mg);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--mg) 55%, transparent);
+}
+
+.cov-strip__legend {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+}
+
 /* Muscle-group chips carry their group colour (via .mg-* setting --mg) so the
    filter bar reads at a glance — tinted at rest, solid when active. */
 .picker-chip[class*="mg-"] {
@@ -4251,4 +4267,92 @@ body.keyboard-open .update-banner {
   background: var(--accent);
   border-color: var(--accent);
   color: #0c0c0c;
+}
+
+/* Reference prose that earns its place the first time and is noise from
+   then on. Shut it is one tappable line; open it reads as before. */
+.explainer {
+  margin-bottom: 12px;
+}
+
+.explainer > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  padding: 2px 0;
+}
+
+.explainer > summary::-webkit-details-marker {
+  display: none;
+}
+
+.explainer > summary::after {
+  content: ' A';
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.explainer[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.explainer__body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding-top: 6px;
+}
+
+/* Workout tab front door: what you last did, and what the split says is
+   next. Sits above the empty state's buttons rather than replacing them —
+   the answer to "what now?" should be readable without a decision first. */
+.home-next {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.home-next__last {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.home-next__last:only-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.home-next__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-next__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.home-next__day {
+  font-family: var(--font-display);
+  font-size: 17px;
+  margin: 2px 0 3px;
+}
+
+.home-next__meta {
+  font-size: 11px;
+  color: var(--text-dim);
 }

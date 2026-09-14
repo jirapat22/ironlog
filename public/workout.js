@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, humanAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -110,6 +110,18 @@ function saveDraft(workoutId, draft) {
 
 function clearDraft(workoutId) {
   try { localStorage.removeItem(draftKey(workoutId)); } catch { /* ignore */ }
+}
+
+// Drafts are keyed by workout id and only ever matter for the session
+// that's open right now. Anything else is residue from a workout that was
+// swept server-side, deleted on another device, or lost its pointer.
+function pruneDraftsExcept(keepWorkoutId) {
+  const keep = draftKey(keepWorkoutId);
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('ironlog.draft.') && key !== keep) localStorage.removeItem(key);
+    }
+  } catch { /* ignore */ }
 }
 
 function clearDraftInput(workoutId, exId, setNum) {
@@ -584,6 +596,7 @@ async function renderWorkout(retriedAfterMissing = false) {
     // after the workout it belonged to ended.
     if (isRestActive()) cancelRestCountdown();
     root.innerHTML = `
+      <div id="home-nextup"></div>
       <div class="empty">
         <div class="empty__icon">&#x1F4AA;</div>
         <div style="margin-bottom:12px">No active workout</div>
@@ -592,10 +605,23 @@ async function renderWorkout(retriedAfterMissing = false) {
         <button class="btn btn--ghost btn--block" data-log-activity style="margin-top:8px">Log a class / run / cardio</button>
         <button class="btn btn--ghost btn--block" data-log-past style="margin-top:8px">Log a past session</button>
       </div>`;
+    renderHomeNextUp();
     root.onclick = async (e) => {
       if (e.target.closest('[data-go-programs]'))
         document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
       if (e.target.closest('[data-log-activity]')) return openActivitySheet();
+      const nextBtn = e.target.closest('[data-start-next-day]');
+      if (nextBtn) {
+        nextBtn.disabled = true;
+        const dayId = Number(nextBtn.dataset.startNextDay);
+        try {
+          const w = await API.startWorkout(dayId);
+          localStorage.setItem(LS.activeWorkoutId, String(w.id));
+          localStorage.setItem(LS.activeProgramDayId, String(dayId));
+          renderWorkout();
+        } catch (err) { toast(err.message); nextBtn.disabled = false; }
+        return;
+      }
       // Same flow as a quick workout, just dated to an earlier day — you then
       // log sets into it normally and finish as usual.
       const pastBtn = e.target.closest('[data-log-past]');
@@ -778,6 +804,11 @@ async function renderWorkout(retriedAfterMissing = false) {
     } catch { /* optional enhancement — fall back to no prefill */ }
 
     localStorage.setItem(LS.activeWorkoutStart, workout.started_at);
+    // Exactly one workout is in progress at a time, and we now know which,
+    // so any other draft belongs to a session that ended some other way.
+    // Safe to do here and not earlier: before this point the active id may
+    // still be about to change (the /active adoption above).
+    pruneDraftsExcept(workout.id);
 
     renderWorkoutView();
     // Reopening mid-workout (app relaunch, tab switch back) used to always
@@ -800,6 +831,13 @@ async function renderWorkout(retriedAfterMissing = false) {
     // localStorage still remembers it. Clear the stale pointer and start over
     // (once), which falls through to /active recovery or the empty state.
     if (!retriedAfterMissing && /not found/i.test(err.message)) {
+      // The draft goes too. This path used to clear only the three LS
+      // pointers, so every swept or deleted workout left its draft behind
+      // forever — an audit found three of them, two for workouts the server
+      // had 404'd on for weeks. clearDraft on finish/cancel never covered
+      // this case because nobody finished or cancelled these.
+      clearDraft(activeId);
+      dropQueuedSetsFor(activeId);
       localStorage.removeItem(LS.activeWorkoutId);
       localStorage.removeItem(LS.activeProgramDayId);
       localStorage.removeItem(LS.activeWorkoutStart);
@@ -860,7 +898,11 @@ function renderWorkoutView() {
       <textarea class="input workout-notes" data-workout-notes rows="2" placeholder="How did it feel? Energy, form cues…">${escapeHtml(workout.notes || '')}</textarea>
     </div>
     <div class="finish-bar">
-      <button class="btn btn--ghost" data-cancel-workout>Cancel</button>
+      <!-- "Cancel" next to "Finish workout" reads as "dismiss this screen",
+           which is the opposite of what it does: it deletes the session and
+           every set in it. The confirm sheet catches the mistake, but the
+           button should not be inviting it. -->
+      <button class="btn btn--ghost" data-cancel-workout>Discard</button>
       <button class="btn btn--primary btn--block" data-finish-workout>Finish workout</button>
     </div>
   `;
@@ -911,6 +953,44 @@ function applyPendingSetRows() {
   }
 }
 
+// The Workout tab's front door. It used to show "No active workout" and four
+// buttons and nothing else — with four programs and months of history behind
+// it, still nothing about what you last did or which day of the split comes
+// next, both of which the app already knows. Decorates the empty state after
+// it has painted, so this never delays the buttons and quietly does nothing
+// when offline or when there is no history to summarise yet.
+async function renderHomeNextUp() {
+  const el = document.getElementById('home-nextup');
+  if (!el) return;
+  let data;
+  try { data = await API.nextUp(); } catch { return; }
+  // Still the empty state? A workout may have started while this was in
+  // flight, in which case the node we captured is off the page.
+  if (!el.isConnected || !data) return;
+  const { last, next } = data;
+  if (!last && !next) return;
+
+  const lastLine = last
+    ? `<div class="home-next__last">Last session &middot; ${escapeHtml(last.day_label || (last.kind === 'activity' ? (last.activity_type || 'Activity') : 'Quick workout'))} &middot; ${humanAgo(last.finished_at || last.started_at)}</div>`
+    : '';
+
+  // Only offer the one-tap start when the suggestion is genuinely the next
+  // one round the rotation; with no program history at all it is a guess, so
+  // it reads as a suggestion and sends you to Programs instead.
+  const nextBlock = next
+    ? `<div class="home-next__row">
+         <div>
+           <div class="home-next__label">Next up</div>
+           <div class="home-next__day">${escapeHtml(next.day_label)}</div>
+           <div class="home-next__meta">${escapeHtml(next.program_name)} &middot; ${next.last_trained_at ? `last trained ${humanAgo(next.last_trained_at)}` : 'not run yet'}</div>
+         </div>
+         <button class="btn btn--primary btn--sm" data-start-next-day="${next.day_id}">Start</button>
+       </div>`
+    : '';
+
+  el.innerHTML = `<div class="home-next">${lastLine}${nextBlock}</div>`;
+}
+
 // Live "muscle groups already hit this workout" strip — same primary +
 // major-secondary crediting rule as the 2x/week goal strip on Programs
 // (routes/progress.js's /muscle-coverage, scoped here to just this
@@ -938,9 +1018,18 @@ async function renderSessionCoverage() {
   };
   el.innerHTML = `
     <div class="cov-strip">
-      <div class="cov-strip__title">This workout</div>
+      <div class="cov-strip__title">This workout <span class="cov-strip__legend">filled = trained directly &middot; outlined = worked as secondary</span></div>
       <div class="cov-strip__chips">
-        ${PICKER_GROUP_ORDER.map((g) => `<span class="cov-chip mg-${g}${hit.has(g) ? ' cov-chip--done' : ' cov-chip--zero'}" title="${(exCount.get(g) || 0) > 0 ? `${exCount.get(g)} exercise${exCount.get(g) === 1 ? '' : 's'} for ${g}` : hit.has(g) ? `${g} worked as secondary` : `no ${g} work yet`}">${chipLabel(g)}</span>`).join('')}
+        ${PICKER_GROUP_ORDER.map((g) => {
+          const n = exCount.get(g) || 0;
+          // Three states, three looks. A group you actually picked an
+          // exercise for and one that merely came along for the ride used to
+          // render identically solid — the count vs the tick was the only
+          // difference, explained nowhere but a title= a phone never shows.
+          const state = n > 0 ? ' cov-chip--done' : hit.has(g) ? ' cov-chip--secondary' : ' cov-chip--zero';
+          const why = n > 0 ? `${n} exercise${n === 1 ? '' : 's'} for ${g}` : hit.has(g) ? `${g} worked as secondary` : `no ${g} work yet`;
+          return `<span class="cov-chip mg-${g}${state}" title="${why}">${chipLabel(g)}</span>`;
+        }).join('')}
       </div>
     </div>`;
 }
@@ -1602,7 +1691,7 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
         ${rirButtons}
         <button class="rpe-btn rpe-btn--clear" data-rir-clear ${effRir !== '' && effRir != null ? '' : 'style="visibility:hidden"'}>×</button>
         <button class="set-row__note-toggle" data-toggle-note title="Add a note">&#x270E;</button>
-        ${logged && !isWarmup ? `<button class="set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}" data-toggle-form title="Form broke down on this set — won't count toward progressing next time">&#x26A0;&#xFE0F;</button>` : ''}
+        ${logged && !isWarmup ? `<button class="set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}" data-toggle-form aria-label="Flag form breakdown on this set" title="Form broke down on this set — won't count toward progressing next time">&#x26A0;&#xFE0F;</button>` : ''}
         <button data-rest class="rest-timer">rest</button>
       </div>
       ${!logged && prevNote ? `<div class="set-row__last-note" title="What you noted on this set last time">&#x270E; ${escapeHtml(prevNote)}</div>` : ''}
@@ -1660,6 +1749,7 @@ function reconcileSetRowBadges(row, logged) {
     formBtn.className = `set-row__form-flag${logged.form_flag ? ' set-row__form-flag--on' : ''}`;
     formBtn.dataset.toggleForm = '1';
     formBtn.title = "Form broke down on this set — won't count toward progressing next time";
+    formBtn.setAttribute('aria-label', 'Flag form breakdown on this set');
     formBtn.textContent = '⚠️';
     row.querySelector('[data-rest]')?.insertAdjacentElement('beforebegin', formBtn);
   } else if (isWarmup && existingFormBtn) {
@@ -1845,6 +1935,13 @@ function wireWorkoutView() {
     if (formFlagBtn) {
       const nowFlagged = !formFlagBtn.classList.contains('set-row__form-flag--on');
       formFlagBtn.classList.toggle('set-row__form-flag--on', nowFlagged);
+      // What this button means lived only in a title= attribute, which a
+      // phone never shows — so on touch it was an unlabelled warning glyph
+      // next to the note pencil with no way to find out what it did. Say it
+      // out loud on the tap that reveals it.
+      toast(nowFlagged
+        ? "Form broke down — this set won't count toward your next weight"
+        : 'Form flag removed — this set counts again');
       haptic(10);
       const setId = row.dataset.setId ? Number(row.dataset.setId) : null;
       if (setId) {
@@ -2223,6 +2320,7 @@ async function confirmSet(row) {
         formBtn.className = 'set-row__form-flag';
         formBtn.dataset.toggleForm = '1';
         formBtn.title = "Form broke down on this set — won't count toward progressing next time";
+        formBtn.setAttribute('aria-label', 'Flag form breakdown on this set');
         formBtn.textContent = '⚠️';
         row.querySelector('[data-rest]')?.insertAdjacentElement('beforebegin', formBtn);
       }
@@ -3012,7 +3110,7 @@ function startStickyTimer() {
 
 async function cancelWorkout() {
   if (workoutEnding) return;
-  const ok = await confirmSheet({ title: 'Cancel workout', message: 'Cancel this workout? All logged sets will be deleted.', confirmText: 'Cancel workout', cancelText: 'Keep going', danger: true });
+  const ok = await confirmSheet({ title: 'Discard workout', message: 'Discard this workout? Every set you logged in it will be deleted.', confirmText: 'Discard workout', cancelText: 'Keep going', danger: true });
   if (!ok) return;
   workoutEnding = true;
   const id = workoutState?.workout?.id;

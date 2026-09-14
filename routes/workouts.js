@@ -192,6 +192,68 @@ router.get('/active', (req, res) => {
   res.json(row || null);
 });
 
+// What the Workout tab's empty state shows instead of nothing. With four
+// programs and months of history it said only "No active workout" and four
+// buttons: nothing about what you last did, and nothing about which of your
+// programs you were even on. Both answers are one query each, so they are
+// answered here rather than by making that screen load the whole Programs
+// tab's worth of data to work it out client-side.
+router.get('/next-up', (req, res) => {
+  const last = db.prepare(
+    `SELECT w.id, w.started_at, w.finished_at, w.kind, w.activity_type, w.program_day_id,
+            pd.day_label, p.name AS program_name,
+            (SELECT COUNT(*) FROM sets s WHERE s.workout_id = w.id) AS total_sets
+     FROM workouts w
+     LEFT JOIN program_days pd ON pd.id = w.program_day_id
+     LEFT JOIN programs p ON p.id = pd.program_id
+     WHERE w.profile_id = ? AND w.finished_at IS NOT NULL
+     ORDER BY w.finished_at DESC LIMIT 1`
+  ).get(req.profileId) || null;
+
+  // Rotation, not recency: "you did Push last, so Pull is next" is what a
+  // split actually means, and it stays predictable when you skip a day or
+  // train one twice. Anchored on the last PROGRAM session — a quick workout
+  // or a run in between shouldn't advance the split.
+  const anchor = db.prepare(
+    `SELECT pd.id, pd.program_id, pd.day_order
+     FROM workouts w JOIN program_days pd ON pd.id = w.program_day_id
+     WHERE w.profile_id = ? AND w.finished_at IS NOT NULL
+     ORDER BY w.finished_at DESC LIMIT 1`
+  ).get(req.profileId);
+
+  let next = null;
+  if (anchor) {
+    // The next day in order, or wrap to the first — one query either way.
+    next = db.prepare(
+      `SELECT pd.id AS day_id, pd.day_label, pd.program_id, p.name AS program_name
+       FROM program_days pd JOIN programs p ON p.id = pd.program_id
+       WHERE pd.program_id = ?
+       ORDER BY (pd.day_order > ?) DESC, pd.day_order ASC
+       LIMIT 1`
+    ).get(anchor.program_id, anchor.day_order) || null;
+  } else {
+    // Never trained a program day: open on the first day of the first
+    // program rather than showing nothing.
+    next = db.prepare(
+      `SELECT pd.id AS day_id, pd.day_label, pd.program_id, p.name AS program_name
+       FROM program_days pd JOIN programs p ON p.id = pd.program_id
+       WHERE p.profile_id = ?
+       ORDER BY p.id ASC, pd.day_order ASC
+       LIMIT 1`
+    ).get(req.profileId) || null;
+  }
+
+  if (next) {
+    const lastForDay = db.prepare(
+      `SELECT MAX(COALESCE(finished_at, started_at)) AS at
+       FROM workouts WHERE profile_id = ? AND program_day_id = ? AND finished_at IS NOT NULL`
+    ).get(req.profileId, next.day_id);
+    next.last_trained_at = lastForDay?.at || null;
+  }
+
+  res.json({ last, next });
+});
+
 router.get('/history', (req, res) => {
   const rows = db
     .prepare(

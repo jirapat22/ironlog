@@ -156,6 +156,7 @@ const API = {
   calendar: () => api(`/api/calendar?tzOffset=${-new Date().getTimezoneOffset()}`),
   prs: () => api('/api/prs'),
   history: () => api('/api/workouts/history'),
+  nextUp: () => api('/api/workouts/next-up'),
   updateWorkout: (id, data) => api(`/api/workouts/${id}`, { method: 'PATCH', body: data }),
   updateFeel: (id, rating) => api(`/api/workouts/${id}`, { method: 'PATCH', body: { feel_rating: rating } }),
   deleteWorkout: (id) => api(`/api/workouts/${id}`, { method: 'DELETE' }),

@@ -13,6 +13,11 @@ async function openSettingsSheet() {
   let me = null;
   try { me = (await API.me()).profile; } catch { /* not logged in */ }
 
+  // This is a live credential for reading the whole training log, and it
+  // was sitting in plain text on a screen people screenshot for bug reports
+  // and hand over to show someone a setting. Copy still works without ever
+  // revealing it; Reveal is there for typing it in by hand.
+  const maskKey = (k) => (k ? `${k.slice(0, 4)}${'•'.repeat(24)}${k.slice(-4)}` : '');
   let apiKey = null;
   if (me) { try { apiKey = (await API.getApiKey()).api_key; } catch (err) { reportHandled(err, { where: 'openSettingsSheet:getApiKey' }); } }
 
@@ -144,8 +149,9 @@ async function openSettingsSheet() {
         <div class="settings-group__title">Plated API Key</div>
         <div class="settings-group settings-group--free">
           <div class="card__subtitle" style="margin-bottom:10px;padding-bottom:0">Paste this into your Plated profile so it can read your IronLog data.</div>
-          <div class="apikey-box" id="apikey-box">${escapeHtml(apiKey || '')}</div>
+          <div class="apikey-box" id="apikey-box">${maskKey(apiKey)}</div>
           <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn--ghost btn--sm" id="reveal-key" style="flex:1">Reveal</button>
             <button class="btn btn--ghost btn--sm" id="copy-key" style="flex:1">Copy</button>
             <button class="btn btn--ghost btn--sm" id="regen-key" style="flex:1">Regenerate</button>
           </div>
@@ -237,6 +243,15 @@ async function openSettingsSheet() {
       return;
     }
 
+    const revealBtn = e.target.closest('#reveal-key');
+    if (revealBtn) {
+      const box = sheet.querySelector('#apikey-box');
+      const hidden = revealBtn.textContent.trim() === 'Reveal';
+      if (box) box.textContent = hidden ? (apiKey || '') : maskKey(apiKey);
+      revealBtn.textContent = hidden ? 'Hide' : 'Reveal';
+      return;
+    }
+
     if (e.target.closest('#copy-key')) {
       try {
         await navigator.clipboard.writeText(apiKey || '');
@@ -252,7 +267,9 @@ async function openSettingsSheet() {
         const { api_key } = await API.regenerateApiKey();
         apiKey = api_key;
         const box = sheet.querySelector('#apikey-box');
-        if (box) box.textContent = api_key;
+        if (box) box.textContent = maskKey(api_key);
+        const reveal = sheet.querySelector('#reveal-key');
+        if (reveal) reveal.textContent = 'Reveal';
         toast('New key generated — update Plated');
       } catch (err) { toast(err.message); }
       return;

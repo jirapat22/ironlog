@@ -478,8 +478,13 @@ async function renderVolumeSection() {
       const pct = Math.round(((current - baseline) / baseline) * 100);
       if (Math.abs(pct) >= 1) {
         const sign = pct > 0 ? '+' : '';
+        // Say which comparison this is in the label itself. It read "vs last
+        // wk", which on a Monday looks like a partial week being judged
+        // against a whole one; the fact that it's like-for-like was only in
+        // a title= that a phone never shows.
         const title = compare ? ' title="vs the same point last week"' : '';
-        trendStr = `<span class="bw-current__trend ${pct > 0 ? 'vol-up' : 'vol-down'}"${title}>${sign}${pct}%${compare ? ' vs last wk' : ''}</span>`;
+        const scope = compare ? ' vs same point last wk' : '';
+        trendStr = `<span class="bw-current__trend ${pct > 0 ? 'vol-up' : 'vol-down'}"${title}>${sign}${pct}%${scope}</span>`;
       }
     }
 
@@ -866,7 +871,13 @@ async function renderOverloadCharts() {
       return ia - ib;
     });
 
-    const subtitle = `<div class="card__subtitle" style="margin-bottom:10px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift. Tap a lift to see its full history. Swapped between equivalent exercises (e.g. machine availability)? They're shown on one chart, one color per exercise, instead of blended into a single misleading line.</div>`;
+    // Six lines of prose you read once and then scroll past on every single
+    // visit. Keep the sentence that says what the chart IS; fold the rest of
+    // the explanation into a disclosure that costs one line when shut.
+    const subtitle = `<div class="card__subtitle" style="margin-bottom:4px">Best estimated 1-rep max per session, over time — the clearest sign you're getting stronger on a lift.</div>
+      <details class="explainer"><summary>How to read this</summary>
+        <div class="explainer__body">Tap a lift to see its full history. Swapped between equivalent exercises (e.g. machine availability)? They're shown on one chart, one color per exercise, instead of blended into a single misleading line.</div>
+      </details>`;
     const search = `<div class="overload-search"><input class="input" id="overload-search-input" type="search" placeholder="Find a lift…" autocomplete="off" style="margin-bottom:12px"></div>
       <div id="overload-search-empty" class="bw-current__empty hidden">No lifts match "<span id="overload-search-empty-term"></span>".</div>`;
 

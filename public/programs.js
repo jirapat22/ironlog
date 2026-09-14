@@ -355,7 +355,11 @@ function dayCardHTML(d, programId, i, total) {
 // request per day.
 function applyLastTrained(dayId, last, lastByExercise = {}) {
   const el = document.querySelector(`[data-last="${dayId}"]`);
-  if (el) el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'Never trained';
+  // "Never trained" sat directly above per-exercise lines reading "Bench
+  // Press · last 80kg×8", which look like a flat contradiction. Both are
+  // right — this label is about the DAY, those are about the exercise
+  // wherever you last did it — so name what it's about.
+  if (el) el.textContent = last ? `Last trained ${humanAgo(last.finished_at || last.started_at)}` : 'This day not run yet';
 
   const dayCard = document.querySelector(`[data-day-id="${dayId}"]`);
   if (!dayCard) return;
