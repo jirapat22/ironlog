@@ -1711,6 +1711,44 @@ function setRowHTML(ex, setNumber, { w, u, r, rir, note, repsR: repsRVal, repsL:
   `;
 }
 
+// The badges beside a logged set (estimated 1RM, the PR trophy, the "beat
+// last time" arrow) are derived, not stored on the row — and correcting a
+// set changes them. Worse, a correction can move the PR to a DIFFERENT set
+// of the same exercise, so there is no one row to patch: mistype 150kg,
+// confirm, fix it to 92kg, and the trophy belongs to whichever set is now
+// the best. PATCH returns the bare sets row, so re-read the session's sets
+// (GET /:id/sets recomputes both flags on every read) and redress every
+// logged row for that exercise from the answer.
+//
+// Best-effort by design: if the re-read fails the correction still stands,
+// the badges just stay stale until the next full render, which is exactly
+// where this started rather than a new failure mode.
+async function refreshLoggedBadges(exId) {
+  const workoutId = workoutState?.workout?.id;
+  if (!workoutId) return;
+  let fresh;
+  try { fresh = await API.workoutSets(workoutId); } catch { return; }
+  if (!workoutState || workoutState.workout?.id !== workoutId) return;
+  // The two endpoints name the same flag differently: POST /api/sets answers
+  // is_new_pr (which is what this view and reconcileSetRowBadges read), while
+  // GET /:id/sets answers is_pr (which History reads). Normalise here, at the
+  // boundary where the two vocabularies actually meet, rather than renaming a
+  // response History depends on. Missing it is silent and one-directional —
+  // the trophy still disappears when a correction costs you the record, and
+  // simply never comes back when one earns it.
+  const byId = new Map(
+    fresh
+      .filter((s) => s.exercise_id === exId)
+      .map((s) => [s.id, { ...s, is_new_pr: s.is_new_pr ?? s.is_pr }])
+  );
+  if (!byId.size) return;
+  workoutState.loggedSets = workoutState.loggedSets.map((s) => byId.get(s.id) || s);
+  for (const row of document.querySelectorAll(`.set-row[data-ex="${exId}"][data-set-id]`)) {
+    const logged = byId.get(Number(row.dataset.setId));
+    if (logged) reconcileSetRowBadges(row, logged);
+  }
+}
+
 // Rebuilds a logged row's hints (e1RM/per-arm/PR badges) and form-flag
 // button from scratch, matching exactly what setRowHTML would render for
 // the same state. Needed because toggling warmup on an already-logged row
@@ -1927,6 +1965,9 @@ function wireWorkoutView() {
           logged.is_warmup = nowWarmup ? 1 : 0;
           reconcileSetRowBadges(row, logged);
         }
+        // Same reason as an edit: a set leaving (or rejoining) the PR pool
+        // re-ranks the exercise, so the trophy may belong to another row now.
+        refreshLoggedBadges(Number(row.dataset.ex));
       }
       return;
     }
@@ -2266,9 +2307,10 @@ async function confirmSet(row) {
       const setIdx = workoutState.loggedSets.findIndex((s) => s.id === Number(row.dataset.setId));
       // Merge, don't replace — is_new_pr/improved_from_last are computed by
       // the server on log/fetch (see lib/improved.js), but a plain PATCH
-      // response doesn't recompute or carry them. Replacing the whole entry
-      // silently dropped an already-earned trophy/badge the moment anything
-      // ELSE forced a full re-render of this row later in the same session.
+      // response doesn't recompute or carry them, so a straight replace would
+      // drop an already-earned trophy. refreshLoggedBadges below then fetches
+      // the real values; until it lands these stale ones keep the row looking
+      // like it did a moment ago rather than blank.
       if (setIdx !== -1) workoutState.loggedSets[setIdx] = { ...workoutState.loggedSets[setIdx], ...updated };
       // The correction is now the server-saved value too — drop the pending
       // draft so a stale copy doesn't linger and override a FUTURE edit.
@@ -2278,6 +2320,9 @@ async function confirmSet(row) {
       haptic(20);
       toast('Updated');
       refreshProgressionHint(exId);
+      // The numbers moved, so the 1RM estimate and the PR/improved badges
+      // beside them have to move with them.
+      refreshLoggedBadges(exId);
     } else {
       // Kept in a variable so the catch can park it in the offline outbox
       // verbatim rather than trying to reconstruct it from the DOM.
@@ -2531,6 +2576,9 @@ async function deleteLoggedSet(row) {
     haptic(20);
     toast('Set deleted');
     renderSessionCoverage();
+    // Deleting re-ranks the exercise's PRs server-side, so a surviving row
+    // may have just inherited the trophy.
+    refreshLoggedBadges(Number(row.dataset.ex));
   } catch (err) { toast(err.message); }
   finally { setsBeingDeleted.delete(id); }
 }
