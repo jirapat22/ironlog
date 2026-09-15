@@ -488,7 +488,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
                    numbers against. -->
               <span class="history-ex__set-n">${s.is_warmup ? 'Warm-up' : `Set ${s.set_number}`}</span>
               <span class="history-ex__set-w">${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${fmtReps(s.reps, s.reps_r, s.reps_l)}</span>
-              ${s.is_pr ? `<span class="history-ex__set-pr" ${badgeAttrs('New PR', `New personal record: ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps} reps.`)}>&#x1F3C6;</span>` : ''}
+              ${s.is_new_pr ? `<span class="history-ex__set-pr" ${badgeAttrs('New PR', `New personal record: ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)} × ${s.reps} reps.`)}>&#x1F3C6;</span>` : ''}
               ${s.improved_from_last ? `<span class="history-ex__set-pr" ${badgeAttrs('Improved from last time', improvedFromLastMsg(s.improved_from_last, s.is_bodyweight, s.is_assisted))}>&#x1F4C8;</span>` : ''}
               <!-- A form flag actively holds back the next-weight suggestion
                    ("Hit 8+, but form was flagged — repeating 75kg"). It was

@@ -703,6 +703,12 @@ router.get('/:id/sets', (req, res) => {
   // by set_id (which set actually holds the record), not by value — matching
   // by (weight, unit, reps) alone would flag every set that ever TIES a
   // record, not just the one that originally set it.
+  // Named is_new_pr, matching POST /api/sets and GET /api/workouts/:id.
+  // It was is_pr here alone, which is a silent trap rather than a harmless
+  // synonym: the flag is falsy-by-absence, so code that reads the wrong name
+  // never errors, it just quietly decides nothing is a record. That is one
+  // -directional too — a trophy still disappears when a correction costs you
+  // the record, and simply never comes back when one earns it.
   const prSetIds = personalRecordSetIds(req.profileId, exerciseIds);
   // Session-over-session "improved" tag, same durable computation the live
   // workout view uses — see lib/improved.js. Batched (one call covering
@@ -714,7 +720,7 @@ router.get('/:id/sets', (req, res) => {
     trend_status: trendStatus[s.exercise_id] || null,
     is_first_time: !!firstTime[s.exercise_id],
     trend_points: trendPoints[s.exercise_id] || null,
-    is_pr: !s.is_warmup && prSetIds.has(s.id),
+    is_new_pr: !s.is_warmup && prSetIds.has(s.id),
     improved_from_last: s.is_warmup ? null : (improvedByExercise.get(s.exercise_id)?.get(s.id) || null)
   })));
 });

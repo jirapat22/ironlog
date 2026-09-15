@@ -1729,18 +1729,7 @@ async function refreshLoggedBadges(exId) {
   let fresh;
   try { fresh = await API.workoutSets(workoutId); } catch { return; }
   if (!workoutState || workoutState.workout?.id !== workoutId) return;
-  // The two endpoints name the same flag differently: POST /api/sets answers
-  // is_new_pr (which is what this view and reconcileSetRowBadges read), while
-  // GET /:id/sets answers is_pr (which History reads). Normalise here, at the
-  // boundary where the two vocabularies actually meet, rather than renaming a
-  // response History depends on. Missing it is silent and one-directional —
-  // the trophy still disappears when a correction costs you the record, and
-  // simply never comes back when one earns it.
-  const byId = new Map(
-    fresh
-      .filter((s) => s.exercise_id === exId)
-      .map((s) => [s.id, { ...s, is_new_pr: s.is_new_pr ?? s.is_pr }])
-  );
+  const byId = new Map(fresh.filter((s) => s.exercise_id === exId).map((s) => [s.id, s]));
   if (!byId.size) return;
   workoutState.loggedSets = workoutState.loggedSets.map((s) => byId.get(s.id) || s);
   for (const row of document.querySelectorAll(`.set-row[data-ex="${exId}"][data-set-id]`)) {
