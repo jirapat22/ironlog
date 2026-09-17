@@ -4189,7 +4189,7 @@ body.keyboard-open .update-banner {
    machinery is untouched, and completed/skipped states stay readable so you
    can still tell what you've finished while rearranging. */
 .exercise-list--reorder::before {
-  content: 'Drag to reorder — tap Done when you’re finished';
+  content: 'Tap Top / ↑ / ↓ to move an exercise, or drag a row — then tap Done';
   display: block;
   font-size: 11px;
   color: var(--text-dim);
@@ -4355,4 +4355,62 @@ body.keyboard-open .update-banner {
 .home-next__meta {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+/* Tap-to-move controls. Hidden until compact reorder mode, where they sit
+   above the full-bleed drag handle (z-index 2) so the row stays draggable
+   everywhere else while these still take taps. Dragging is now the optional
+   way to do this, not the only one. */
+.exercise-card__move {
+  display: none;
+}
+
+.exercise-list--reorder .exercise-card__move {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+  z-index: 3;
+  margin-left: auto;
+  padding-right: 6px;
+  flex-shrink: 0;
+}
+
+.exercise-list--reorder .exercise-card__move button {
+  min-width: 36px;
+  height: 44px;
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 6px;
+}
+
+/* "Top" is a word, not an arrow glyph: U+21C8 and its neighbours fall back to
+   a tofu box on iOS, and this is the button the whole complaint is about. */
+.exercise-list--reorder .exercise-card__move button[data-move-ex="top"] {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.exercise-list--reorder .exercise-card__move button:active {
+  background: var(--surface-2);
+}
+
+.exercise-list--reorder .exercise-card__move button:disabled {
+  color: var(--border);
+}
+
+/* The toggle that opens all this. It was a dim grey chip in the corner of the
+   sticky header, quieter than everything around it and easy to read as a
+   label rather than a control -- reported back as "didn't really see change",
+   which is what not finding it looks like. Give it the accent so it reads as
+   something you can press. */
+.workout-sticky__reorder {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }

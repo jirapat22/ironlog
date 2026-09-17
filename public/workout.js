@@ -917,17 +917,70 @@ function renderWorkoutView() {
 
   const exList = document.getElementById('exercise-list');
   if (exList) {
-    enableDragReorder(exList, (newOrder) => {
-      workoutState.programDay.exercises = newOrder
-        .map((id) => workoutState.programDay.exercises.find((ex) => ex.exercise_id === Number(id)))
-        .filter(Boolean);
-      workoutState.draft.exerciseOrder = newOrder.map(Number);
-      persistExerciseList();
-    }, { rowSel: '.exercise-card', idKey: 'ex', draggingClass: 'exercise-card--dragging' });
+    enableDragReorder(exList, applyExerciseOrder, { rowSel: '.exercise-card', idKey: 'ex', draggingClass: 'exercise-card--dragging' });
+    syncMoveButtons();
   }
 
   applyPendingSetRows();
   renderSessionCoverage();
+}
+
+// A new exercise lands at the end of the list, which is usually not where you
+// want to do it — "add new one and needed to drag from bottom to the very
+// top" was the original report, and the reorder toggle lives up in the sticky
+// header, i.e. nowhere near where you are looking right now. Put the way in
+// at the moment the need appears instead of hoping it gets discovered.
+function offerReorderAfterAdd(name) {
+  if ((workoutState?.programDay?.exercises?.length || 0) < 2) {
+    toast(`Added ${name}`);
+    return;
+  }
+  actionToast(`Added ${name} at the end`, 'Move it', () => {
+    if (!workoutState) return;
+    reorderMode = true;
+    const list = document.getElementById('exercise-list');
+    list?.classList.add('exercise-list--reorder');
+    const toggle = document.querySelector('[data-reorder-toggle]');
+    if (toggle) {
+      toggle.innerHTML = '&#x2713; Done';
+      toggle.classList.add('workout-sticky__reorder--on');
+    }
+    syncMoveButtons();
+    // Scroll to the row it is about, not to the top of the mode.
+    document.querySelector('.exercise-card:last-child')?.scrollIntoView({ block: 'center' });
+    haptic(10);
+  });
+}
+
+// Commit a new exercise order — the one place that does it, so the drag and
+// the tap controls can't drift apart on what "reordered" means.
+function applyExerciseOrder(newOrder) {
+  workoutState.programDay.exercises = newOrder
+    .map((id) => workoutState.programDay.exercises.find((ex) => ex.exercise_id === Number(id)))
+    .filter(Boolean);
+  workoutState.draft.exerciseOrder = newOrder.map(Number);
+  persistExerciseList();
+}
+
+// Grey out the moves that don't exist rather than leaving buttons that look
+// live and do nothing. Cards move by direct DOM insertion (no re-render, so
+// the list doesn't jump under your thumb), which means nothing re-evaluates
+// these on its own.
+function syncMoveButtons() {
+  const list = document.getElementById('exercise-list');
+  if (!list) return;
+  const cards = [...list.children];
+  cards.forEach((card, i) => {
+    const first = i === 0;
+    const last = i === cards.length - 1;
+    const set = (dir, off) => {
+      const b = card.querySelector(`[data-move-ex="${dir}"]`);
+      if (b) b.disabled = off;
+    };
+    set('top', first);
+    set('up', first);
+    set('down', last);
+  });
 }
 
 // Re-dress the rows whose sets are still sitting in the offline outbox. The
@@ -1170,6 +1223,11 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
           </div>
           <div class="card__subtitle">${setsRepsText}${rangeLabel}${ex.is_assisted ? ' · enter assistance weight (more = easier)' : ex.is_bodyweight ? ' · enter added weight (0 if none)' : ''}${ex.notes ? ` · ${escapeHtml(ex.notes)}` : ''}</div>
           ${supersetPartner ? `<div class="exercise-card__superset-tag">&#x26D3; Superset with ${escapeHtml(supersetPartner.name)} — go straight into it, rest after both</div>` : ''}
+        </div>
+        <div class="exercise-card__move" aria-label="Move this exercise">
+          <button data-move-ex="top" aria-label="Move to top" title="Move to top">Top</button>
+          <button data-move-ex="up" aria-label="Move up" title="Move up">&#x2191;</button>
+          <button data-move-ex="down" aria-label="Move down" title="Move down">&#x2193;</button>
         </div>
         <div class="exercise-card__head-actions">
           <button class="btn--icon-text" data-howto-ex="${ex.exercise_id}" title="How to do this exercise">?</button>
@@ -1793,12 +1851,38 @@ function wireWorkoutView() {
     // Toggled by class rather than a re-render so the list doesn't jump back
     // to the top mid-rearrange, and so a drop (which only writes the draft)
     // leaves you exactly where you were.
+    // Tap to move, as an alternative to dragging. Reported twice: "needed to
+    // drag from bottom to the very top and stuffs, quite hard to gauge", then
+    // "the moving exercise around still suck" after compact mode only made the
+    // drag SHORTER. A drag is a sustained, aimed gesture — the wrong thing to
+    // ask for mid-set with one hand. These are taps, and ⇈ does the whole
+    // bottom-to-top move the complaint was actually about in one.
+    const moveBtn = e.target.closest('[data-move-ex]');
+    if (moveBtn) {
+      const card = moveBtn.closest('.exercise-card');
+      const list = document.getElementById('exercise-list');
+      if (!card || !list) return;
+      const dir = moveBtn.dataset.moveEx;
+      // Move the node instead of re-rendering: a rebuild mid-reorder would
+      // reset scroll and the row you are working on would jump away.
+      if (dir === 'top') list.prepend(card);
+      else if (dir === 'up' && card.previousElementSibling) list.insertBefore(card, card.previousElementSibling);
+      else if (dir === 'down' && card.nextElementSibling) list.insertBefore(card.nextElementSibling, card);
+      else return;
+      applyExerciseOrder([...list.children].map((c) => c.dataset.ex));
+      syncMoveButtons();
+      card.scrollIntoView({ block: 'nearest' });
+      haptic(10);
+      return;
+    }
+
     const reorderBtn = e.target.closest('[data-reorder-toggle]');
     if (reorderBtn) {
       reorderMode = !reorderMode;
       document.getElementById('exercise-list')?.classList.toggle('exercise-list--reorder', reorderMode);
       reorderBtn.innerHTML = reorderMode ? '&#x2713; Done' : '&#x21C5; Reorder';
       reorderBtn.classList.toggle('workout-sticky__reorder--on', reorderMode);
+      syncMoveButtons();
       haptic(10);
       return;
     }
@@ -3086,8 +3170,8 @@ async function openWorkoutAddExercisePicker() {
       });
       persistExerciseList();
       hideSheet(picker);
-      toast(`Added ${ex.name}`);
       renderWorkoutView();
+      offerReorderAfterAdd(ex.name);
     }
   });
 
@@ -3114,7 +3198,6 @@ async function openWorkoutAddExercisePicker() {
     persistExerciseList();
     hideSheet(picker);
     haptic(20);
-    toast(`Added ${newEx.name}`);
     // Pull this exercise's previous numbers so prefill + hints show right away.
     try {
       const m = await API.lastByExercise([exId]);
@@ -3122,6 +3205,7 @@ async function openWorkoutAddExercisePicker() {
     } catch { /* optional — render without prefill */ }
     if (!workoutState) return; // workout was finished/cancelled while this was in flight
     renderWorkoutView();
+    offerReorderAfterAdd(newEx.name);
   };
 }
 
