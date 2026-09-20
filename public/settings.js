@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, isIOS, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, ACCENTS, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanError, showSheet, hideSheet, ensureSheet, confirmSheet, promptSheet, isStandalone, isIOS, renderExerciseEditForm, renderNewExerciseForm, pickerChipsHTML, PICKER_GROUP_ORDER, ACCENTS, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, formatDateShort, fmtSetWeight } from './utils.js';
 import { api, API } from './api.js';
 import { notifPermission, ensureNotifPermission, subscribeWebPush, unsubscribeWebPush, showLocalNotification } from './audio.js';
 import { openMislogSheet } from './workout.js';
@@ -219,7 +219,7 @@ async function openSettingsSheet() {
         document.dispatchEvent(new CustomEvent('ironlog:profile-updated', { detail: profile }));
         toast('Name updated');
         openSettingsSheet();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -230,7 +230,7 @@ async function openSettingsSheet() {
         document.dispatchEvent(new CustomEvent('ironlog:profile-updated', { detail: profile }));
         haptic(10);
         openSettingsSheet();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -239,7 +239,7 @@ async function openSettingsSheet() {
       if (code == null) return;
       if (!/^\d{4}$/.test(code.trim())) { toast('Passcode must be 4 digits'); return; }
       try { await API.changePasscode(code.trim()); toast('Passcode changed'); }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -271,7 +271,7 @@ async function openSettingsSheet() {
         const reveal = sheet.querySelector('#reveal-key');
         if (reveal) reveal.textContent = 'Reveal';
         toast('New key generated — update Plated');
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -289,7 +289,7 @@ async function openSettingsSheet() {
         await API.deleteMe();
         hideSheet(sheet);
         document.dispatchEvent(new CustomEvent('ironlog:lock'));
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -297,7 +297,7 @@ async function openSettingsSheet() {
       const btn = e.target.closest('#toggle-equiv');
       const on = btn.classList.contains('toggle--on');
       try { await API.updateSettings({ show_weight_equiv: on ? '0' : '1' }); haptic(10); openSettingsSheet(); }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -324,7 +324,7 @@ async function openSettingsSheet() {
                    </span>
                  </div>`).join('')}
              </div>`;
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       outlierBtn.disabled = false;
       outlierBtn.textContent = 'Check';
       return;
@@ -350,7 +350,7 @@ async function openSettingsSheet() {
                    <button class="btn btn--ghost btn--sm" data-review-suspicious="${f.set_id}">Review</button>
                  </div>`).join('')}
              </div>`;
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       suspiciousBtn.disabled = false;
       suspiciousBtn.textContent = 'Check';
       return;
@@ -387,7 +387,7 @@ async function openSettingsSheet() {
         await API.updateSet(setId, { unit_reviewed: 1 });
         haptic(10);
         sheet.querySelector(`[data-outlier-row="${setId}"]`)?.remove();
-      } catch (err) { toast(err.message); markOkBtn.disabled = false; }
+      } catch (err) { toast(humanError(err)); markOkBtn.disabled = false; }
       return;
     }
 
@@ -398,7 +398,7 @@ async function openSettingsSheet() {
       try {
         await API.updateSettings({ preferred_unit: prefUnitBtn.dataset.prefUnit });
         haptic(10); openSettingsSheet();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -618,7 +618,7 @@ async function renderExerciseLibraryList(sheet) {
           // Fall back to the chip unchanged rather than leaving the row stuck
           // showing raw inputs with no way back except closing the sheet —
           // the user can tap the chip again to retry.
-          toast(err.message);
+          toast(humanError(err));
           const tmp = document.createElement('div');
           tmp.innerHTML = repGoalChipHTML(ex);
           wrap.replaceWith(tmp.firstElementChild);
@@ -665,7 +665,7 @@ async function renderExerciseLibraryList(sheet) {
         // next such toggle within the same sheet session, even though it was
         // already gone server-side.
         openExerciseLibrary();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     }
   };
 }
@@ -731,7 +731,7 @@ async function openNotesSheet() {
       haptic(10);
       renderList();
       reportBugManually(text, { type: category === 'bug' ? 'bug_report' : 'idea', extraContext: { note_id: note.id } }).catch(() => {});
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(humanError(err)); }
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addNote(); });
 
@@ -761,7 +761,7 @@ async function openNotesSheet() {
         sortNotes();
         haptic(10);
         renderList();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -773,7 +773,7 @@ async function openNotesSheet() {
         notes = notes.filter((n) => n.id !== id);
         haptic(15);
         renderList();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     }
   };
 }

@@ -1788,8 +1788,9 @@ body.keyboard-open .update-banner {
 }
 
 .bw-item__del {
-  width: 24px;
-  height: 24px;
+  width: 44px;
+  height: 44px;
+  margin: -10px -10px -10px 0;
   border-radius: 50%;
   color: var(--text-dim);
   font-size: 16px;
@@ -2144,7 +2145,9 @@ body.keyboard-open .update-banner {
   justify-content: space-between;
   gap: 4px;
   align-self: flex-start;
-  margin-top: 4px;
+  min-height: 36px;
+  padding: 6px 0;
+  margin-top: 0;
   background: none;
   border: none;
   padding: 0;
@@ -2176,13 +2179,14 @@ body.keyboard-open .update-banner {
 }
 .mfreq-toggle-all {
   display: block;
-  margin: 0 0 10px auto;
+  margin: 0 0 4px auto;
   background: none;
   border: none;
   color: var(--accent);
   font-size: 13px;
   font-weight: 600;
-  padding: 4px 0;
+  min-height: 36px;
+  padding: 4px 8px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -3107,7 +3111,11 @@ body.keyboard-open .update-banner {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  /* Was a 21px-tall strip for a row you tap to open a section. Full width
+     made it findable; padding makes it hittable. */
+  min-height: 44px;
+  padding: 4px 0;
+  margin-bottom: 6px;
   cursor: pointer;
 }
 
@@ -3396,7 +3404,16 @@ body.keyboard-open .update-banner {
   border: none;
   color: var(--text-dim);
   font-size: 14px;
-  padding: 0 4px;
+  /* The glyph is small on purpose; the thing you tap should not be. This was
+     a 20x18 target for the control that opens and closes every section on
+     the tab -- negative margin keeps the header's spacing unchanged. */
+  min-width: 44px;
+  min-height: 44px;
+  margin: -13px -12px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
 }

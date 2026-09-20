@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, effectiveLoadKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML } from './utils.js';
+import { $, escapeHtml, haptic, toast, humanError, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, effectiveLoadKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML } from './utils.js';
 import { API } from './api.js';
 import { assert } from './bugreport.js';
 
@@ -181,7 +181,7 @@ async function renderProgress() {
         await API.deleteBodyweight(id);
         await renderBodyweightSection();
         await renderTdeeSection();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     }
   };
 
@@ -1171,7 +1171,7 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
             hideSheet(sheet);
             openExerciseDetailSheet(exerciseId, displayName);
           })
-          .catch((err) => { toast(err.message); normalise.disabled = false; });
+          .catch((err) => { toast(humanError(err)); normalise.disabled = false; });
         return;
       }
 
@@ -1468,7 +1468,7 @@ async function renderTdeeSection() {
       const next = btn.dataset.goal;
       if (next === goal) return;
       try { await API.updateSettings({ profile_goal: next }); haptic(10); renderTdeeSection(); }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
     };
   });
 }
@@ -1534,7 +1534,7 @@ async function openProfileSheet() {
           profile_cut_deficit: String(cutNum), profile_bulk_surplus: String(bulkNum)
         });
         haptic(20); hideSheet(sheet); await renderTdeeSection(); toast('Profile saved');
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     }
   };
 }
@@ -1623,7 +1623,7 @@ function openBodyweightSheet() {
           prevBwKg: +prevBwKg.toFixed(2), newBwKg: +newBwKg.toFixed(2), deltaKg: +deltaKg.toFixed(2)
         });
         toast(jumpOk ? 'Logged' : `Logged — that's a ${deltaKg.toFixed(1)}kg jump since last time, worth double-checking`);
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     }
   };
 }

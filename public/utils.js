@@ -124,6 +124,19 @@ async function playBeep() {
 let toastActionPending = false;
 let queuedToast = null;
 
+// The raw string a fetch throws when the request never left the phone is
+// "Failed to fetch" (or "Load failed" on Safari) — shown verbatim it reads
+// like a crash rather than "you have no signal". Anything that surfaces an
+// error to a person goes through here first.
+function humanError(err) {
+  const msg = typeof err === 'string' ? err : (err?.message || '');
+  if (/failed to fetch|load failed|networkerror|network request failed/i.test(msg)) {
+    return 'No connection — that change needs signal. Try again when you’re back online.';
+  }
+  if (/timed out/i.test(msg)) return 'That took too long — check your connection and try again.';
+  return msg || 'Something went wrong.';
+}
+
 function toast(msg, ms = 2000) {
   if (toastActionPending) { queuedToast = { msg, ms }; return; }
   const el = $('#toast');
@@ -833,7 +846,7 @@ async function confirmWeightModeFix(exerciseName, newMode) {
 // nothing a plain Quick workout doesn't already do and reads as if it would
 // reconstruct this morning. Moving a mis-dated workout back TO today is a
 // real thing to want, so that caller keeps it.
-function pickRecentDay({ title = 'Which day?', message = '', minDaysBack = 0, maxDaysBack = 2 } = {}) {
+function pickRecentDay({ title = 'Which day?', message = '', minDaysBack = 0, maxDaysBack = 7 } = {}) {
   return new Promise((resolve) => {
     const sheet = ensureSheet('day-picker-sheet');
     const now = new Date();
@@ -1754,7 +1767,7 @@ function isStandalone() {
 
 export {
   LS, $, $$, escapeHtml, haptic, primeAudio, playBeep, toast, actionToast,
-  formatDateShort, daysAgo, humanAgo, fmtDuration,
+  formatDateShort, daysAgo, humanAgo, fmtDuration, humanError,
   stepForExercise, newestLoggedAt, pickMostRecentSets, readRepRangeInputs, retryWithAdminCode, equipmentLabel, attachLibrarySearch, skeletonBlocks, showPRFlash,
   e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay,

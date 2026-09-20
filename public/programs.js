@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanError, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -48,7 +48,7 @@ async function createProgramFlow() {
     const day = await API.addDay(p.id, { day_label: 'Day 1' });
     haptic(20);
     openEditDay(p.id, day.id);
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(humanError(err)); }
 }
 
 // ---------- PROGRAMS tab ----------
@@ -143,7 +143,7 @@ async function renderPrograms() {
         try {
           await API.reorderPrograms(full.map((p) => p.id));
           renderPrograms();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -163,7 +163,7 @@ async function renderPrograms() {
         try {
           await API.reorderDays(programId, program.days.map((d) => d.id));
           renderPrograms();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -178,7 +178,7 @@ async function renderPrograms() {
         try {
           await API.duplicateProgram(id, { name: name.trim() });
           haptic(20); toast('Program duplicated'); renderPrograms();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -192,7 +192,7 @@ async function renderPrograms() {
         try {
           await API.updateProgram(id, data);
           haptic(20); renderPrograms();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -206,7 +206,7 @@ async function renderPrograms() {
         try {
           await API.deleteProgram(id);
           haptic(20); renderPrograms();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -220,7 +220,7 @@ async function renderPrograms() {
         try {
           await API.deleteDay(programId, dayId);
           haptic(20); renderPrograms();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -244,7 +244,7 @@ async function renderPrograms() {
           const newDay = await API.addDay(programId, { day_label: label.trim() });
           haptic(20);
           openEditDay(programId, newDay.id);
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -269,7 +269,7 @@ async function renderPrograms() {
           localStorage.setItem(LS.activeWorkoutStart, w.started_at);
           document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'workout' }));
         } catch (err) {
-          toast(err.message);
+          toast(humanError(err));
           startPastBtn.disabled = false;
         }
         return;
@@ -288,7 +288,7 @@ async function renderPrograms() {
           localStorage.setItem(LS.activeWorkoutStart, w.started_at);
           document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'workout' }));
         } catch (err) {
-          toast(err.message);
+          toast(humanError(err));
           startBtn.disabled = false;
           startBtn.textContent = 'Start workout';
         }
@@ -519,7 +519,7 @@ function renderEditSheet() {
         const btn = sheet.querySelector('[data-rename-day]');
         if (btn) btn.textContent = `${newLabel.trim()} ✎`;
         haptic(10);
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
     if (e.target.closest('[data-open-picker]')) return openPicker();
@@ -549,7 +549,7 @@ function renderEditSheet() {
       row.querySelector(`[data-display="${field}"]`).textContent = display;
       haptic(10);
       try { await API.updateDayExercise(programId, dayId, pdeId, { [field]: next }); }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -577,7 +577,7 @@ function renderEditSheet() {
         }
         haptic(10);
         renderEditSheet();
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -597,7 +597,7 @@ function renderEditSheet() {
         for (const x of editDayState.day.exercises) if (x.superset_with === pdeId) x.superset_with = null;
         editDayState.day.exercises = editDayState.day.exercises.filter((x) => x.id !== pdeId);
         renderEditSheet(); haptic(20);
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -613,7 +613,7 @@ function renderEditSheet() {
       try {
         await API.reorderDayExercises(programId, dayId, exs.map((x) => x.id));
         exs.forEach((x, i) => { x.order_index = i; });
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     }
   };
 }
@@ -628,7 +628,7 @@ async function persistEditRowOrder() {
     await API.reorderDayExercises(editDayState.programId, editDayState.dayId, editDayState.day.exercises.map((x) => x.id));
     editDayState.day.exercises.forEach((ex, i) => { ex.order_index = i; });
     haptic(15);
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(humanError(err)); }
 }
 
 // ---------- Exercise picker (programs context only) ----------
@@ -730,7 +730,7 @@ async function openPicker({ swapPde = null } = {}) {
     const exerciseId = Number(pickBtn.dataset.pick);
     haptic(20);
     try { await applyPick(picker, exerciseId, swapPde); }
-    catch (err) { toast(err.message); }
+    catch (err) { toast(humanError(err)); }
   };
 }
 
@@ -761,7 +761,7 @@ function openNewExerciseForm(picker, swapPde = null) {
       ex.program_count = 1; // about to be placed in this day, below
       editDayState.allExercises.push(ex);
       try { await applyPick(picker, ex.id, swapPde); }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
     }
   });
 }

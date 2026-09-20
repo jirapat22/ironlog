@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, effectiveLoadKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanError, fmtSetWeight, fmtReps, skeletonBlocks, showSheet, hideSheet, ensureSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay, formatDateShort, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, stepForExercise, muscleTagHTML, pickerChipsHTML, setupPickerFilter, weightEquiv, e1RM, effectiveLoadKg, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, improvedFromLastMsg } from './utils.js';
 
 let showEquiv = true; // mirrors the show_weight_equiv setting; refreshed in renderHistory
 import { API } from './api.js';
@@ -169,7 +169,7 @@ async function renderHistory() {
           toast(updated.recomputed_sets
             ? `${next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
             : (next === 'per_arm' ? 'Weight = one arm/side (doubled for volume)' : 'Weight = the full load (counted as-is)'));
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -210,7 +210,7 @@ async function renderHistory() {
           haptic(20);
           if (resp.workout_deleted) { toast('Workout removed — no exercises left'); card.remove(); }
           else await refreshHistoryCard(Number(card.dataset.id));
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -233,7 +233,7 @@ async function renderHistory() {
             meta.textContent = newVal ? `${baseText} · ${feelEmoji(newVal)}` : baseText;
           }
           haptic(15);
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -245,7 +245,7 @@ async function renderHistory() {
         try {
           const workout = await API.workout(id);
           openActivitySheet(workout, { onSaved: () => refreshHistoryCard(id) });
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -279,7 +279,7 @@ async function renderHistory() {
         } catch (err) {
           toggleWorkoutBtn.classList.toggle('toggle--on', !nowOn);
           toggleWorkoutBtn.setAttribute('aria-pressed', String(!nowOn));
-          toast(err.message);
+          toast(humanError(err));
         }
         return;
       }
@@ -301,7 +301,7 @@ async function renderHistory() {
           haptic(20);
           toast('Workout moved');
           await renderHistory();
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -318,7 +318,7 @@ async function renderHistory() {
           // every OTHER expanded card as a side effect of deleting one.
           card.remove();
           haptic(30);
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
         return;
       }
 
@@ -355,7 +355,7 @@ async function renderHistory() {
         const ok = await confirmSheet({ title: 'Delete workout', message: 'Delete this workout and all its sets? This cannot be undone.', confirmText: 'Delete', danger: true });
         if (!ok) return;
         try { await API.deleteWorkout(Number(card.dataset.id)); card.remove(); haptic(30); }
-        catch (err) { toast(err.message); }
+        catch (err) { toast(humanError(err)); }
       }, 600);
     });
     list.addEventListener('pointermove', (e) => {
@@ -375,7 +375,7 @@ async function renderHistory() {
       const prev = notesInput.dataset.prev || null;
       if (value === prev) return;
       try { await API.updateWorkout(id, { notes: value }); notesInput.dataset.prev = value ?? ''; }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
     });
   } catch (err) {
     root.innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err.message)}</div>`;
@@ -579,7 +579,7 @@ async function refreshHistoryCard(workoutId) {
     const stats = card.querySelector('.history-card__stats');
     if (stats) stats.innerHTML = strengthStatsHTML(w);
     if (wasExpanded) { card.dataset.loaded = ''; await loadHistoryCardBody(card, { showSkeleton: false }); }
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(humanError(err)); }
 }
 
 // Derived from workout.js's single ACTIVITY_TYPES list rather than its own
@@ -822,14 +822,14 @@ function renderSetEditSheet() {
           await API.logSet({ workout_id: s.workoutId, exercise_id: s.exerciseId, set_number: s.setNumber, weight, weight_unit: unit, reps, rir: s.rir, notes, is_warmup: s.isWarmup ? 1 : 0 });
         }
         hideSheet(sheet); haptic(20); await refreshHistoryCard(s.workoutId);
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
     if (e.target.closest('#se-delete')) {
       const ok = await confirmSheet({ title: 'Delete set', message: 'Delete this set?', confirmText: 'Delete', danger: true });
       if (!ok) return;
       try { await API.deleteSet(s.setId); hideSheet(sheet); haptic(20); await refreshHistoryCard(s.workoutId); }
-      catch (err) { toast(err.message); }
+      catch (err) { toast(humanError(err)); }
     }
   };
 

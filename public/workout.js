@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, humanAgo, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, humanAgo, humanError, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -155,11 +155,14 @@ function writeSetOutbox(items) {
   try { localStorage.setItem(SET_OUTBOX_KEY, JSON.stringify(items.slice(-SET_OUTBOX_MAX))); } catch { /* quota */ }
 }
 
-// A queued set is identified by the slot it occupies in the session, not by
-// a server id it doesn't have yet — so re-tapping ✓ on a row that's already
-// waiting corrects that entry instead of logging the set twice.
+// Two kinds share this queue. A NEW set has no server id yet, so it is
+// identified by the slot it occupies in the session — re-tapping ✓ on a row
+// that's already waiting corrects that entry instead of logging it twice. An
+// EDIT is to a set the server already has, so its id is the identity.
 function outboxSlot(p) {
-  return `${p.workout_id}:${p.exercise_id}:${p.set_number}:${p.is_warmup ? 1 : 0}`;
+  return p.kind === 'edit'
+    ? `edit:${p.set_id}`
+    : `log:${p.workout_id}:${p.exercise_id}:${p.set_number}:${p.is_warmup ? 1 : 0}`;
 }
 
 function queueSet(payload) {
@@ -169,6 +172,10 @@ function queueSet(payload) {
 
 function queuedSetsFor(workoutId) {
   return readSetOutbox().filter((p) => p.workout_id === workoutId);
+}
+
+function queuedEditFor(setId) {
+  return readSetOutbox().find((p) => p.kind === 'edit' && p.set_id === Number(setId)) || null;
 }
 
 // Cancelling or discarding deletes the workout server-side, so anything
@@ -197,7 +204,18 @@ async function flushSetOutbox({ silent = false } = {}) {
   try {
     for (let i = 0; i < items.length; i++) {
       try {
-        await API.logSet(items[i]);
+        const it = items[i];
+        if (it.kind === 'edit') {
+          await API.updateSet(it.set_id, it.patch);
+          // The draft copy has served its purpose — leaving it would keep
+          // rendering over the server value on every future re-render.
+          if (workoutState?.draft?.pendingEdits) {
+            delete workoutState.draft.pendingEdits[it.set_id];
+            saveDraft(workoutState.workout.id, workoutState.draft);
+          }
+        } else {
+          await API.logSet(it);
+        }
         sent++;
       } catch (err) {
         if (isNetworkFailure(err)) {
@@ -214,7 +232,7 @@ async function flushSetOutbox({ silent = false } = {}) {
     writeSetOutbox(keep);
     flushingSetOutbox = false;
   }
-  if (sent && !silent) toast(`Synced ${sent} set${sent === 1 ? '' : 's'} logged offline`);
+  if (sent && !silent) toast(`Synced ${sent} change${sent === 1 ? '' : 's'} made offline`);
   return sent;
 }
 
@@ -555,7 +573,7 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
             toast('Activity logged');
           }
         }
-      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = existing ? 'Update activity' : 'Save activity'; }
+      } catch (err) { toast(humanError(err)); btn.disabled = false; btn.textContent = existing ? 'Update activity' : 'Save activity'; }
     }
   };
 }
@@ -619,7 +637,7 @@ async function renderWorkout(retriedAfterMissing = false) {
           localStorage.setItem(LS.activeWorkoutId, String(w.id));
           localStorage.setItem(LS.activeProgramDayId, String(dayId));
           renderWorkout();
-        } catch (err) { toast(err.message); nextBtn.disabled = false; }
+        } catch (err) { toast(humanError(err)); nextBtn.disabled = false; }
         return;
       }
       // Same flow as a quick workout, just dated to an earlier day — you then
@@ -638,7 +656,7 @@ async function renderWorkout(retriedAfterMissing = false) {
           localStorage.setItem(LS.activeWorkoutId, String(w.id));
           localStorage.removeItem(LS.activeProgramDayId);
           renderWorkout();
-        } catch (err) { toast(err.message); pastBtn.disabled = false; pastBtn.textContent = 'Log a past session'; }
+        } catch (err) { toast(humanError(err)); pastBtn.disabled = false; pastBtn.textContent = 'Log a past session'; }
         return;
       }
       if (e.target.closest('[data-start-quick]')) {
@@ -649,7 +667,7 @@ async function renderWorkout(retriedAfterMissing = false) {
           localStorage.setItem(LS.activeWorkoutId, String(w.id));
           localStorage.removeItem(LS.activeProgramDayId);
           renderWorkout();
-        } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Quick workout'; }
+        } catch (err) { toast(humanError(err)); btn.disabled = false; btn.textContent = 'Quick workout'; }
       }
     };
     return;
@@ -994,6 +1012,11 @@ function applyPendingSetRows() {
   const queued = queuedSetsFor(workoutId);
   updatePendingBanner();
   for (const p of queued) {
+    if (p.kind === 'edit') {
+      const edited = document.querySelector(`.set-row[data-set-id="${p.set_id}"]`);
+      if (edited) markRowPending(edited);
+      continue;
+    }
     const row = document.querySelector(
       `.set-row[data-ex="${p.exercise_id}"][data-set="${p.set_number}"][data-warmup="${p.is_warmup ? 1 : 0}"]`
     );
@@ -1012,6 +1035,15 @@ function applyPendingSetRows() {
 // next, both of which the app already knows. Decorates the empty state after
 // it has painted, so this never delays the buttons and quietly does nothing
 // when offline or when there is no history to summarise yet.
+// activity_type is stored lowercase ("run", "hiit"), which read as a typo
+// sitting next to properly-cased day labels.
+function lastSessionLabel(last) {
+  if (last.day_label) return last.day_label;
+  if (last.kind !== 'activity') return 'Quick workout';
+  const t = last.activity_type || 'Activity';
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 async function renderHomeNextUp() {
   const el = document.getElementById('home-nextup');
   if (!el) return;
@@ -1024,7 +1056,7 @@ async function renderHomeNextUp() {
   if (!last && !next) return;
 
   const lastLine = last
-    ? `<div class="home-next__last">Last session &middot; ${escapeHtml(last.day_label || (last.kind === 'activity' ? (last.activity_type || 'Activity') : 'Quick workout'))} &middot; ${humanAgo(last.finished_at || last.started_at)}</div>`
+    ? `<div class="home-next__last">Last session &middot; ${escapeHtml(lastSessionLabel(last))} &middot; ${humanAgo(last.finished_at || last.started_at)}</div>`
     : '';
 
   // Only offer the one-tap start when the suggestion is genuinely the next
@@ -1350,7 +1382,7 @@ async function openMislogSheet(flag, { onResolved } = {}) {
   const done = async () => { hideSheet(sheet); await onResolved?.(); };
   const patchSet = async (body) => {
     try { await API.updateSet(flag.set_id, body); haptic(10); await done(); }
-    catch (err) { toast(err.message); }
+    catch (err) { toast(humanError(err)); }
   };
 
   sheet.querySelector('[data-close-sheet]').onclick = () => hideSheet(sheet);
@@ -1957,7 +1989,7 @@ function wireWorkoutView() {
         toast(updated.recomputed_sets
           ? `${modeMsg} — fixed ${updated.recomputed_sets} past set${updated.recomputed_sets === 1 ? '' : 's'}`
           : modeMsg);
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
       return;
     }
 
@@ -2182,7 +2214,7 @@ function wireWorkoutView() {
         await API.updateWorkout(workoutState.workout.id, { notes: value });
       } catch (err) {
         workoutState.workout.notes = current;
-        toast(err.message);
+        toast(humanError(err));
       }
     };
   }
@@ -2330,6 +2362,7 @@ async function confirmSet(row) {
   // Set once we know exactly what we tried to send; the catch parks it in
   // the offline outbox when the request never made it out.
   let logPayload = null;
+  let editPayload = null;
 
   const exId = Number(row.dataset.ex);
   const setNumber = Number(row.dataset.set);
@@ -2369,7 +2402,8 @@ async function confirmSet(row) {
   if (checkBtn) checkBtn.disabled = true;
   try {
     if (row.dataset.setId) {
-      const updated = await API.updateSet(Number(row.dataset.setId), { weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir, notes: note });
+      editPayload = { weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, rir, notes: note };
+      const updated = await API.updateSet(Number(row.dataset.setId), editPayload);
       // This was the only confirmSet path that never wrote its result back
       // into workoutState.loggedSets — the DOM row looked right immediately
       // (it's just left alone here, not re-rendered), but a LATER full
@@ -2506,7 +2540,19 @@ async function confirmSet(row) {
     // you finish the session normally and it syncs when signal returns.
     // Edits (logPayload still null here) have a server id to reconcile
     // against and stay a plain failure.
-    if (logPayload && isNetworkFailure(err)) {
+    if (editPayload && isNetworkFailure(err)) {
+      // Without this the correction just sat in draft.pendingEdits, which
+      // renders OVER the server value and is written to localStorage — so the
+      // row showed a number the server had never heard of, across reloads,
+      // looking exactly like a saved one. Queue it and mark the row, so the
+      // value on screen is one that is genuinely on its way.
+      queueSet({ kind: 'edit', set_id: Number(row.dataset.setId), workout_id: workoutState?.workout?.id, exercise_id: exId, patch: editPayload });
+      markRowPending(row);
+      updatePendingBanner();
+      row.classList.remove('editing');
+      haptic(20);
+      toast('No signal — correction saved on this phone, will sync');
+    } else if (logPayload && isNetworkFailure(err)) {
       queueSet(logPayload);
       markRowPending(row);
       updatePendingBanner();
@@ -2518,7 +2564,7 @@ async function confirmSet(row) {
       );
       toast('No signal — set saved on this phone, will sync');
     } else {
-      toast(err.message);
+      toast(humanError(err));
     }
   } finally {
     if (checkBtn) checkBtn.disabled = false;
@@ -2535,7 +2581,7 @@ function updatePendingBanner() {
   if (!banner || !workoutId) return;
   const n = queuedSetsFor(workoutId).length;
   banner.innerHTML = n
-    ? `<div class="pending-banner">&#x21BB; ${n} set${n === 1 ? '' : 's'} waiting for signal — they'll sync on their own</div>`
+    ? `<div class="pending-banner">&#x21BB; ${n} change${n === 1 ? '' : 's'} waiting for signal — ${n === 1 ? "it'll" : "they'll"} sync on ${n === 1 ? 'its' : 'their'} own</div>`
     : '';
 }
 
@@ -2604,7 +2650,7 @@ async function persistRirChange(row) {
   if (!setId) return;
   const raw = row.dataset.rir;
   const rir = raw === '' || raw == null ? null : Number(raw);
-  try { await API.updateSet(setId, { rir }); } catch (err) { toast(err.message); }
+  try { await API.updateSet(setId, { rir }); } catch (err) { toast(humanError(err)); }
 }
 
 // Guards undoLastSet/deleteLoggedSet against a fast double-tap sending two
@@ -2626,7 +2672,7 @@ async function undoLastSet(exId) {
     haptic(20);
     toast('Set undone');
     renderWorkoutView();
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(humanError(err)); }
   finally { setsBeingDeleted.delete(lastSet.id); }
 }
 
@@ -2652,7 +2698,7 @@ async function deleteLoggedSet(row) {
     // Deleting re-ranks the exercise's PRs server-side, so a surviving row
     // may have just inherited the trophy.
     refreshLoggedBadges(Number(row.dataset.ex));
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(humanError(err)); }
   finally { setsBeingDeleted.delete(id); }
 }
 
@@ -2710,7 +2756,7 @@ async function removeExerciseFromWorkout(exerciseId) {
   if (!ok) return;
   if (loggedCount) {
     try { await API.removeWorkoutExercise(workoutState.workout.id, exerciseId); }
-    catch (err) { return toast(err.message); }
+    catch (err) { return toast(humanError(err)); }
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.exercise_id !== exerciseId);
   }
   workoutState.programDay.exercises = workoutState.programDay.exercises.filter((x) => x.exercise_id !== exerciseId);
@@ -2819,7 +2865,7 @@ async function openEquipmentPicker(exerciseId) {
             } catch (err2) { toast(err2.message); }
             return;
           }
-          toast(err.message);
+          toast(humanError(err));
         }
       };
     });
@@ -2850,7 +2896,7 @@ async function openEquipmentPicker(exerciseId) {
         haptic(20);
         hideSheet(sheet);
         toast('Saved');
-      } catch (err) { toast(err.message); }
+      } catch (err) { toast(humanError(err)); }
     };
   };
 
@@ -3045,7 +3091,7 @@ async function openSwapPicker(currentExerciseId) {
       try {
         await Promise.all(logged.map((s) => API.deleteSet(s.id)));
         workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.exercise_id !== currentExerciseId);
-      } catch (err) { toast(err.message); return; }
+      } catch (err) { toast(humanError(err)); return; }
     }
 
     workoutState.programDay.exercises[currentIdx] = {
@@ -3076,7 +3122,7 @@ async function openSwapPicker(currentExerciseId) {
         try {
           await API.updateDayExercise(programId, dayId, currentEx.id, { exercise_id: newExId });
           toast(`${newEx.name} saved to this program day`);
-        } catch (err) { toast(err.message); }
+        } catch (err) { toast(humanError(err)); }
       });
     } else {
       toast(`Swapped to ${newEx.name}`);
@@ -3396,7 +3442,7 @@ async function finishWorkout() {
     refreshBadgeFromCalendar();
   } catch (err) {
     workoutEnding = false;
-    toast(err.message);
+    toast(humanError(err));
   }
 }
 
