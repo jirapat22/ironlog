@@ -624,6 +624,10 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     // so there is nothing to commit OR roll back — and rolling back would
     // re-append every row for a gesture that was really just a tap.
     if (!armed) return;
+    // The list was rebuilt under the drag (a re-render landed mid-gesture).
+    // Whatever order this detached container holds is not what is on screen,
+    // so neither committing it nor rolling it back means anything.
+    if (!row.isConnected || !container.isConnected) return;
     if (!commit) {
       // applyReorder moves rows live during the drag — an uncommitted drag
       // must roll the DOM back or the visible order diverges from the saved one.

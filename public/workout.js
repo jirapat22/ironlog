@@ -360,7 +360,7 @@ function updateRowE1RM(row) {
   // this live number would double for sets logged before the flip, while the
   // committed one (which reads the stored set) would not.
   const logged = workoutState?.loggedSets?.find((x) => x.id === Number(row.dataset.setId));
-  const load = loadKg({ weight: w, weight_unit: unit, load_multiplier: logged?.load_multiplier, weight_mode: logged?.weight_mode }, ex);
+  const load = loadKg({ weight: w, weight_unit: unit, load_multiplier: logged?.load_multiplier }, ex);
   if (!(load > 0)) return;
   hint.textContent = `~${Math.round(e1RM(load, reps))} kg 1RM`;
 }
@@ -645,7 +645,7 @@ async function renderWorkout(retriedAfterMissing = false) {
     // lost) — a rest timer left over from it has nothing to count down FOR.
     // Without this it keeps running to completion and beeps at you long
     // after the workout it belonged to ended.
-    if (isRestActive()) cancelRestCountdown();
+    cancelRestCountdown();
     root.innerHTML = `
       <div id="home-nextup"></div>
       <div class="empty">
@@ -874,8 +874,9 @@ async function renderWorkout(retriedAfterMissing = false) {
     }
     startStickyTimer();
     // A rest that was running when the app was last closed picks back up
-    // here, now that there is a banner to count down in.
-    resumeRestCountdown();
+    // here, now that there is a banner to count down in — but only if it
+    // belongs to THIS workout.
+    resumeRestCountdown(workout.id);
     acquireWakeLock();
     const primeOnce = () => { primeAudio(); document.removeEventListener('click', primeOnce); };
     document.addEventListener('click', primeOnce);

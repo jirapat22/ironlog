@@ -119,7 +119,7 @@ async function refreshBadgeFromCalendar() {
 // ---------- Global rest countdown ----------
 let restState = null; // { endAt, handle, doneTimeout, notified }
 
-function startRestCountdown(secs = REST_SECONDS) {
+function startRestCountdown(secs = REST_SECONDS, workoutId = null) {
   cancelRestCountdown();
   // rest_seconds is stored per program-day exercise with no lower bound, and
   // `0 ?? undefined` is 0, not the default — so a slot set to no rest asked
@@ -131,7 +131,12 @@ function startRestCountdown(secs = REST_SECONDS) {
   // to live only in this module, so a reload — or iOS discarding a
   // backgrounded PWA, which it does routinely between sets — dropped it
   // silently and you came back to no timer at all.
-  try { localStorage.setItem(LS.restEndsAt, String(endAt)); } catch { /* quota */ }
+  // Tagged with the workout it belongs to. Without that, a rest outliving
+  // its session (swept stale, discarded on another device) resumed into
+  // whatever workout you started next — a countdown already running on a
+  // session with no sets in it, which then beeps.
+  const owner = workoutId ?? (Number(localStorage.getItem(LS.activeWorkoutId) || 0) || null);
+  try { localStorage.setItem(LS.restEndsAt, JSON.stringify({ endAt, workoutId: owner })); } catch { /* quota */ }
 
   if (localStorage.getItem(LS.notifEnabled) === '1') {
     scheduleRestPushBackup(secs);
@@ -203,16 +208,19 @@ function isRestActive() { return !!restState; }
 // the workout view exists to render into. Anything already expired, or so
 // old it must belong to a previous session, is dropped rather than resumed —
 // coming back tomorrow should not greet you with a finished-rest alarm.
-function resumeRestCountdown() {
+function resumeRestCountdown(workoutId = null) {
   if (restState) return false;
-  let endAt = 0;
-  try { endAt = Number(localStorage.getItem(LS.restEndsAt) || 0); } catch { return false; }
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LS.restEndsAt) || 'null'); } catch { /* corrupt */ }
+  const endAt = Number(saved?.endAt || 0);
   const remainMs = endAt - Date.now();
-  if (!endAt || remainMs <= 0 || remainMs > 60 * 60 * 1000) {
+  const wanted = workoutId ?? (Number(localStorage.getItem(LS.activeWorkoutId) || 0) || null);
+  const mine = saved?.workoutId == null || wanted == null || saved.workoutId === wanted;
+  if (!endAt || remainMs <= 0 || remainMs > 60 * 60 * 1000 || !mine) {
     try { localStorage.removeItem(LS.restEndsAt); } catch { /* ignore */ }
     return false;
   }
-  startRestCountdown(Math.round(remainMs / 1000));
+  startRestCountdown(Math.round(remainMs / 1000), saved.workoutId);
   return true;
 }
 
