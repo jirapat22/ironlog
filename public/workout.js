@@ -1,6 +1,6 @@
 import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, humanAgo, humanError, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
-import { startRestCountdown, cancelRestCountdown, isRestActive, refreshBadgeFromCalendar } from './audio.js';
+import { startRestCountdown, cancelRestCountdown, isRestActive, resumeRestCountdown, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
 
 // ---------- Body-weight tracking (for e1RM / load calculations) ----------
@@ -330,6 +330,32 @@ function equivalentRepsText(row) {
   // that matches — better to say that than to round up to a fictional single.
   if (reps < 1) return `&#x21C4; heavier than a single at ${escapeHtml(baseLabel)}`;
   return `&#x21C4; &asymp; ${reps} rep${reps === 1 ? '' : 's'} matches ${escapeHtml(baseLabel)}`;
+}
+
+// The "~101 kg 1RM" hint on a logged row is built from the SAVED set, so it
+// sat unchanged while you edited the weight or reps above it and only caught
+// up when you tapped the checkmark. Reported twice as "1rm doesnt change when
+// i change weights or reps" — the second time after a fix that only covered
+// the moment of saving. The kg/lb line right next to it already updates as
+// you type; this makes the estimate behave the same.
+//
+// Only the estimate. The trophy and the "beat last time" arrow are decided by
+// the server against every other session, so they cannot honestly be
+// recomputed against a number that has not been saved yet — they stay put
+// until the edit commits, and refreshLoggedBadges settles them.
+function updateRowE1RM(row) {
+  if (!row?.dataset.setId) return;
+  const hint = [...row.querySelectorAll('.set-row__hint')].find((h) => /1RM/.test(h.textContent));
+  if (!hint) return;
+  const exId = Number(row.dataset.ex);
+  const ex = workoutState?.programDay?.exercises?.find((x) => x.exercise_id === exId);
+  const w = parseFloat(row.querySelector('[data-field="weight"] .num-input__field')?.value || '0');
+  const reps = parseInt(row.querySelector('[data-field="reps"] .num-input__field')?.value || '0', 10);
+  const unit = row.querySelector('[data-unit]')?.textContent.trim() || 'kg';
+  if (!(reps > 0) || !Number.isFinite(w)) return;
+  const load = loadKg({ weight: w, weight_unit: unit, load_multiplier: Number(row.dataset.loadMult) || undefined }, ex);
+  if (!(load > 0)) return;
+  hint.textContent = `~${Math.round(e1RM(load, reps))} kg 1RM`;
 }
 
 function updateRowEquivalence(row) {
@@ -840,6 +866,9 @@ async function renderWorkout(retriedAfterMissing = false) {
       nextCard?.scrollIntoView({ block: 'start' });
     }
     startStickyTimer();
+    // A rest that was running when the app was last closed picks back up
+    // here, now that there is a banner to count down in.
+    resumeRestCountdown();
     acquireWakeLock();
     const primeOnce = () => { primeAudio(); document.removeEventListener('click', primeOnce); };
     document.addEventListener('click', primeOnce);
@@ -2110,11 +2139,13 @@ function wireWorkoutView() {
       markRowTouched(row);
       updateRowEquiv(row);
       updateRowEquivalence(row);
+      updateRowE1RM(row);
       return;
     }
 
     const stepBtn = e.target.closest('.num-input__btn');
-    if (stepBtn) { fireStep(stepBtn, row); updateRowEquiv(row); updateRowEquivalence(row); return; }
+    if (stepBtn) { fireStep(stepBtn, row); updateRowEquiv(row); updateRowEquivalence(row);
+      updateRowE1RM(row); return; }
 
     const confirm = e.target.closest('[data-confirm]');
     if (confirm) return row.dataset.justConfirmed === '1' ? deleteLoggedSet(row) : confirmSet(row);
@@ -2174,6 +2205,7 @@ function wireWorkoutView() {
       markRowTouched(row);
       updateRowEquiv(row);
       updateRowEquivalence(row);
+      updateRowE1RM(row);
       refreshProgressionHint(Number(row.dataset.ex));
       return;
     }

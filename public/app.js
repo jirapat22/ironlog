@@ -295,6 +295,29 @@ async function syncTimezoneOffset() {
 }
 
 // ---------- Boot ----------
+// --header-h is what every other sticky thing parks itself below, and it was
+// a hard-coded guess: 56px + the safe-area inset, against a header that
+// actually renders 88px + inset. The workout bar therefore stuck 32px UNDER
+// the header, which paints over it (z-index 10 vs 9) -- so its Reorder
+// button was not merely hard to see but untappable, elementFromPoint at its
+// centre returning the header. It only cleared once you scrolled to the very
+// top and the header stopped overlapping. Measure it instead of guessing:
+// the height moves with the safe-area inset, the font, and whether the
+// profile pill wraps.
+function trackHeaderHeight() {
+  const header = $('#app-header');
+  if (!header) return;
+  const sync = () => {
+    const h = Math.round(header.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty('--header-h', `${h}px`);
+  };
+  sync();
+  if ('ResizeObserver' in window) new ResizeObserver(sync).observe(header);
+  window.addEventListener('orientationchange', () => setTimeout(sync, 150));
+  // Self-hosted faces land after first paint and change the title's line box.
+  document.fonts?.ready?.then(sync).catch(() => {});
+}
+
 function boot() {
   $$('.nav__btn').forEach((b) => {
     b.onclick = () => { haptic(10); setTab(b.dataset.tab); };
@@ -308,6 +331,7 @@ function boot() {
   const initial = activeId ? 'workout' : saved || 'programs';
   setTab(initial);
 
+  trackHeaderHeight();
   registerServiceWorker();
 
   refreshBadgeFromCalendar();

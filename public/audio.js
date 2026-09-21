@@ -127,6 +127,11 @@ function startRestCountdown(secs = REST_SECONDS) {
   if (!(secs > 0)) return;
   const endAt = Date.now() + secs * 1000;
   restState = { endAt, handle: null, doneTimeout: null, notified: false, finished: false };
+  // A rest is a fact about the clock, not about this page being open. It used
+  // to live only in this module, so a reload — or iOS discarding a
+  // backgrounded PWA, which it does routinely between sets — dropped it
+  // silently and you came back to no timer at all.
+  try { localStorage.setItem(LS.restEndsAt, String(endAt)); } catch { /* quota */ }
 
   if (localStorage.getItem(LS.notifEnabled) === '1') {
     scheduleRestPushBackup(secs);
@@ -183,6 +188,7 @@ function startRestCountdown(secs = REST_SECONDS) {
 
 function cancelRestCountdown() {
   const hadActiveTimer = !!restState?.handle;
+  try { localStorage.removeItem(LS.restEndsAt); } catch { /* ignore */ }
   if (restState?.handle) clearInterval(restState.handle);
   if (restState?.doneTimeout) clearTimeout(restState.doneTimeout);
   restState = null;
@@ -193,10 +199,27 @@ function cancelRestCountdown() {
 
 function isRestActive() { return !!restState; }
 
+// Pick up a rest that was running when the app was last closed. Called once
+// the workout view exists to render into. Anything already expired, or so
+// old it must belong to a previous session, is dropped rather than resumed —
+// coming back tomorrow should not greet you with a finished-rest alarm.
+function resumeRestCountdown() {
+  if (restState) return false;
+  let endAt = 0;
+  try { endAt = Number(localStorage.getItem(LS.restEndsAt) || 0); } catch { return false; }
+  const remainMs = endAt - Date.now();
+  if (!endAt || remainMs <= 0 || remainMs > 60 * 60 * 1000) {
+    try { localStorage.removeItem(LS.restEndsAt); } catch { /* ignore */ }
+    return false;
+  }
+  startRestCountdown(Math.round(remainMs / 1000));
+  return true;
+}
+
 export {
   notifPermission, ensureNotifPermission, showLocalNotification,
   urlBase64ToUint8Array, subscribeWebPush, unsubscribeWebPush,
-  scheduleRestPushBackup, cancelRestPushBackup,
+  scheduleRestPushBackup, cancelRestPushBackup, resumeRestCountdown,
   setAppBadge, refreshBadgeFromCalendar,
   startRestCountdown, cancelRestCountdown, isRestActive
 };

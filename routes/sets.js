@@ -281,12 +281,25 @@ router.patch('/:id', (req, res) => {
     }
   }
 
-  // reps_r/reps_l (if either is present) always drive `reps` — so `reps`
-  // is handled separately below instead of via the generic loop, and any
-  // `reps` also sent in the same request is ignored in favor of the
-  // per-side breakdown (mirrors POST's behavior).
-  const bodyHasSides = 'reps_r' in (req.body || {}) || 'reps_l' in (req.body || {});
-  const fields = ['weight', 'weight_unit', ...(bodyHasSides ? [] : ['reps']), 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag', 'weight_reviewed'];
+  // reps_r/reps_l drive `reps` when they carry an actual per-side breakdown,
+  // so `reps` is handled below rather than via the generic loop and any
+  // `reps` sent alongside them is ignored (mirrors POST's behavior).
+  //
+  // "Carry a breakdown" means non-null, not merely present. The workout view
+  // sends the whole set shape on every edit, including reps_r/reps_l as null
+  // for the overwhelming majority of exercises that have no per-side split —
+  // and keying off presence alone read that as "the sides are in charge",
+  // dropped `reps` from the update list, then skipped the per-side branch's
+  // own `reps` write because there was no breakdown to derive it from. The
+  // result: editing reps from the workout view silently did nothing. Weight
+  // saved, reps did not, and the 1RM beside them never moved because it is
+  // recomputed from what the server actually stored.
+  const body = req.body || {};
+  const bodyHasSides = 'reps_r' in body || 'reps_l' in body;
+  // Explicit nulls still CLEAR an existing breakdown — they just don't get to
+  // veto a plain `reps` edit in the same request.
+  const sidesDriveReps = (body.reps_r != null) || (body.reps_l != null);
+  const fields = ['weight', 'weight_unit', ...(sidesDriveReps ? [] : ['reps']), 'rpe', 'rir', 'notes', 'set_number', 'is_warmup', 'unit_reviewed', 'form_flag', 'weight_reviewed'];
   const updates = [];
   const values = [];
   for (const f of fields) {

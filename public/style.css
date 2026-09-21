@@ -4242,9 +4242,14 @@ body.keyboard-open .update-banner {
    repeatedly on a list you're actively rearranging, and the row has nothing
    else to tap while in this mode. */
 .exercise-list--reorder .exercise-card__drag {
+  /* The grip, not the whole row. inset:0 made every card a 356x52 drag
+     handle with touch-action:none, so there was nowhere on the list left to
+     touch that wasn't a handle -- trying to scroll reordered instead, and
+     the page would not move at all. Tap-to-move (Top/up/down) is the primary
+     way to do this now, so the drag only needs its grip back. */
   position: absolute;
-  inset: 0;
-  width: auto;
+  inset: 0 auto 0 0;
+  width: 56px;
   height: auto;
   z-index: 2;
   justify-content: flex-start;

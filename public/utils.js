@@ -6,6 +6,7 @@ const LS = {
   activeWorkoutId: 'ironlog.activeWorkoutId',
   activeProgramDayId: 'ironlog.activeProgramDayId',
   activeWorkoutStart: 'ironlog.activeWorkoutStart',
+  restEndsAt: 'ironlog.restEndsAt',
   pin: 'ironlog.pin',
   pinUnlocked: 'ironlog.pinUnlocked',
   currentTab: 'ironlog.currentTab',
@@ -613,11 +614,15 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
   const endDrag = (commit) => {
     if (!drag) return;
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-    const { row, origOrder } = drag;
+    const { row, origOrder, armed } = drag;
     drag = null;
     row.classList.remove(draggingClass);
     row.style.transform = '';
     row.style.zIndex = '';
+    // Never armed: the finger never travelled far enough to move anything,
+    // so there is nothing to commit OR roll back — and rolling back would
+    // re-append every row for a gesture that was really just a tap.
+    if (!armed) return;
     if (!commit) {
       // applyReorder moves rows live during the drag — an uncommitted drag
       // must roll the DOM back or the visible order diverges from the saved one.
@@ -658,9 +663,12 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
       startY: e.clientY,
       lastClientY: e.clientY,
       lastEventAt: Date.now(),
+      // Nothing moves until the finger has actually travelled. Touching a
+      // handle and lifting, or the small drift in any real tap, used to
+      // commit a reorder — reported as "too sensitive, it moves everywhere".
+      armed: false,
       origOrder: [...container.children].map((r) => r.dataset[idKey])
     };
-    row.classList.add(draggingClass);
     try { row.setPointerCapture(e.pointerId); } catch {}
     // NOTE: deliberately NO lostpointercapture->endDrag handler here. It used
     // to "rescue" a stuck drag, but capture is lost on every in-drag DOM move
@@ -668,15 +676,25 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     // back — the "dragged but doesn't swap" bug. A genuinely stuck drag (iOS
     // killing the gesture with no up/cancel) is recovered by the stale-drag
     // check in onDown instead.
-    haptic(15);
-    if (!rafId) rafId = requestAnimationFrame(autoScrollStep);
   };
+
+  const DRAG_THRESHOLD = 8;
 
   const onMove = (e) => {
     if (!drag || e.pointerId !== drag.pointerId) return;
+    drag.lastEventAt = Date.now();
+    if (!drag.armed) {
+      if (Math.abs(e.clientY - drag.startY) < DRAG_THRESHOLD) return;
+      drag.armed = true;
+      // Re-base on where the finger is NOW, so the row doesn't jump by the
+      // threshold distance the moment it picks up.
+      drag.startY = e.clientY;
+      drag.row.classList.add(draggingClass);
+      haptic(15);
+      if (!rafId) rafId = requestAnimationFrame(autoScrollStep);
+    }
     e.preventDefault();
     drag.lastClientY = e.clientY;
-    drag.lastEventAt = Date.now();
     drag.row.style.transform = `translateY(${e.clientY - drag.startY}px)`;
     drag.row.style.zIndex = '10';
     applyReorder(e.clientY);
@@ -694,8 +712,20 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
 
   container.addEventListener('pointerdown', onDown);
   container.addEventListener('pointermove', onMove);
-  container.addEventListener('pointerup', onUp);
-  container.addEventListener('pointercancel', onCancel);
+  // up/cancel go on the WINDOW, not the container. Pointer capture is
+  // released on every in-drag DOM move (see recapture()), so a finger that
+  // has drifted over the sticky header or the nav — easy, since dragging to
+  // the top of the list means dragging toward them — could lift somewhere
+  // the container never hears about. The drag then never ended: the row sat
+  // translated, semi-transparent and z-indexed above everything, and the
+  // list stayed mid-reorder. That is a screen you have to restart the app to
+  // get out of.
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onCancel);
+  // Backgrounding the app (a call, a notification, the app switcher) can take
+  // the gesture away without ever sending up or cancel.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) endDrag(false); });
+  window.addEventListener('blur', () => endDrag(false));
 }
 
 // ---------- In-app prompt (replaces window.prompt) ----------
