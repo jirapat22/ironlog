@@ -613,6 +613,7 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
   // stale takeover from onDown. Idempotent; commit=false just restores state.
   const endDrag = (commit) => {
     if (!drag) return;
+    unbindGlobal();
     if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     const { row, origOrder, armed } = drag;
     drag = null;
@@ -670,6 +671,7 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
       origOrder: [...container.children].map((r) => r.dataset[idKey])
     };
     try { row.setPointerCapture(e.pointerId); } catch {}
+    bindGlobal();
     // NOTE: deliberately NO lostpointercapture->endDrag handler here. It used
     // to "rescue" a stuck drag, but capture is lost on every in-drag DOM move
     // (see recapture()), so that handler fired mid-drag and rolled the reorder
@@ -710,22 +712,37 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     endDrag(false);
   };
 
-  container.addEventListener('pointerdown', onDown);
-  container.addEventListener('pointermove', onMove);
-  // up/cancel go on the WINDOW, not the container. Pointer capture is
-  // released on every in-drag DOM move (see recapture()), so a finger that
-  // has drifted over the sticky header or the nav — easy, since dragging to
-  // the top of the list means dragging toward them — could lift somewhere
-  // the container never hears about. The drag then never ended: the row sat
-  // translated, semi-transparent and z-indexed above everything, and the
-  // list stayed mid-reorder. That is a screen you have to restart the app to
-  // get out of.
-  window.addEventListener('pointerup', onUp);
-  window.addEventListener('pointercancel', onCancel);
   // Backgrounding the app (a call, a notification, the app switcher) can take
   // the gesture away without ever sending up or cancel.
-  document.addEventListener('visibilitychange', () => { if (document.hidden) endDrag(false); });
-  window.addEventListener('blur', () => endDrag(false));
+  const onHidden = () => { if (document.hidden) endDrag(false); };
+  const onBlur = () => endDrag(false);
+
+  // These live on the WINDOW, not the container: pointer capture is released
+  // on every in-drag DOM move (see recapture()), so a finger that has drifted
+  // over the sticky header or the nav — easy, since dragging to the top of
+  // the list means dragging toward them — could lift somewhere the container
+  // never hears about, and the drag would never end.
+  //
+  // Bound only while a drag is actually live. enableDragReorder re-runs on
+  // every full workout re-render (adding a set, skipping an exercise...), so
+  // binding them at setup leaked a fresh set each time — six after a couple
+  // of minutes of ordinary use, each pinning a dead container and its drag
+  // state, on a device already inclined to evict the app.
+  const bindGlobal = () => {
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onHidden);
+  };
+  const unbindGlobal = () => {
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+    window.removeEventListener('blur', onBlur);
+    document.removeEventListener('visibilitychange', onHidden);
+  };
+
+  container.addEventListener('pointerdown', onDown);
+  container.addEventListener('pointermove', onMove);
 }
 
 // ---------- In-app prompt (replaces window.prompt) ----------

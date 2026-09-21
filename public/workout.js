@@ -353,7 +353,14 @@ function updateRowE1RM(row) {
   const reps = parseInt(row.querySelector('[data-field="reps"] .num-input__field')?.value || '0', 10);
   const unit = row.querySelector('[data-unit]')?.textContent.trim() || 'kg';
   if (!(reps > 0) || !Number.isFinite(w)) return;
-  const load = loadKg({ weight: w, weight_unit: unit, load_multiplier: Number(row.dataset.loadMult) || undefined }, ex);
+  // Carry the SET's own per-arm factor, snapshotted when it was logged, not
+  // the exercise's current weight_mode. Dropping it lets effectiveLoadKg fall
+  // back to that current mode, which is precisely what the per-set snapshot
+  // exists to avoid: flip an exercise to "per arm, just going forward" and
+  // this live number would double for sets logged before the flip, while the
+  // committed one (which reads the stored set) would not.
+  const logged = workoutState?.loggedSets?.find((x) => x.id === Number(row.dataset.setId));
+  const load = loadKg({ weight: w, weight_unit: unit, load_multiplier: logged?.load_multiplier, weight_mode: logged?.weight_mode }, ex);
   if (!(load > 0)) return;
   hint.textContent = `~${Math.round(e1RM(load, reps))} kg 1RM`;
 }
