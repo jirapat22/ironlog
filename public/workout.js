@@ -898,7 +898,7 @@ async function renderWorkout(retriedAfterMissing = false) {
       localStorage.removeItem(LS.activeWorkoutStart);
       return renderWorkout(true);
     }
-    root.innerHTML = `<div class="empty">Couldn't load workout: ${escapeHtml(err.message)}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load workout: ${escapeHtml(humanError(err))}</div>`;
   }
 }
 
@@ -2902,7 +2902,7 @@ async function openEquipmentPicker(exerciseId) {
                 confirmText: 'Confirm'
               });
               if (result === undefined) return; // cancelled
-            } catch (err2) { toast(err2.message); }
+            } catch (err2) { toast(humanError(err2)); }
             return;
           }
           toast(humanError(err));
@@ -3032,7 +3032,7 @@ async function openSwapPicker(currentExerciseId) {
   let exercises;
   try { exercises = await API.exerciseStats(); }
   catch (err) {
-    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
   }
 
@@ -3190,7 +3190,7 @@ async function openWorkoutAddExercisePicker() {
   let exercises;
   try { exercises = await API.exerciseStats(); }
   catch (err) {
-    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
   }
 

@@ -198,7 +198,7 @@ async function renderProgress() {
 
     restoreCollapsedSections();
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load progress: ${escapeHtml(err.message)}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load progress: ${escapeHtml(humanError(err))}</div>`;
   }
 }
 
@@ -432,7 +432,7 @@ async function renderMuscleFrequency() {
         if (toggleAllBtn) toggleAllBtn.textContent = nowAllCollapsed ? 'Expand all' : 'Collapse all';
       };
     });
-  } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+  } catch (err) { root.innerHTML = `<div class="empty">${escapeHtml(humanError(err))}</div>`; }
 }
 
 async function renderVolumeSection() {
@@ -555,7 +555,7 @@ async function renderVolumeSection() {
         scales: { x: d, y: { ...d, beginAtZero: true } }
       }
     });
-  } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
+  } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(humanError(err))}</div>`; }
 }
 
 function renderCalendar(entries) {
@@ -949,7 +949,7 @@ async function renderOverloadCharts() {
     for (const s of series) renderOverloadChart(s);
     wireOverloadSearch(root);
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(humanError(err))}</div>`;
   }
 }
 
@@ -1180,7 +1180,7 @@ async function openExerciseDetailSheet(exerciseId, displayName) {
     };
     if (days.length >= 2) renderExerciseDetailChart(days, values);
   } catch (err) {
-    sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     sheet.onclick = closeHandler;
   }
 }
@@ -1249,7 +1249,7 @@ async function renderPrTimeline() {
           </div></div>`; }).join('')}
       </div>`;
     }).join('');
-  } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; }
+  } catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(humanError(err))}</div>`; }
 }
 
 
@@ -1258,7 +1258,7 @@ async function renderBodyweightSection() {
   if (!currentEl) return;
   let rows = [];
   try { rows = await API.bodyweight(); }
-  catch (err) { currentEl.innerHTML = `<div class="bw-current__empty">${escapeHtml(err.message)}</div>`; return; }
+  catch (err) { currentEl.innerHTML = `<div class="bw-current__empty">${escapeHtml(humanError(err))}</div>`; return; }
   // Progress was re-rendered while that was in flight — these nodes are off
   // the page now and a newer render owns #bw-chart.
   if (!currentEl.isConnected) return;
@@ -1382,7 +1382,7 @@ async function renderTdeeSection() {
   root.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
   let settings, bw;
   try { [settings, bw] = await Promise.all([API.settings(), API.bodyweight()]); }
-  catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`; return; }
+  catch (err) { root.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(humanError(err))}</div>`; return; }
   const heightCm = Number(settings.profile_height_cm);
   const age = Number(settings.profile_age);
   const activity = settings.profile_activity || 'moderate';
@@ -1479,7 +1479,7 @@ async function openProfileSheet() {
   showSheet(sheet);
   let settings;
   try { settings = await API.settings(); }
-  catch (err) { sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`; return; }
+  catch (err) { sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`; return; }
   const height = settings.profile_height_cm || '';
   const age = settings.profile_age || '';
   const activity = settings.profile_activity || 'moderate';

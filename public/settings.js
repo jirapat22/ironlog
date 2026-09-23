@@ -458,7 +458,7 @@ async function renderExerciseLibraryList(sheet) {
   let stats;
   try { stats = await API.exerciseStats(); }
   catch (err) {
-    document.getElementById('ex-lib-body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+    document.getElementById('ex-lib-body').innerHTML = `<div class="empty">${escapeHtml(humanError(err))}</div>`;
     return;
   }
 
@@ -716,7 +716,7 @@ async function openNotesSheet() {
   const renderList = () => { const el = document.getElementById('notes-list'); if (el) el.innerHTML = listHTML(); };
 
   try { notes = await API.notes(); }
-  catch (err) { const el = document.getElementById('notes-list'); if (el) el.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+  catch (err) { const el = document.getElementById('notes-list'); if (el) el.innerHTML = `<div class="empty">${escapeHtml(humanError(err))}</div>`; return; }
   renderList();
 
   const input = document.getElementById('note-input');

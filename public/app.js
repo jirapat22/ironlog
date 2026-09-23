@@ -401,18 +401,74 @@ function watchKeyboardForNav() {
 }
 watchKeyboardForNav();
 
+// Says plainly that the app opened without being able to reach the server,
+// so nothing on screen is necessarily current. Clears itself the moment a
+// request succeeds, which the retry below provokes.
+function showOfflineBanner() {
+  if (document.getElementById('offline-banner')) return;
+  const el = document.createElement('div');
+  el.id = 'offline-banner';
+  el.className = 'offline-banner';
+  el.innerHTML = '&#x26A0;&#xFE0F; No connection — showing what’s saved on this phone. Anything you log will sync when you’re back.';
+  document.body.appendChild(el);
+  const retry = async () => {
+    try {
+      const st = await API.authStatus();
+      if (!st?.authenticated) return;
+      el.remove();
+      clearInterval(timer);
+      window.removeEventListener('online', retry);
+      try { localStorage.setItem(LS.lastProfile, JSON.stringify(st.profile)); } catch { /* quota */ }
+      setCurrentProfile(st.profile);
+      renderProfilePill();
+      document.dispatchEvent(new CustomEvent('ironlog:back-online'));
+    } catch { /* still out */ }
+  };
+  const timer = setInterval(retry, 15000);
+  window.addEventListener('online', retry);
+}
+
+// Couldn't ASK whether the session is valid is not the same as being told it
+// isn't. sw.js answers an unreachable server with 503 {"error":"offline"};
+// a genuine rejection is a 401, or authenticated:false.
+function isUnreachable(err) {
+  const m = err?.message || '';
+  return m === 'offline' || /failed to fetch|load failed|networkerror|timed out/i.test(m);
+}
+
 // ---------- Startup: resolve session, then lock or boot ----------
 (async function start() {
   try {
     const status = await API.authStatus();
     if (status.authenticated) {
+      // Remembered so a launch with no connection can tell "your session was
+      // fine a moment ago" from "we have never seen you".
+      try { localStorage.setItem(LS.lastProfile, JSON.stringify(status.profile)); } catch { /* quota */ }
       setCurrentProfile(status.profile);
       renderProfilePill();
       boot();
     } else {
+      try { localStorage.removeItem(LS.lastProfile); } catch { /* ignore */ }
       showLock();
     }
-  } catch {
-    showLock();
+  } catch (err) {
+    // Launching with no connection used to land here and show the passcode
+    // screen — which cannot be got past either, because checking a PIN is
+    // also a request. iOS discards a backgrounded PWA routinely, so losing
+    // signal mid-session meant being locked out of your own workout with the
+    // sets you had already logged sitting in the outbox, unreachable.
+    //
+    // The session cookie is still on the device and still valid; we simply
+    // can't confirm it. Open on what this phone knows, and say so.
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(LS.lastProfile) || 'null'); } catch { /* corrupt */ }
+    if (cached && isUnreachable(err)) {
+      setCurrentProfile(cached);
+      renderProfilePill();
+      boot();
+      showOfflineBanner();
+    } else {
+      showLock();
+    }
   }
 })();

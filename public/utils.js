@@ -7,6 +7,7 @@ const LS = {
   activeProgramDayId: 'ironlog.activeProgramDayId',
   activeWorkoutStart: 'ironlog.activeWorkoutStart',
   restEndsAt: 'ironlog.restEndsAt',
+  lastProfile: 'ironlog.lastProfile',
   pin: 'ironlog.pin',
   pinUnlocked: 'ironlog.pinUnlocked',
   currentTab: 'ironlog.currentTab',
@@ -131,8 +132,12 @@ let queuedToast = null;
 // error to a person goes through here first.
 function humanError(err) {
   const msg = typeof err === 'string' ? err : (err?.message || '');
-  if (/failed to fetch|load failed|networkerror|network request failed/i.test(msg)) {
-    return 'No connection — that change needs signal. Try again when you’re back online.';
+  // 'offline' is sw.js's own word for an unreachable server, and it reached
+  // the views verbatim: "Couldn't load programs: offline".
+  if (msg === 'offline' || /failed to fetch|load failed|networkerror|network request failed/i.test(msg)) {
+    // Used for a failed READ as often as a failed write (the views prefix it
+    // with "Couldn't load X:"), so it cannot talk about "that change".
+    return 'No connection. It’ll work again once you’re back online.';
   }
   if (/timed out/i.test(msg)) return 'That took too long — check your connection and try again.';
   return msg || 'Something went wrong.';
@@ -1179,7 +1184,7 @@ function renderNewExerciseForm(containerEl, { ctaLabel = 'Create', onBack, onCre
       });
       haptic(20);
       await onCreated(ex);
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(humanError(err)); }
   };
 }
 
@@ -1208,7 +1213,7 @@ async function openMergePicker(sourceEx, onMerged) {
 
   let stats = [];
   try { stats = await API.exerciseStats(); }
-  catch (err) { sheet.querySelector('#merge-list').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+  catch (err) { sheet.querySelector('#merge-list').innerHTML = `<div class="empty">${escapeHtml(humanError(err))}</div>`; return; }
 
   const others = stats.filter((e) => e.id !== sourceEx.id);
   let mergeSort = 'frequent';
@@ -1273,10 +1278,10 @@ async function openMergePicker(sourceEx, onMerged) {
           toast(`Merged into ${res.into}`);
           hideSheet(sheet);
           if (onMerged) onMerged();
-        } catch (err2) { toast(err2.message); }
+        } catch (err2) { toast(humanError(err2)); }
         return;
       }
-      toast(err.message);
+      toast(humanError(err));
     }
   };
 }
@@ -1311,7 +1316,7 @@ async function openSplitPicker(sourceEx, onDone) {
     renderShell('Move sessions', '<div class="skeleton" style="height:160px"></div>', () => hideSheet(sheet));
     let sessions = [];
     try { sessions = await API.exerciseSessions(sourceEx.id); }
-    catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+    catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(humanError(err))}</div>`; return; }
     if (!sessions.length) {
       inner().querySelector('.sheet__body').innerHTML = `<div class="empty">No logged sessions to move.</div>`;
       return;
@@ -1353,7 +1358,7 @@ async function openSplitPicker(sourceEx, onDone) {
     renderShell('Move to…', '<div class="skeleton" style="height:160px"></div>', renderSessionStep);
     let stats = [];
     try { stats = await API.exerciseStats(); }
-    catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; return; }
+    catch (err) { inner().querySelector('.sheet__body').innerHTML = `<div class="empty">${escapeHtml(humanError(err))}</div>`; return; }
     const others = stats.filter((e) => e.id !== sourceEx.id);
 
     function buildTargetList() {
@@ -1416,7 +1421,7 @@ async function openSplitPicker(sourceEx, onDone) {
       toast(`Moved ${res.moved_sets} set${res.moved_sets !== 1 ? 's' : ''} to ${res.into}`);
       hideSheet(sheet);
       if (onDone) onDone();
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(humanError(err)); }
   }
 
   showSheet(sheet);
@@ -1624,10 +1629,10 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
           haptic(10);
           toast('Saved');
           if (onSaved) onSaved(updated);
-        } catch (err2) { toast(err2.message); }
+        } catch (err2) { toast(humanError(err2)); }
         return;
       }
-      toast(err.message);
+      toast(humanError(err));
     }
   };
 
@@ -1640,7 +1645,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       haptic(20);
       toast(`Deleted ${ex.name}`);
       if (onDeleted) onDeleted();
-    } catch (err) { toast(err.message); } // server returns 409 if in use
+    } catch (err) { toast(humanError(err)); } // server returns 409 if in use
   };
 
   // Merge this exercise into another — folds all its history/PRs/program slots
@@ -1673,7 +1678,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
       toast(`Cleared ${sets_removed} set${sets_removed !== 1 ? 's' : ''}`);
       if (onCleared) onCleared();
       else if (onSaved) onSaved(ex);
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(humanError(err)); }
   };
 }
 

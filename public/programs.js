@@ -298,7 +298,7 @@ async function renderPrograms() {
     // Create new program button (outside the program list)
     root.querySelector('[data-new-program]')?.addEventListener('click', createProgramFlow);
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load programs: ${escapeHtml(err.message)}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load programs: ${escapeHtml(humanError(err))}</div>`;
   }
 }
 
@@ -403,7 +403,7 @@ async function openEditDay(programId, dayId) {
     editDayState = { programId, dayId, day, allExercises };
     renderEditSheet();
   } catch (err) {
-    sheet.innerHTML = `<div class="sheet__inner"><div class="empty">Couldn't load: ${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div>`;
+    sheet.innerHTML = `<div class="sheet__inner"><div class="empty">Couldn't load: ${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div>`;
   }
 }
 

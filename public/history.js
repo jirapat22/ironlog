@@ -378,7 +378,7 @@ async function renderHistory() {
       catch (err) { toast(humanError(err)); }
     });
   } catch (err) {
-    root.innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(err.message)}</div>`;
+    root.innerHTML = `<div class="empty">Couldn't load history: ${escapeHtml(humanError(err))}</div>`;
   }
 }
 
@@ -545,7 +545,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     card.dataset.loaded = '1';
     card.dataset.exerciseNames = [...grouped.values()].map((g) => g.name.toLowerCase()).join('|');
   } catch (err) {
-    body.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(err.message)}</div>`;
+    body.innerHTML = `<div class="empty">Couldn't load: ${escapeHtml(humanError(err))}</div>`;
   }
 }
 
@@ -690,7 +690,7 @@ async function openEditSetSheet(setId, workoutId) {
     setEditState = { mode: 'edit', setId, workoutId, exerciseId: set.exercise_id, exerciseName: set.exercise_name, equipment: set.equipment, stepOverride: set.step_override ?? null, setNumber: set.set_number, weight: set.weight, weight_unit: set.weight_unit, reps: set.reps, rir: set.rir ?? null, notes: set.notes || '', isWarmup: !!set.is_warmup };
     renderSetEditSheet();
   } catch (err) {
-    sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    sheet.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
   }
 }
 
@@ -847,7 +847,7 @@ async function openHistoryAddExercisePicker(workoutId) {
   try {
     [exercises, existingSets] = await Promise.all([API.exerciseStats(), API.workoutSets(workoutId)]);
   } catch (err) {
-    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(err.message)}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
+    picker.innerHTML = `<div class="sheet__inner"><div class="sheet__body"><div class="empty">${escapeHtml(humanError(err))}</div><button class="btn btn--block" data-close-sheet>Close</button></div></div>`;
     return;
   }
   // Exercise -> next set number for it in THIS workout, so re-adding one

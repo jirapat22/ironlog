@@ -14,6 +14,10 @@ const REST_SECONDS = 180; // 3 minutes
 function reportApiError(path, method, status, message) {
   if (!status || status < 500) return;
   if (!navigator.onLine) return;
+  // sw.js answers an unreachable server with 503 {"error":"offline"}. That is
+  // this app saying "no connection", not the server throwing, and navigator
+  // .onLine is no help: wifi with a dead server still reads as online.
+  if (message === 'offline') return;
   if (String(path).includes('/api/bug-report')) return;
   document.dispatchEvent(new CustomEvent('ironlog:api-error', { detail: { path, method, status, message } }));
 }

@@ -4436,3 +4436,22 @@ body.keyboard-open .update-banner {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+
+/* Shown when the app opened without being able to reach the server at all,
+   so the views are whatever this phone had. Sits above the nav, out of the
+   way of the finish bar. */
+.offline-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom));
+  z-index: 40;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warn, #ffb347) 18%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn, #ffb347) 50%, transparent);
+  color: var(--warn, #ffb347);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
