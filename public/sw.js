@@ -1,4 +1,14 @@
-const VERSION = 'ironlog-v246';
+const VERSION = 'ironlog-v249';
+// Last-known API responses, kept OUT of the versioned shell cache on purpose:
+// wiping it on every deploy would mean the first launch after an update has
+// nothing to fall back on, which is exactly when you are least likely to have
+// signal to spare. Survives activate (see the filter below).
+const API_CACHE = 'ironlog-api';
+// One entry per distinct URL, and History alone can visit a per-workout
+// endpoint for every session you have ever logged. Generous enough that a
+// normal launch's worth of requests never evicts each other, bounded so the
+// cache cannot grow for the life of the install.
+const API_CACHE_MAX = 120;
 const SHELL = [
   '/',
   '/index.html',
@@ -24,6 +34,49 @@ const SHELL = [
   '/fonts/jetbrains-mono-700.woff2'
 ];
 
+function offlineResponse() {
+  return new Response('{"error":"offline"}', {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+// Network first, so a reachable server always wins and nothing is ever served
+// stale while online. Only a failed request falls back, and what comes back is
+// tagged so the page can say it is showing last-known data rather than
+// pretending it is current.
+// cache.keys() resolves in insertion order, so the front of the list is the
+// least recently STORED. Fire-and-forget: a failed trim must never delay or
+// fail the response it rode in on.
+function trimApiCache(cache) {
+  cache.keys().then((keys) => {
+    if (keys.length <= API_CACHE_MAX) return;
+    return Promise.all(keys.slice(0, keys.length - API_CACHE_MAX).map((k) => cache.delete(k)));
+  }).catch(() => {});
+}
+
+async function apiNetworkFirst(req) {
+  const cache = await caches.open(API_CACHE);
+  try {
+    const res = await fetch(req);
+    // Only success is worth remembering. Caching a 4xx/5xx would pin an error
+    // as this endpoint's "last known good" until it next succeeds.
+    if (res && res.ok) {
+      await cache.put(req, res.clone()).catch(() => {});
+      trimApiCache(cache);
+    }
+    return res;
+  } catch {
+    const hit = await cache.match(req);
+    if (!hit) return offlineResponse();
+    const body = await hit.text();
+    return new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'X-Ironlog-Cached': '1' }
+    });
+  }
+}
+
 self.addEventListener('install', (event) => {
   // Precache the new shell but DON'T skipWaiting here — the new worker waits
   // until the page tells it to (via the "Update available" prompt), or until
@@ -37,7 +90,7 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))
+        Promise.all(keys.filter((k) => k !== VERSION && k !== API_CACHE).map((k) => caches.delete(k)))
       )
       .then(() => self.clients.claim())
   );
@@ -49,12 +102,22 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // API calls: network-first, no caching
+  // API calls: network-first, falling back to the last good response.
+  //
+  // This used to be network-only, which meant a launch with no connection
+  // showed an error in every view — the app was not readable offline at all,
+  // despite comments here and elsewhere claiming it was. A phone in a gym
+  // basement is the normal case for this app, so the last thing it saw is a
+  // far better answer than an error panel.
   if (url.pathname.startsWith('/api/') || url.pathname === '/health') {
-    event.respondWith(fetch(req).catch(() => new Response('{"error":"offline"}', {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    })));
+    // Auth is the exception. A cached "you are signed in" would be a claim
+    // about a session this worker cannot vouch for; app.js has its own
+    // deliberate offline path for that, built on a profile IT cached.
+    if (url.pathname.startsWith('/api/auth/')) {
+      event.respondWith(fetch(req).catch(offlineResponse));
+      return;
+    }
+    event.respondWith(apiNetworkFirst(req));
     return;
   }
 

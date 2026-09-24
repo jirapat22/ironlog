@@ -1,5 +1,5 @@
 // IronLog — main entry point. Imports all tab modules and handles boot/routing.
-import { $, $$, LS, haptic, isIOS, isStandalone, ACCENTS, setOwnerProfile } from './utils.js';
+import { $, $$, LS, haptic, isIOS, isStandalone, ACCENTS, setOwnerProfile, toast, humanError } from './utils.js';
 import { API } from './api.js';
 import { refreshBadgeFromCalendar } from './audio.js';
 import { renderWorkout, flushWorkoutNotes } from './workout.js';
@@ -56,6 +56,16 @@ let currentProfile = null;
 function setCurrentProfile(p) {
   currentProfile = p || null;
   setOwnerProfile(!!p?.is_owner);
+  // Remembered so a launch that cannot reach the server can tell "your
+  // session was fine a moment ago" from "we have never seen you". Written
+  // here rather than at each call site: unlocking with a PIN sets the profile
+  // too, and missing that meant anyone who had typed their code — rather than
+  // being auto-signed-in — was still locked out the next time they opened the
+  // app without signal.
+  try {
+    if (p) localStorage.setItem(LS.lastProfile, JSON.stringify(p));
+    else localStorage.removeItem(LS.lastProfile);
+  } catch { /* quota */ }
 }
 let lockBuffer = '';
 let pendingCode = '';   // passcode captured for the create-a-profile flow
@@ -119,8 +129,18 @@ async function onCodeComplete() {
     const { profile } = await API.login(code);
     setCurrentProfile(profile);
     hideLock();
-  } catch {
-    // Unknown code (or network) → offer to create a profile with it.
+  } catch (err) {
+    // A code can only be checked by the server. With no connection the old
+    // behaviour was to assume it was wrong and offer to create a NEW profile
+    // with it — telling you your own passcode is unrecognised when the real
+    // answer is that nothing was asked.
+    if (isUnreachable(err)) {
+      lockBuffer = '';
+      renderLockDots();
+      toast(humanError(err));
+      return;
+    }
+    // Genuinely unknown code → offer to create a profile with it.
     pendingCode = code;
     showCreateForm();
   } finally {
@@ -418,7 +438,6 @@ function showOfflineBanner() {
       el.remove();
       clearInterval(timer);
       window.removeEventListener('online', retry);
-      try { localStorage.setItem(LS.lastProfile, JSON.stringify(st.profile)); } catch { /* quota */ }
       setCurrentProfile(st.profile);
       renderProfilePill();
       document.dispatchEvent(new CustomEvent('ironlog:back-online'));
@@ -436,19 +455,20 @@ function isUnreachable(err) {
   return m === 'offline' || /failed to fetch|load failed|networkerror|timed out/i.test(m);
 }
 
+// Reads answered from the worker's cache mean the server is unreachable even
+// though this session started online — losing signal mid-workout, which is the
+// normal way it happens. Same banner, same self-clearing retry.
+document.addEventListener('ironlog:serving-cached', () => showOfflineBanner());
+
 // ---------- Startup: resolve session, then lock or boot ----------
 (async function start() {
   try {
     const status = await API.authStatus();
     if (status.authenticated) {
-      // Remembered so a launch with no connection can tell "your session was
-      // fine a moment ago" from "we have never seen you".
-      try { localStorage.setItem(LS.lastProfile, JSON.stringify(status.profile)); } catch { /* quota */ }
       setCurrentProfile(status.profile);
       renderProfilePill();
       boot();
     } else {
-      try { localStorage.removeItem(LS.lastProfile); } catch { /* ignore */ }
       showLock();
     }
   } catch (err) {

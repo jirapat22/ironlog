@@ -64,6 +64,12 @@ async function api(path, opts = {}, isRetry = false) {
       thrown.reported = true;
       throw thrown;
     }
+    // sw.js tags a response it served from its own cache because the network
+    // was unreachable. The data is real, just not necessarily current, and the
+    // page should say so rather than present it as live.
+    if (res.headers.get('X-Ironlog-Cached')) {
+      document.dispatchEvent(new CustomEvent('ironlog:serving-cached'));
+    }
     return res.json();
   } catch (err) {
     if (err.name === 'AbortError') {
