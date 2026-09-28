@@ -338,7 +338,18 @@ function trackHeaderHeight() {
   document.fonts?.ready?.then(sync).catch(() => {});
 }
 
+// Set once boot() has wired up the things that must only be wired once.
+let booted = false;
+
 function boot() {
+  // boot() runs again whenever the lock screen is cleared, and a session can
+  // expire mid-use (401 -> showLock -> passcode -> hideLock -> boot). The
+  // per-render work below is safe to repeat; the one-time wiring is not —
+  // trackHeaderHeight() creates a ResizeObserver and an orientationchange
+  // listener, and registerServiceWorker() a visibilitychange one, none of
+  // which are ever torn down.
+  const firstBoot = !booted;
+  booted = true;
   $$('.nav__btn').forEach((b) => {
     b.onclick = () => { haptic(10); setTab(b.dataset.tab); };
   });
@@ -351,8 +362,10 @@ function boot() {
   const initial = activeId ? 'workout' : saved || 'programs';
   setTab(initial);
 
-  trackHeaderHeight();
-  registerServiceWorker();
+  if (firstBoot) {
+    trackHeaderHeight();
+    registerServiceWorker();
+  }
 
   refreshBadgeFromCalendar();
   showInstallHintIfNeeded();
