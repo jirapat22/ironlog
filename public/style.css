@@ -4455,3 +4455,15 @@ body.keyboard-open .update-banner {
   font-weight: 600;
   line-height: 1.4;
 }
+
+/* The weight being logged no longer matches what was recommended, so the
+   recommendation line goes quiet -- but the "Last: ..." reference under it
+   stays, because that is history, not advice. */
+.prog-hint--superseded .prog-hint__main {
+  display: none;
+}
+
+.prog-hint--superseded {
+  background: var(--surface-2);
+  border-color: var(--border);
+}

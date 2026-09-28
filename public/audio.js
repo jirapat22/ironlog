@@ -119,6 +119,39 @@ async function refreshBadgeFromCalendar() {
 // ---------- Global rest countdown ----------
 let restState = null; // { endAt, handle, doneTimeout, notified }
 
+const REST_DONE_HTML = '<span>&#x1F514; Rest done &mdash; next set</span>'
+  + '<button class="rest-sticky__x" data-rest-cancel aria-label="Dismiss">&times;</button>';
+
+const restRunningHTML = (remain) => {
+  const mm = Math.floor(remain / 60);
+  const ss = remain % 60;
+  return `<span class="rest-sticky__label">Rest</span>`
+    + `<span class="rest-sticky__time">${mm}:${String(ss).padStart(2, '0')}</span>`
+    + `<button class="rest-sticky__x" data-rest-cancel aria-label="Cancel">&times;</button>`;
+};
+
+// Paint whatever the rest currently IS into the banner. Pure DOM, no beeps or
+// notifications, so it is safe to call as often as the view re-renders.
+//
+// #rest-sticky is rebuilt empty by every renderWorkoutView(), and the only
+// thing that ever filled it was the countdown's own interval — which is
+// cleared the moment the rest finishes. So "Rest done" survived exactly until
+// the next re-render (a tab away and back, logging on another exercise) and
+// then vanished with nothing to bring it back.
+function paintRest() {
+  const node = $('#rest-sticky');
+  if (!node || !restState) return;
+  if (restState.finished) {
+    node.classList.remove('hidden');
+    node.classList.add('done');
+    node.innerHTML = REST_DONE_HTML;
+    return;
+  }
+  const remain = Math.max(0, Math.round((restState.endAt - Date.now()) / 1000));
+  node.classList.remove('done', 'hidden');
+  node.innerHTML = restRunningHTML(remain);
+}
+
 function startRestCountdown(secs = REST_SECONDS, workoutId = null) {
   cancelRestCountdown();
   // rest_seconds is stored per program-day exercise with no lower bound, and
@@ -157,10 +190,7 @@ function startRestCountdown(secs = REST_SECONDS, workoutId = null) {
     const remain = Math.max(0, Math.round((endAt - Date.now()) / 1000));
     if (remain <= 0) {
       if (restState) restState.finished = true;
-      if (node) {
-        node.classList.add('done');
-        node.innerHTML = `<span>&#x1F514; Rest done — next set</span><button class="rest-sticky__x" data-rest-cancel aria-label="Dismiss">&times;</button>`;
-      }
+      if (node) paintRest();
       if (restState?.handle) { clearInterval(restState.handle); restState.handle = null; }
       haptic([250, 120, 250, 120, 400]);
       playBeep();
@@ -172,14 +202,20 @@ function startRestCountdown(secs = REST_SECONDS, workoutId = null) {
           requireInteraction: false
         });
       }
-      if (restState) restState.doneTimeout = setTimeout(cancelRestCountdown, 10000);
+      // "Rest done" used to clear itself after 10 seconds. The whole reason
+      // this banner exists is that your phone is in your pocket or on the
+      // bench during a rest — so the ten seconds it was on screen were
+      // usually ten seconds nobody was looking, and you came back to a blank
+      // bar with no idea whether the rest had finished. It now stays until
+      // you dismiss it, log the next set (which starts a fresh rest and
+      // replaces it), or end the session. The long timeout is only a backstop
+      // so an abandoned session cannot pin the state, and the stored end time
+      // with it, indefinitely.
+      if (restState) restState.doneTimeout = setTimeout(cancelRestCountdown, 10 * 60 * 1000);
       return;
     }
     if (!node) return; // still counting, just nothing on screen to update yet
-    const mm = Math.floor(remain / 60);
-    const ss = remain % 60;
-    node.classList.remove('done', 'hidden');
-    node.innerHTML = `<span class="rest-sticky__label">Rest</span><span class="rest-sticky__time">${mm}:${String(ss).padStart(2, '0')}</span><button class="rest-sticky__x" data-rest-cancel aria-label="Cancel">&times;</button>`;
+    paintRest();
   };
   tick();
   // Only start ticking if that first call didn't already end the rest. tick()
@@ -227,7 +263,7 @@ function resumeRestCountdown(workoutId = null) {
 export {
   notifPermission, ensureNotifPermission, showLocalNotification,
   urlBase64ToUint8Array, subscribeWebPush, unsubscribeWebPush,
-  scheduleRestPushBackup, cancelRestPushBackup, resumeRestCountdown,
+  scheduleRestPushBackup, cancelRestPushBackup, resumeRestCountdown, paintRest,
   setAppBadge, refreshBadgeFromCalendar,
   startRestCountdown, cancelRestCountdown, isRestActive
 };

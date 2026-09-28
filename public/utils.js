@@ -1451,6 +1451,13 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
         <select class="input" id="edit-ex-equipment">
           ${EXERCISE_EQUIPMENT.map((e) => `<option value="${e}" ${ex.equipment === e ? 'selected' : ''}>${equipmentLabel(e)}</option>`).join('')}
         </select>
+        <label class="form-label" style="margin-top:14px">What the weight means</label>
+        <select class="input" id="edit-ex-loadmode">
+          <option value="added" ${!ex.is_bodyweight ? 'selected' : ''}>Added weight — what's on the bar or stack</option>
+          <option value="bodyweight" ${ex.is_bodyweight && !ex.is_assisted ? 'selected' : ''}>Bodyweight — your weight, plus anything added</option>
+          <option value="assisted" ${ex.is_assisted ? 'selected' : ''}>Assisted — the machine takes weight off you</option>
+        </select>
+        <div class="card__subtitle" id="edit-ex-loadmode-note"></div>
         <label class="form-label" style="margin-top:14px">Weight entry</label>
         <select class="input" id="edit-ex-weightmode">
           <option value="combined" ${ex.weight_mode !== 'per_arm' ? 'selected' : ''}>Total load (counted as-is)</option>
@@ -1512,6 +1519,19 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     barWeightWrap.style.display = e.target.value === 'barbell' ? '' : 'none';
   };
 
+  // Spell out what each choice does to the number you type, since the
+  // difference is invisible until it has already reshaped your PRs.
+  const loadModeSel = containerEl.querySelector('#edit-ex-loadmode');
+  const loadModeNote = containerEl.querySelector('#edit-ex-loadmode-note');
+  const LOAD_MODE_NOTES = {
+    added: 'Counted exactly as typed.',
+    bodyweight: 'Your body weight is added to whatever you type, so 0 is a clean rep.',
+    assisted: 'What you type is taken OFF your body weight, so LESS assistance is the harder set — records rank that way round.'
+  };
+  const syncLoadModeNote = () => { loadModeNote.textContent = LOAD_MODE_NOTES[loadModeSel.value] || ''; };
+  loadModeSel.onchange = syncLoadModeNote;
+  syncLoadModeNote();
+
   // "Has a bar?" toggle — flipping off hides AND clears the number field
   // (rather than just leaving it optional/blank) so "no bar" is an explicit,
   // visible state instead of an ambiguous empty box. The toggle's own state
@@ -1566,6 +1586,28 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     const secondary_major = sub2.getSelectedMajor();
     const equipment = containerEl.querySelector('#edit-ex-equipment').value;
     const weight_mode = containerEl.querySelector('#edit-ex-weightmode').value;
+    const loadMode = containerEl.querySelector('#edit-ex-loadmode').value;
+    const is_bodyweight = loadMode !== 'added';
+    const is_assisted = loadMode === 'assisted';
+    // No per-set snapshot of these, so flipping one re-reads every set already
+    // logged against this exercise — and for assisted it inverts which of them
+    // was the best. Worth stopping for; the numbers on the Progress tab will
+    // move.
+    const wasMode = ex.is_assisted ? 'assisted' : ex.is_bodyweight ? 'bodyweight' : 'added';
+    if (loadMode !== wasMode) {
+      const label = { added: 'plain added weight', bodyweight: 'bodyweight', assisted: 'assisted' }[loadMode];
+      const ok = await confirmSheet({
+        title: 'Change what the weight means?',
+        message: `Every set already logged for ${ex.name} will be re-read as ${label}`
+          + (loadMode === 'assisted' || wasMode === 'assisted'
+            ? ', which flips whether more weight counts as harder or easier — its personal records and 1RM estimates will change.'
+            : ', so its volume and 1RM estimates will change.'),
+        confirmText: 'Change it',
+        cancelText: 'Keep as is',
+        danger: true
+      });
+      if (!ok) return;
+    }
     const stepRaw = containerEl.querySelector('#edit-ex-step').value.trim();
     if (stepRaw && (!Number.isFinite(Number(stepRaw)) || Number(stepRaw) <= 0)) {
       return toast('Custom step must be a positive number');
@@ -1580,7 +1622,7 @@ function renderExerciseEditForm(containerEl, ex, { onBack, onSaved, onDeleted, o
     if (!repRange.ok) return toast(repRange.error);
     const notes = containerEl.querySelector('#edit-ex-notes').value.trim() || null;
     if (!name) return toast('Name required');
-    const payload = { name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment, weight_mode, step_override, bar_weight_kg, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
+    const payload = { name, muscle_group, sub_muscle, secondary_muscles, secondary_major, equipment, weight_mode, is_bodyweight, is_assisted, step_override, bar_weight_kg, rep_min: repRange.rep_min, rep_max: repRange.rep_max, notes };
     // weight_mode actually changing (not just resubmitted as-is): offer to
     // retroactively fix already-logged sets too — normally a flip only
     // changes how FUTURE sets get counted (see routes/exercises.js), the

@@ -1,6 +1,6 @@
 import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, humanAgo, humanError, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
-import { startRestCountdown, cancelRestCountdown, isRestActive, resumeRestCountdown, refreshBadgeFromCalendar } from './audio.js';
+import { startRestCountdown, cancelRestCountdown, isRestActive, resumeRestCountdown, paintRest, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
 
 // ---------- Body-weight tracking (for e1RM / load calculations) ----------
@@ -977,6 +977,9 @@ function renderWorkoutView() {
   }
 
   applyPendingSetRows();
+  // #rest-sticky was just rebuilt empty. A running rest would repaint itself
+  // within half a second, but a FINISHED one has no interval left to do it.
+  paintRest();
   renderSessionCoverage();
 }
 
@@ -1248,9 +1251,15 @@ function exerciseCardHTML(ex, lastSets, loggedBySet) {
   // old bad row elsewhere in the exercise's history still turns up in the
   // Settings scan, but doesn't hold today's lifting hostage.
   const suspect = suspiciousInSets(lastSets);
+  // Same rule as refreshProgressionHint's live version: a recommendation that
+  // no longer matches what you are lifting goes quiet, but the "Last: ..."
+  // line under it is history and stays. Rendering '' here was the half that
+  // survived a reload — the typed weight lives in the draft, so a card whose
+  // recommendation had been superseded came back with no reference to last
+  // session at all, permanently. That is the "keeps missing" part.
   const hint = suspect
     ? mislogHintHTML(suspect)
-    : !recStillMatches ? '' : rec ? buildProgressionHint(rec, trend) : (lastSets.length ? '' : firstTimeHintHTML());
+    : rec ? buildProgressionHint(rec, trend, !recStillMatches) : (lastSets.length ? '' : firstTimeHintHTML());
 
   // Complete when: explicitly skipped, OR all target sets are logged (no unlogged set found)
   const isComplete = isSkipped || (target > 0 && firstUnloggedSet === null);
@@ -1458,7 +1467,10 @@ function mislogHintHTML(f) {
     </div>`;
 }
 
-function buildProgressionHint(rec, trend = []) {
+function buildProgressionHint(rec, trend = [], superseded = false) {
+  // Set when what's being logged has moved away from what was recommended.
+  // Hides the advice line via CSS and keeps the rest.
+  const sup = superseded ? ' prog-hint--superseded' : '';
   const upArrow = rec.isAssisted ? '&#x2B07;' : '&#x2B06;';
   const upLabel = rec.isAssisted ? 'Reduce assistance' : 'Increase weight';
   const sameLabel = rec.isAssisted ? 'Same assistance' : 'Same weight';
@@ -1497,7 +1509,7 @@ function buildProgressionHint(rec, trend = []) {
 
   if (rec.isStale) {
     return `
-      <div class="prog-hint prog-hint--stale">
+      <div class="prog-hint prog-hint--stale${sup}">
         <div class="prog-hint__main">&#x1F551; Been ${rec.gapDays} days &mdash; easing back in at <strong>${rec.recDisplay}</strong></div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; same weight until you're back up to speed</div>
         ${trendLine}
@@ -1506,14 +1518,14 @@ function buildProgressionHint(rec, trend = []) {
 
   if (rec.isProgression) {
     return `
-      <div class="prog-hint prog-hint--up">
+      <div class="prog-hint prog-hint--up${sup}">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> ${trendBadgeHTML(trendStatus, trend, rec)}</div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
   } else if (rec.isFormHeld) {
     return `
-      <div class="prog-hint prog-hint--form">
+      <div class="prog-hint prog-hint--form${sup}">
         <div class="prog-hint__main">&#x26A0; Hit ${rec.hitReps}+, but form was flagged &mdash; repeating <strong>${rec.lastWeight}</strong></div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; clean it up before adding weight</div>
         ${trendLine}
@@ -1524,7 +1536,7 @@ function buildProgressionHint(rec, trend = []) {
     const sideStr = rec.sideNote ? ` &mdash; ${rec.sideNote}` : '';
     const nextStep = rec.isAssisted ? 'reduce assistance' : 'add weight';
     return `
-      <div class="prog-hint prog-hint--same">
+      <div class="prog-hint prog-hint--same${sup}">
         <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set ${trendBadgeHTML(trendStatus, trend, rec)}</div>
         <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr}${sideStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
         ${trendLine}
@@ -2391,7 +2403,15 @@ function refreshProgressionHint(exId) {
   }
   const stillMatches = referenceW == null || referenceW === ''
     || (Number(referenceW) === Number(rec.recWeight) && referenceU === rec.recUnit);
-  if (!stillMatches) hintEl.remove();
+  // Only the RECOMMENDATION stops applying when you type a different weight.
+  // The line under it — "Last: 3 sets @ 92kg x 6, 5, 4" — is a fact about
+  // last session and stays true whatever you lift today; it is also the thing
+  // you most want to see while deciding. This used to remove() the whole
+  // block, so touching the weight field deleted your reference to last time
+  // for the rest of the session, with nothing short of a full re-render
+  // bringing it back. A class instead of a removal also means it returns by
+  // itself if you type the recommended weight after all.
+  hintEl.classList.toggle('prog-hint--superseded', !stillMatches);
 }
 
 async function confirmSet(row) {

@@ -238,6 +238,34 @@ router.patch('/:id', (req, res) => {
     }
     updates.push('step_override = ?'); values.push(v);
   }
+  // How the weight you type is to be read: a plain added load, your bodyweight
+  // plus any added load, or assistance taken off it. There was no way to set
+  // these at all — the flags existed, drove real maths (an assisted lift ranks
+  // INVERTED: less assistance is a better set), and could only be produced by
+  // seeding the database.
+  //
+  // Both are stored on the exercise with no per-set snapshot, so changing one
+  // re-reads every set already logged against it. The client warns before
+  // sending; that is the agreed behaviour rather than an oversight.
+  //
+  // Shared-catalog rule matches weight_mode's: it changes what everyone's
+  // history means, so someone else's exercise needs the admin code.
+  for (const flag of ['is_bodyweight', 'is_assisted']) {
+    if (!(flag in (req.body || {}))) continue;
+    const v = req.body[flag] ? 1 : 0;
+    if (v !== existing[flag] && !canEditSharedCatalog(req) && existing.created_by_profile_id == null) {
+      return res.status(403).json({ error: 'admin code required to change how a shared exercise is weighted' });
+    }
+    updates.push(`${flag} = ?`); values.push(v);
+  }
+  // Assistance is only meaningful on a movement you are holding yourself up
+  // in, and effectiveLoadKg gates its branch on is_bodyweight anyway — so an
+  // assisted-but-not-bodyweight row would silently behave as a plain weighted
+  // lift. Keep the stored pair honest rather than letting that happen.
+  if (req.body?.is_assisted && !req.body?.is_bodyweight) {
+    return res.status(400).json({ error: 'an assisted exercise must also be bodyweight' });
+  }
+
   // bar_weight_kg: optional, display-only (the plate-breakdown hint while
   // logging) — never affects what's stored for a set or any volume/PR math.
   // Not admin-gated even on a shared exercise: unlike weight_mode/notes, it
