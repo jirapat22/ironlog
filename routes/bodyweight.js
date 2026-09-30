@@ -27,23 +27,62 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
+// ?tzOffset= is minutes EAST of UTC (i.e. -getTimezoneOffset()), matching
+// /api/calendar and the volume endpoints. Not the raw getTimezoneOffset that
+// /api/plated/* takes under ?tz= — the two conventions are opposite signs, and
+// getting it backwards here would bucket a weigh-in a day early, which is
+// exactly the failure Plated reported hitting from the other direction.
+function tzModFromOffset(offsetMin) {
+  const clamped = Math.max(-840, Math.min(840, Math.trunc(offsetMin)));
+  return `${clamped >= 0 ? '+' : ''}${clamped} minutes`;
+}
+
 router.post('/', (req, res) => {
   const { weight, weight_unit = 'kg', notes = null, logged_at = null } = req.body || {};
   const err = validateBodyweightFields({ weight, weight_unit, logged_at }, { requireWeight: true });
   if (err) return res.status(400).json({ error: err });
 
-  let info;
-  if (logged_at) {
-    info = db
+  const tz = Number(req.query.tzOffset);
+  const mod = tzModFromOffset(Number.isFinite(tz) ? tz : 0);
+
+  // One weigh-in per LOCAL day, whatever wrote it. Previously this was a plain
+  // INSERT while Plated's own writer deduped only against its own rows, so a
+  // weigh-in entered on each side of the integration on the same day left two
+  // rows for that date: the chart drew two points and "current weight" (newest
+  // logged_at wins) silently picked whichever landed later. Plated confirmed it
+  // never wants more than one reading per day.
+  //
+  // Local day, not the UTC date of logged_at: a 7am NZ weigh-in stores as
+  // ~19:00 UTC the previous day, so bucketing on the raw timestamp files it
+  // under the wrong date for anyone east of UTC.
+  const existing = db
+    .prepare(
+      `SELECT id FROM bodyweights
+        WHERE profile_id = ?
+          AND date(logged_at, ?) = date(COALESCE(?, datetime('now')), ?)`
+    )
+    .get(req.profileId, mod, logged_at, mod);
+
+  let id;
+  if (existing) {
+    // The newer reading replaces the day's value rather than joining it. Keeps
+    // a correction propagating instead of leaving two rows to disagree.
+    db.prepare(
+      `UPDATE bodyweights SET weight = ?, weight_unit = ?, notes = ?, logged_at = COALESCE(?, datetime('now'))
+        WHERE id = ?`
+    ).run(Number(weight), weight_unit, notes, logged_at, existing.id);
+    id = existing.id;
+  } else if (logged_at) {
+    id = Number(db
       .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, logged_at, profile_id) VALUES (?, ?, ?, ?, ?)')
-      .run(Number(weight), weight_unit, notes, logged_at, req.profileId);
+      .run(Number(weight), weight_unit, notes, logged_at, req.profileId).lastInsertRowid);
   } else {
-    info = db
+    id = Number(db
       .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, profile_id) VALUES (?, ?, ?, ?)')
-      .run(Number(weight), weight_unit, notes, req.profileId);
+      .run(Number(weight), weight_unit, notes, req.profileId).lastInsertRowid);
   }
-  const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(Number(info.lastInsertRowid));
-  res.status(201).json(row);
+  const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(id);
+  res.status(existing ? 200 : 201).json(row);
 });
 
 router.patch('/:id', (req, res) => {

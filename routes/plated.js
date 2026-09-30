@@ -106,11 +106,38 @@ function floorGoalKcal(goalKcal, tdee) {
   return Math.max(Math.max(0, Math.min(1200, tdee)), goalKcal);
 }
 
+// Every endpoint here answers {success, data} or {success:false, error} —
+// one envelope, no exceptions, so a caller never has to guess whether a
+// payload is wrapped.
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
+function plated(req, res, build) {
+  try {
+    res.json({ success: true, data: build(req) });
+  } catch (err) {
+    if (err?.status === 400) return res.status(400).json({ success: false, error: err.message });
+    console.error(err);
+    res.status(500).json({ success: false, error: 'internal server error' });
+  }
+}
+
 function getSetting(profileId, key) {
   const row = db
     .prepare('SELECT value FROM app_settings WHERE profile_id = ? AND key = ?')
     .get(profileId, key);
   return row?.value ?? null;
+}
+
+// Same upsert routes/settings.js uses, so a value written here is
+// indistinguishable from one the user typed into IronLog's own form.
+function setSetting(profileId, key, value) {
+  db.prepare(
+    'INSERT INTO app_settings (profile_id, key, value) VALUES (?, ?, ?) ON CONFLICT(profile_id, key) DO UPDATE SET value = excluded.value'
+  ).run(profileId, key, value);
 }
 
 function toKg(weight, unit) {
@@ -183,9 +210,11 @@ router.get('/', (req, res) => {
     success: true,
     data: {
       service: 'IronLog',
-      version: 1,
+      version: 2,
       endpoints: [
+        'GET /api/plated/summary',
         'GET /api/plated/profile',
+        'POST /api/plated/profile',
         'GET /api/plated/bodyweight',
         'POST /api/plated/bodyweight',
         'GET /api/plated/workouts/calories',
@@ -199,15 +228,27 @@ router.get('/', (req, res) => {
  * GET /api/plated/profile
  * Returns the full nutrition profile Plated needs at startup / refresh.
  */
-router.get('/profile', (req, res) => {
-  try {
-    const pid = req.profileId;
+// Age is derived, never stored, whenever a birth year is on file: Plated
+// pushes birth_year precisely because a stored age silently goes wrong for up
+// to twelve months. profile_age remains the fallback for anyone who typed an
+// age into IronLog's own form before this existed.
+function resolveAge(pid) {
+  const birthYear = Number(getSetting(pid, 'profile_birth_year') || 0);
+  if (birthYear >= 1900 && birthYear <= 2100) {
+    return Math.max(0, new Date().getUTCFullYear() - birthYear);
+  }
+  return Number(getSetting(pid, 'profile_age') || 0);
+}
+
+// The body of GET /profile, lifted out so POST /profile can answer with the
+// recomputed figures in the same round trip, and GET /summary can embed it.
+function buildProfilePayload(pid) {
     const bwRow = db
       .prepare('SELECT weight, weight_unit FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT 1')
       .get(pid);
 
     const heightCm   = Number(getSetting(pid, 'profile_height_cm') || 0);
-    const age        = Number(getSetting(pid, 'profile_age')        || 0);
+    const age        = resolveAge(pid);
     const activityKey = getSetting(pid, 'profile_activity') || 'moderate';
     const sex        = getSetting(pid, 'strength_standard_gender') === 'female' ? 'female' : 'male';
     const goal       = ['cut', 'maintain', 'bulk'].includes(getSetting(pid, 'profile_goal'))
@@ -266,9 +307,7 @@ router.get('/profile', (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      data: {
+    return {
         bodyweight_kg:    weightKg,
         tdee_kcal:        tdee,
         tdee_includes_workouts: tdeeIncludesWorkouts,
@@ -287,10 +326,81 @@ router.get('/profile', (req, res) => {
           age:          age || null,
           sex,
           activity:     activityKey,
+          birth_year:   Number(getSetting(pid, 'profile_birth_year') || 0) || null,
           protein_g_per_kg: macros?.proteinPerKg ?? null
         }
+    };
+}
+
+router.get('/profile', (req, res) => {
+  try {
+    res.json({ success: true, data: buildProfilePayload(req.profileId) });
+  } catch (err) {
+    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
+  }
+});
+
+/**
+ * POST /api/plated/profile
+ * Plated owns height, birth year and sex — it asks for them at sign-up, so
+ * IronLog should not ask a second time. Every field optional; anything sent
+ * is validated and stored, anything omitted is left alone. Idempotent.
+ *
+ * Answers with the SAME payload GET /profile returns, recomputed after the
+ * write, so the caller can confirm the write landed without a second trip.
+ *
+ * Deliberately does NOT accept tdee_includes_workouts: that flag is derived
+ * from activity_level at read time and stays IronLog's to compute, so there
+ * is one source of truth for it even though Plated owns its input.
+ */
+router.post('/profile', (req, res) => {
+  try {
+    const pid = req.profileId;
+    const body = req.body || {};
+    const writes = [];
+
+    const num = (v) => (v === null || v === '' || v === undefined ? null : Number(v));
+
+    if ('height_cm' in body) {
+      const v = num(body.height_cm);
+      if (v !== null && (!Number.isFinite(v) || v < 100 || v > 250)) {
+        return res.status(400).json({ success: false, error: 'height_cm must be between 100 and 250' });
       }
-    });
+      writes.push(['profile_height_cm', v === null ? '' : String(v)]);
+    }
+    if ('birth_year' in body) {
+      const v = num(body.birth_year);
+      if (v !== null && (!Number.isInteger(v) || v < 1900 || v > new Date().getUTCFullYear())) {
+        return res.status(400).json({ success: false, error: 'birth_year must be a year between 1900 and now' });
+      }
+      writes.push(['profile_birth_year', v === null ? '' : String(v)]);
+    }
+    if ('sex' in body) {
+      const v = String(body.sex || '').toLowerCase();
+      if (v && v !== 'male' && v !== 'female') {
+        return res.status(400).json({ success: false, error: "sex must be 'male' or 'female'" });
+      }
+      // Stored under the key IronLog already reads for this; renaming it would
+      // mean a migration for no gain.
+      if (v) writes.push(['strength_standard_gender', v]);
+    }
+    if ('activity_level' in body) {
+      const v = String(body.activity_level || '').toLowerCase();
+      if (!ACTIVITY_MULTIPLIERS[v]) {
+        return res.status(400).json({
+          success: false,
+          error: `activity_level must be one of: ${Object.keys(ACTIVITY_MULTIPLIERS).join(', ')}`
+        });
+      }
+      writes.push(['profile_activity', v]);
+    }
+
+    if (!writes.length) {
+      return res.status(400).json({ success: false, error: 'nothing to update' });
+    }
+    for (const [k, v] of writes) setSetting(pid, k, v);
+
+    res.json({ success: true, data: buildProfilePayload(pid) });
   } catch (err) {
     console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
@@ -300,8 +410,7 @@ router.get('/profile', (req, res) => {
  * GET /api/plated/bodyweight?limit=30
  * Returns recent bodyweight entries normalised to kg.
  */
-router.get('/bodyweight', (req, res) => {
-  try {
+function buildBodyweightPayload(req) {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
     const rows = db
       .prepare(
@@ -309,17 +418,13 @@ router.get('/bodyweight', (req, res) => {
       )
       .all(req.profileId, limit);
 
-    res.json({
-      success: true,
-      data: rows.map((r) => ({
-        date:      r.logged_at.replace(' ', 'T') + 'Z',
-        weight_kg: +toKg(r.weight, r.weight_unit).toFixed(2)
-      }))
-    });
-  } catch (err) {
-    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
-  }
-});
+    return rows.map((r) => ({
+      date:      r.logged_at.replace(' ', 'T') + 'Z',
+      weight_kg: +toKg(r.weight, r.weight_unit).toFixed(2)
+    }));
+}
+
+router.get('/bodyweight', (req, res) => plated(req, res, buildBodyweightPayload));
 
 /**
  * POST /api/plated/bodyweight
@@ -340,7 +445,7 @@ router.post('/bodyweight', (req, res) => {
     kg = +kg.toFixed(2);
 
     if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ success: false, error: 'date must be YYYY-MM-DD' });
+      throw badRequest('date must be YYYY-MM-DD');
     }
     const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? date
@@ -387,13 +492,12 @@ router.post('/bodyweight', (req, res) => {
  * today in the caller's timezone). `tz` is Date.getTimezoneOffset() minutes;
  * missing/invalid tz defaults to UTC.
  */
-router.get('/workouts/calories', (req, res) => {
-  try {
+function buildCaloriesPayload(req) {
     const tz = getTzOffsetMinutes(req);
     const mod = localDateModifier(tz);
     const date = req.query.date || localDateStr(Date.now(), tz);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ success: false, error: 'date must be YYYY-MM-DD' });
+      throw badRequest('date must be YYYY-MM-DD');
     }
 
     const rows = db
@@ -439,25 +543,28 @@ router.get('/workouts/calories', (req, res) => {
       return {
         name:             w.name,
         duration_minutes: w.duration_minutes,
-        calories_burned:  burned
+        calories_burned:  burned,
+        // Whether that number was MEASURED or guessed at 4 kcal/min. Plated
+        // feeds this into an eat-back target, where at sedentary/light the
+        // burn goes straight onto the plate — a 35-minute session guessed at
+        // 140 kcal against a real ~440 is a 300 kcal push toward under-eating.
+        // Without this flag a guess is indistinguishable from a measurement.
+        calories_estimated: w.calories_burned == null,
+        calories_source:  w.calories_burned != null ? 'measured' : 'estimated_duration'
       };
     });
 
     const totalBurned = sessions.reduce((acc, s) => acc + (s.calories_burned || 0), 0);
 
-    res.json({
-      success: true,
-      data: {
-        date,
-        calories_burned: totalBurned,
-        sessions,
-        note: 'calories_burned estimated at 4 kcal/min for sessions without explicit calorie data. Set workouts.calories_burned directly to override.'
-      }
-    });
-  } catch (err) {
-    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
-  }
-});
+    return {
+      date,
+      calories_burned: totalBurned,
+      sessions,
+      note: 'calories_burned estimated at 4 kcal/min for sessions without explicit calorie data. Set workouts.calories_burned directly to override.'
+    };
+}
+
+router.get('/workouts/calories', (req, res) => plated(req, res, buildCaloriesPayload));
 
 /**
  * GET /api/plated/workouts/recent?limit=7&tz=<minutes>
@@ -465,8 +572,7 @@ router.get('/workouts/calories', (req, res) => {
  * counts and estimated calories burned. `tz` is Date.getTimezoneOffset()
  * minutes; missing/invalid tz defaults to UTC.
  */
-router.get('/workouts/recent', (req, res) => {
-  try {
+function buildRecentPayload(req) {
     const tz = getTzOffsetMinutes(req);
     const mod = localDateModifier(tz);
     const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 7));
@@ -497,24 +603,45 @@ router.get('/workouts/recent', (req, res) => {
       )
       .all(mod, KCAL_PER_MIN, req.profileId, mod, mod, limit);
 
-    res.json({
-      success: true,
-      data: rows.map((r) => ({
-        date:            r.date,
-        session_count:   r.session_count,
-        calories_burned: r.calories_burned || 0
-      }))
-    });
-  } catch (err) {
-    console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
-  }
-});
+    return rows.map((r) => ({
+      date:            r.date,
+      session_count:   r.session_count,
+      calories_burned: r.calories_burned || 0
+    }));
+}
+
+router.get('/workouts/recent', (req, res) => plated(req, res, buildRecentPayload));
 
 /**
  * GET /api/plated/whoami
  * Confirms which profile owns the presented API key. Used to verify the
  * Plated <-> IronLog link. Never returns the key itself.
  */
+/**
+ * GET /api/plated/summary?date=YYYY-MM-DD&tz=<minutes>&limit=<n>
+ *
+ * Everything Plated's Today screen needs, in ONE call. It was making four
+ * (profile, workouts/calories, workouts/recent, bodyweight) for a single
+ * render; with the service now allowed to sleep on Railway, that is four
+ * cold-start-prone round trips, four timeouts and four failure modes for one
+ * view. This is one of each.
+ *
+ * Composed from the exact same builders the individual endpoints use, so the
+ * two can never drift — the old endpoints stay for compatibility.
+ */
+router.get('/summary', (req, res) => plated(req, res, (r) => {
+  const calories = buildCaloriesPayload(r);
+  return {
+    profile:    buildProfilePayload(r.profileId),
+    calories,
+    recent:     buildRecentPayload(r),
+    bodyweight: buildBodyweightPayload(r),
+    // Echoed so the caller can confirm which local day this resolved to
+    // rather than re-deriving it and hoping the two agree.
+    resolved:   { date: calories.date, tz_offset_minutes: getTzOffsetMinutes(r) }
+  };
+}));
+
 router.get('/whoami', (req, res) => {
   res.json({
     success: true,

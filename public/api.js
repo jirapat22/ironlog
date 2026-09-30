@@ -171,7 +171,7 @@ const API = {
   updateFeel: (id, rating) => api(`/api/workouts/${id}`, { method: 'PATCH', body: { feel_rating: rating } }),
   deleteWorkout: (id) => api(`/api/workouts/${id}`, { method: 'DELETE' }),
   bodyweight: () => api('/api/bodyweight'),
-  addBodyweight: (data) => api('/api/bodyweight', { method: 'POST', body: data }),
+  addBodyweight: (data) => api(`/api/bodyweight?tzOffset=${-new Date().getTimezoneOffset()}`, { method: 'POST', body: data }),
   deleteBodyweight: (id) => api(`/api/bodyweight/${id}`, { method: 'DELETE' }),
   duplicateProgram: (id, data) => api(`/api/programs/${id}/duplicate`, { method: 'POST', body: data }),
   updateProgram: (id, data) => api(`/api/programs/${id}`, { method: 'PATCH', body: data }),

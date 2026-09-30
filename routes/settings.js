@@ -12,6 +12,11 @@ const DEFAULTS = {
   // Profile data for TDEE / calorie calc (Mifflin–St Jeor)
   profile_height_cm: '',
   profile_age: '',
+  // Birth year, not age: Plated pushes this (it holds the real one) and an
+  // age stored as a number is wrong for up to twelve months of every year.
+  // When both are present birth_year wins; profile_age stays for anyone who
+  // typed it into IronLog's own form.
+  profile_birth_year: '',
   profile_activity: 'moderate', // sedentary | light | moderate | very | athlete
   profile_goal: 'maintain', // cut | maintain | bulk
   profile_cut_deficit: '500', // kcal/day below TDEE while cutting
@@ -41,6 +46,7 @@ const NUMERIC_SETTINGS = {
   profile_cut_deficit:  { min: 0,   max: 2000 },
   profile_bulk_surplus: { min: 0,   max: 2000 },
   profile_age:          { min: 13,  max: 100, allowEmpty: true },
+  profile_birth_year:   { min: 1900, max: 2100, allowEmpty: true },
   profile_height_cm:    { min: 100, max: 250, allowEmpty: true }
 };
 
