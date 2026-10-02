@@ -46,6 +46,25 @@ const { assertInvariant } = require('../lib/bugReports');
 
 const router = express.Router();
 
+// What a caller can assume about the SHAPE of what comes back. Reported in
+// every payload Plated actually fetches, not just on the index it never calls,
+// because the deciding question is per-INSTANCE: IronLog is deployed more than
+// once (Plated stores a URL and key per profile), so "has this contract" is a
+// property of the server answering right now, not of the integration.
+//
+// A deployment older than this simply omits the field. undefined therefore
+// means "assume the old shape", which is the safe direction — a caller that
+// gates its legacy fallbacks on `contract_version >= 3` keeps them exactly
+// where they are still needed and drops them everywhere else, with no fleet
+// audit and no extra round trip.
+//
+//   1  original: profile, bodyweight, workouts/calories, workouts/recent
+//   2  + GET /summary, POST /profile, calories_estimated/calories_source
+//   3  + bodyweight rows are { date, logged_at, bodyweight_kg }; `date` is
+//        ALWAYS a plain local YYYY-MM-DD and an instant always keeps its own
+//        name; ?tzOffset= accepted alongside ?tz=
+const CONTRACT_VERSION = 3;
+
 // ---------------------------------------------------------------------------
 // CORS — allow Plated (different Railway domain) to call these routes.
 // Locked to PLATED_ORIGIN; we never emit a wildcard so a random site can't
@@ -223,7 +242,8 @@ router.get('/', (req, res) => {
     success: true,
     data: {
       service: 'IronLog',
-      version: 2,
+      version: CONTRACT_VERSION,
+      contract_version: CONTRACT_VERSION,
       endpoints: [
         'GET /api/plated/summary',
         'GET /api/plated/profile',
@@ -321,6 +341,7 @@ function buildProfilePayload(pid) {
     }
 
     return {
+        contract_version: CONTRACT_VERSION,
         bodyweight_kg:    weightKg,
         tdee_kcal:        tdee,
         tdee_includes_workouts: tdeeIncludesWorkouts,
@@ -671,6 +692,7 @@ router.get('/workouts/recent', (req, res) => plated(req, res, buildRecentPayload
 router.get('/summary', (req, res) => plated(req, res, (r) => {
   const calories = buildCaloriesPayload(r);
   return {
+    contract_version: CONTRACT_VERSION,
     profile:    buildProfilePayload(r.profileId),
     calories,
     recent:     buildRecentPayload(r),
