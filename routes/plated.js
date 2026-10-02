@@ -180,7 +180,20 @@ const KCAL_PER_MIN = 4;
 // of local (NZ at UTC+12 sends tz = -720). So localMs = utcMs - tz * 60000.
 // Missing/invalid tz defaults to 0 (UTC), matching the old behaviour.
 // ---------------------------------------------------------------------------
+// Two opposite conventions exist in this codebase and copying a call site
+// between them silently flips the sign — which is how a weigh-in lands a day
+// early. Both are accepted here, under names that say which is which:
+//
+//   ?tzOffset=  minutes EAST of UTC, i.e. -getTimezoneOffset(). What every
+//               /api/* endpoint takes. Preferred; send this.
+//   ?tz=        raw getTimezoneOffset(). The original /api/plated/* spelling,
+//               kept working because Plated ships it today.
+//
+// Returned in the RAW convention, which is what localDateModifier/localDateStr
+// below consume. Named getTzOffsetMinutes, not ...East, for that reason.
 function getTzOffsetMinutes(req) {
+  const east = Number(req.query.tzOffset);
+  if (Number.isFinite(east)) return Math.max(-840, Math.min(840, Math.trunc(-east)));
   const tz = Number(req.query.tz);
   if (!Number.isFinite(tz)) return 0;
   return Math.max(-840, Math.min(840, Math.trunc(tz)));
@@ -336,6 +349,11 @@ router.get('/profile', (req, res) => {
   try {
     res.json({ success: true, data: buildProfilePayload(req.profileId) });
   } catch (err) {
+    // badRequest() must stay a 400. 5432f8d moved the date check in here to a
+    // throw without widening this catch, which silently downgraded a malformed
+    // date from 400 to 500 — the caller could no longer tell its own bad input
+    // from our failure.
+    if (err?.status === 400) return res.status(400).json({ success: false, error: err.message });
     console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
@@ -402,6 +420,11 @@ router.post('/profile', (req, res) => {
 
     res.json({ success: true, data: buildProfilePayload(pid) });
   } catch (err) {
+    // badRequest() must stay a 400. 5432f8d moved the date check in here to a
+    // throw without widening this catch, which silently downgraded a malformed
+    // date from 400 to 500 — the caller could no longer tell its own bad input
+    // from our failure.
+    if (err?.status === 400) return res.status(400).json({ success: false, error: err.message });
     console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
@@ -412,15 +435,23 @@ router.post('/profile', (req, res) => {
  */
 function buildBodyweightPayload(req) {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+    const tz = getTzOffsetMinutes(req);
+    const mod = localDateModifier(tz);
     const rows = db
       .prepare(
-        'SELECT logged_at, weight, weight_unit FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT ?'
+        `SELECT logged_at, weight, weight_unit, date(logged_at, ?) AS local_day
+           FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC LIMIT ?`
       )
-      .all(req.profileId, limit);
+      .all(mod, req.profileId, limit);
 
+    // `date` used to be an ISO timestamp here, which breaks the rule the rest
+    // of this API follows and forced the caller to sniff a string to find out
+    // which kind it had received. `date` is now always the user's local
+    // calendar day; the instant keeps its own name and its Z.
     return rows.map((r) => ({
-      date:      r.logged_at.replace(' ', 'T') + 'Z',
-      weight_kg: +toKg(r.weight, r.weight_unit).toFixed(2)
+      date:          r.local_day,
+      logged_at:     r.logged_at.replace(' ', 'T') + 'Z',
+      bodyweight_kg: +toKg(r.weight, r.weight_unit).toFixed(2)
     }));
 }
 
@@ -429,18 +460,21 @@ router.get('/bodyweight', (req, res) => plated(req, res, buildBodyweightPayload)
 /**
  * POST /api/plated/bodyweight
  * Lets Plated push a bodyweight entry into IronLog (two-way sync).
- * Body: { weight_kg, date? } — date defaults to today (YYYY-MM-DD).
+ * Body: { bodyweight_kg, date? } — date defaults to today (YYYY-MM-DD).
+ * `weight_kg` / `weight` are still accepted as input aliases so Plated's
+ * current writer keeps working; the RESPONSE only ever says bodyweight_kg.
  * Manual weigh-ins are never touched: we only collapse a *previous Plated push*
  * for the same day (so re-syncing the same day stays idempotent instead of
  * piling up). Any hand-entered logs for that day are kept alongside.
  */
 router.post('/bodyweight', (req, res) => {
   try {
-    const { weight_kg, weight, weight_unit, date } = req.body || {};
-    let kg = weight_kg != null ? Number(weight_kg)
+    const { bodyweight_kg, weight_kg, weight, weight_unit, date } = req.body || {};
+    const incoming = bodyweight_kg != null ? bodyweight_kg : weight_kg;
+    let kg = incoming != null ? Number(incoming)
       : weight != null ? toKg(Number(weight), weight_unit) : null;
     if (kg == null || !Number.isFinite(kg) || kg <= 0 || kg > 700) {
-      return res.status(400).json({ success: false, error: 'weight_kg must be a positive number' });
+      throw badRequest('bodyweight_kg must be a positive number');
     }
     kg = +kg.toFixed(2);
 
@@ -480,8 +514,13 @@ router.post('/bodyweight', (req, res) => {
         .run(req.profileId, kg, loggedAt);
     }
 
-    res.json({ success: true, data: { date: day, weight_kg: kg, updated: !!existing } });
+    res.json({ success: true, data: { date: day, bodyweight_kg: kg, updated: !!existing } });
   } catch (err) {
+    // badRequest() must stay a 400. 5432f8d moved the date check in here to a
+    // throw without widening this catch, which silently downgraded a malformed
+    // date from 400 to 500 — the caller could no longer tell its own bad input
+    // from our failure.
+    if (err?.status === 400) return res.status(400).json({ success: false, error: err.message });
     console.error(err); res.status(500).json({ success: false, error: 'internal server error' });
   }
 });
