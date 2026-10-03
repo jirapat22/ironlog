@@ -3,7 +3,9 @@
  * (https://github.com/hasaneyldrm/exercises-dataset, ~9.7 MB, EN+IT) down to
  * the fields IronLog needs, pre-mapped onto IronLog's taxonomy (8 muscle
  * groups + sub-muscles, 5 equipment classes, unilateral flag). Output goes to
- * data/exercise-library.json (~1 MB), which lib/exerciseLibrary.js serves.
+ * vendor/exercise-library.json (~780 KB), which lib/exerciseLibrary.js serves.
+ * It goes in vendor/ and NOT data/ on purpose: data/ is gitignored, and this
+ * file has to ship with the repo.
  *
  * Usage: node scripts/build-exercise-library.js path/to/exercises.json
  * Re-run only when refreshing the vendored dataset.

@@ -94,4 +94,6 @@ Four traps that have each produced a wrong conclusion here:
 
 ## Docs
 
-`README.md` covers setup, deploy (Railway + a volume at `/data`), and the public API surface. `ARCHITECTURE.md` is a long plain-language walkthrough — deliberately **untracked**, written against commit `a071b16`, and now stale in places; where it disagrees with the code, the code wins.
+`README.md` covers setup, deploy (Railway + a volume at `/data`), and the public API surface.
+
+`ARCHITECTURE.md` is a long plain-language walkthrough of *why* the app is shaped the way it is — tracked, and refreshed on 3 Oct 2026 against commit `0ebacf5`. Read it before a change that crosses subsystems; §8 is an honest list of the known weaknesses, and §5.4 explains the three separate offline problems. This file (`CLAUDE.md`) holds the rules and traps; that one holds the reasoning. Where either disagrees with the code, the code wins — check the date at the top.

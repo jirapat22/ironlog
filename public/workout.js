@@ -141,9 +141,9 @@ function clearDraftInput(workoutId, exId, setNum) {
 // Bad signal is the normal condition where this app gets used, so a log that
 // can't reach the server is parked here and replayed when it can.
 //
-// Deliberately only new set logs. Edits, deletes, RIR and finishing still
-// need a connection: they all act on a server-assigned set id, and the sets
-// owning those ids may themselves still be sitting in this queue.
+// New set logs and EDITS to already-saved sets. Deletes, RIR and finishing
+// still need a connection: they act on a server-assigned set id, and the set
+// owning that id may itself still be sitting in this queue unsent.
 const SET_OUTBOX_KEY = 'ironlog.setOutbox';
 const SET_OUTBOX_MAX = 300;
 

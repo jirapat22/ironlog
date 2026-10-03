@@ -1,5 +1,6 @@
 /**
- * /api/plated/* — Read-only integration endpoints for the Plated meal tracker.
+ * /api/plated/* — integration endpoints for the Plated meal tracker.
+ * Mostly reads, plus two writes: POST /bodyweight and POST /profile.
  *
  * Plated calls these to sync the user's fitness profile and activity data so it
  * can set accurate calorie / macro targets without the user entering them twice.
@@ -48,9 +49,16 @@ const router = express.Router();
 
 // What a caller can assume about the SHAPE of what comes back. Reported in
 // every payload Plated actually fetches, not just on the index it never calls,
-// because the deciding question is per-INSTANCE: IronLog is deployed more than
-// once (Plated stores a URL and key per profile), so "has this contract" is a
-// property of the server answering right now, not of the integration.
+// because the deciding question is per-INSTANCE rather than per-integration:
+// Plated stores an IronLog URL and key PER PROFILE (verified in their schema),
+// so different profiles CAN point at different deployments, and "has this
+// contract" is a property of the server answering right now.
+//
+// Whether a second IronLog deployment actually exists is UNVERIFIED — the
+// claim traced back to a single code comment on Plated's side and was
+// retracted on 2 Oct 2026. Do not repeat it as fact. It does not change the
+// design either way: reporting per-payload costs nothing and is what would
+// settle the question if one ever turned up.
 //
 // A deployment older than this simply omits the field. undefined therefore
 // means "assume the old shape", which is the safe direction — a caller that
