@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm start                 # node server.js on PORT (default 3000)
 npm run dev               # node --watch server.js
-npm test                  # node --test — 69 tests across the four *.test.js files
+npm test                  # node --test — 80 tests across the five *.test.js files
 node --test pr.test.js    # one file
 node --test --test-name-pattern="assisted"   # one test by name
 node --check public/workout.js               # syntax-only check (pre-approved in .claude/settings.json)
@@ -80,6 +80,10 @@ These are the ones where a locally correct change breaks something held elsewher
 - **`PATCH /api/sets`** distinguishes `bodyHasSides` (the key is present) from `sidesDriveReps` (a side value is non-null). Collapsing them means an explicit `reps_r: null` vetoes a plain `reps` edit and the edit silently does not save.
 - **CSP is `script-src 'self'`** — no CDN, no inline `<script>`. Chart.js is vendored at `public/chart.umd.min.js`. `'unsafe-inline'` exists for `style-src` only.
 - Activity sessions (`kind = 'activity'`) are not gym attendance; they are excluded from streak/calendar/"active today" unless `counts_as_workout = 1`.
+- **Set number rules live in `lib/setBounds.js`, not in a route.** `routes/sets.js` and `routes/import.js` both call `validateSetNumerics()`. They were module-local constants in the route, which is how the backup restore came to bypass every one of them. Same rules, different reaction: the live route 400s, the restore skips and counts.
+- **`export` must cover everything deleting a profile deletes.** The delete reads `accounts.PER_PROFILE_TABLES`; `backup.test.js` derives its assertion from that same list, so adding a per-profile table fails the suite until it is either exported or added to `EXPORT_EXEMPT` with a reason. Don't satisfy it by editing the exemption list without one.
+- **Bodyweights hold one row per profile per local day**, in all three writers (`POST /api/bodyweight`, `POST /api/plated/bodyweight`, and the import's upsert). `bodyweights.source` ('manual' | 'plated') decides who may overwrite what — a human editing the weight takes ownership, and Plated then leaves that day alone. Never key that distinction off the note text again.
+- **Exercise names are globally UNIQUE and `created_by_profile_id` means private.** Resolving an exercise by name alone can cross profiles, which on restore attaches one person's sets to another's private row and then fabricates a PR for them when `personal_records` is recomputed.
 
 ## Browser testing
 

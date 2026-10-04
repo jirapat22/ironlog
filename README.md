@@ -60,11 +60,13 @@ curl -X POST https://<your-app>.up.railway.app/api/exercises \
 
 ## Data model
 
-- `exercises` — shared library of movements; each carries a `sub_muscle` (e.g. upper/mid/lower pec, front/side/rear delt, lats vs upper back) and a `met` used for the calorie estimate
+- `exercises` — shared library of movements; each carries a `sub_muscle` (e.g. upper/mid/lower pec, front/side/rear delt, lats vs upper back) and a `met` used for the calorie estimate. A row with `created_by_profile_id` set is **private** to that profile; names are globally unique
 - `programs` → `program_days` → `program_day_exercises` — per-profile training-split templates; every account is seeded its own editable copy of the defaults on signup
 - `workouts` — one per session (per profile), with `started_at` / `finished_at`. `calories_burned` is estimated per-exercise: Σ MET × bodyweight × effective set time (not session duration)
 - `sets` — weight/reps/unit for each logged set (per profile)
-- `personal_records` — auto-updated on every set (keyed on profile + exercise + reps)
+- `personal_records` — auto-updated on every set (keyed on profile + exercise + reps). A cache: rebuilt from `sets`, and deliberately not restored from a backup
+- `bodyweights` — one entry per profile per local day, enforced by all three writers (the app, the Plated push, and the backup restore). `source` is `'manual'` or `'plated'` and decides who may overwrite what: editing the weight by hand takes ownership of that day, and Plated then leaves it alone
+- `notes` — a per-profile notes/ideas list, included in the backup
 
 ### Plated integration endpoints (per-profile, API-key auth)
 

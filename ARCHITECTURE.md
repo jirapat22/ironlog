@@ -34,7 +34,7 @@ Beyond logging, it suggests weight increases, tracks personal records, draws pro
 
 **On the front end there is no framework at all** — no React, no Vue. The browser code is plain JavaScript that builds HTML as text strings and drops it into the page. This is unusual for an app this size and is the main reason `public/workout.js` is 187 KB: without a framework to split things into components, related behavior piles into one file. Because HTML is assembled as strings, every piece of user data has to pass through `escapeHtml()` by hand — there is no framework escaping it for you.
 
-**Testing:** 69 automated tests run with `node --test`, up from 24. They cover the maths-heavy parts: personal records (against a real in-memory database, not mocks), mislog detection, calorie estimates, unit conversions and set-picking. Still **zero** tests for any endpoint or any browser code — see §8.5, which is now a narrower complaint than it was.
+**Testing:** 80 automated tests run with `node --test`. They cover the maths-heavy parts — personal records (against a real in-memory database, not mocks), mislog detection, calorie estimates, unit conversions and set-picking — plus, since October, the backup/restore route end to end over real HTTP (`backup.test.js`). Still zero tests for browser code — see §8.5.
 
 ---
 
@@ -587,9 +587,9 @@ This isn't theoretical; it's the real reported issue behind commit `a071b16`.
 
 ---
 
-### 8.5 Nothing about the server or the UI is tested
+### 8.5 Almost nothing about the server or the UI is tested
 
-**What it is:** 69 tests (up from 24), still all covering pure calculations and pure data-picking — personal records, mislog detection, calorie maths, unit conversion. **Zero** tests for any server endpoint, any login path, or any browser code. The count went up; the *shape* of the gap did not move at all.
+**What it is:** 80 tests. Mostly pure calculations — personal records, mislog detection, calorie maths, unit conversion — plus one route covered end to end: `backup.test.js` drives `GET /api/export` and `POST /api/import` over real HTTP against an in-memory database, including profile isolation. Every other endpoint, the login path, and all browser code remain untested.
 
 **Why it's a problem, concretely:** the untested part is exactly where the real bugs have been. Nothing verifies that every database query filters by profile — and a single missing filter is a privacy breach where one person sees another's workouts. Nothing verifies the login gate is positioned correctly in `server.js`. Nothing verifies that backup export and restore actually round-trip. These are currently checked by manually driving a browser, which is slow enough that it gets skipped.
 
@@ -597,7 +597,11 @@ The browser code is the harder half: `workout.js` is 187 KB where the decision-m
 
 **Roughly what fixing it involves:** the highest-value first step is endpoint tests against a temporary in-memory database — create two profiles, then assert that profile A cannot read or modify *anything* belonging to profile B through any endpoint. That's a few dozen tests locking down the property most likely to cause real harm. Second: lift the pure decision functions out of `workout.js` into their own file. They already have no screen dependencies — they're just sitting next to code that does — so this is mostly a cut-and-paste that makes the progression logic testable without a browser.
 
-**The groundwork is now in place, which is the part that was missing in August.** `pr.test.js` already boots a real schema with `DB_PATH=':memory:'` and runs the actual SQL rather than mocks — an endpoint test needs nothing more than that plus a request. And `utils.test.js` already imports a browser module into Node (`public/package.json` marks the directory `"type": "module"`), so the "browser code can't be tested" objection is half-answered too. Neither pattern has been pointed at the untested half yet.
+**The first step has now been taken, on the route where it mattered most.** `backup.test.js` mounts the real routers behind a stub gate, listens on an ephemeral port, and asserts over real HTTP — including the profile-isolation property this section called out ("a single missing filter is a privacy breach where one person sees another's workouts"). Two techniques from Plated's equivalent suite made it possible: reducing an export to what it *says* with every id stripped and references resolved to names, because the import remaps every id and comparing ids compares the wrong thing; and deriving the "export covers everything delete deletes" assertion from `PER_PROFILE_TABLES` itself, so a new table can't be forgotten rather than merely shouldn't be.
+
+**And a method worth generalising:** every guard test there was verified by *breaking what it guards* and confirming it fails. This is not pedantry — Plated shipped an isolation test that asserted a row count and passed with the profile scoping removed from their delete, so it reported safety it did not have for as long as it existed. A guard test that has quietly stopped biting is worse than no test, because it still reports green.
+
+`utils.test.js` already imports a browser module into Node (`public/package.json` marks the directory `"type": "module"`), so the "browser code can't be tested" objection is half-answered too. That half is still untouched.
 
 **Why this keeps mattering:** the gap is exactly where the bugs have been. In the six weeks since this section was written, roughly a third of the commits were fixes to regressions found by manually driving a browser — and the recurring shape was always the same: *a change that is locally correct but breaks an invariant held somewhere else in the file.* A guard keyed on in-memory state when the state had moved to storage; a listener bound at setup time inside a function that re-runs on every render; a `dataset` attribute read by new code that nothing writes. Every one of those is the kind of thing a test pins down and a careful reading does not.
 
