@@ -278,7 +278,17 @@ function init() {
     // Mirrors unit_reviewed, for the weight sanity check: once you confirm a
     // set really was that heavy it stops being queried, and from then on it
     // counts toward your best ever for that exercise.
-    ['sets', 'weight_reviewed INTEGER NOT NULL DEFAULT 0']
+    ['sets', 'weight_reviewed INTEGER NOT NULL DEFAULT 0'],
+    // Who wrote this weigh-in: 'manual' (a human, in this app) or 'plated'
+    // (pushed in by the nutrition integration). Replaces keying that
+    // distinction off the free-text note reading exactly 'via Plated', which
+    // meant a user who typed that phrase into their OWN note had their
+    // weigh-in silently overwritten by the next sync and no way to find out
+    // why. DEFAULT 'manual' is the safe direction for existing rows: a
+    // mislabelled manual row is merely never auto-corrected, whereas a
+    // mislabelled Plated row would be clobbered. backfillBodyweightSource()
+    // then promotes the genuine Plated rows.
+    ['bodyweights', "source TEXT NOT NULL DEFAULT 'manual'"]
   ]) {
     const column = def.split(' ')[0];
     if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);
@@ -834,6 +844,7 @@ function seed() {
   markUnilateralSeeds();
   auditWeightModeCatalog();
   backfillLoadMultiplier();
+  backfillBodyweightSource();
   enrichInstructions();
   mergeLegCurlIntoSeated();
   sweepStaleWorkouts();
@@ -1682,6 +1693,20 @@ function backfillLoadMultiplier() {
       )
       WHERE load_multiplier IS NULL
     `).run();
+    setMeta(FLAG, '1');
+  });
+}
+
+// One-time promotion of the rows the old free-text marker identified. Runs
+// once, because after this the column is authoritative and the note is just
+// display text a user is free to edit — re-running would re-derive `source`
+// from something that no longer decides it, and would demote a Plated row
+// whose note the user had since changed.
+function backfillBodyweightSource() {
+  const FLAG = 'bodyweight_source_backfill_v1';
+  if (getMeta(FLAG)) return;
+  tx(() => {
+    db.prepare("UPDATE bodyweights SET source = 'plated' WHERE notes = 'via Plated'").run();
     setMeta(FLAG, '1');
   });
 }

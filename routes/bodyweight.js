@@ -22,7 +22,7 @@ function validateBodyweightFields({ weight, weight_unit, logged_at }, { requireW
 
 router.get('/', (req, res) => {
   const rows = db
-    .prepare('SELECT id, weight, weight_unit, logged_at, notes FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC')
+    .prepare('SELECT id, weight, weight_unit, logged_at, notes, source FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC')
     .all(req.profileId);
   res.json(rows);
 });
@@ -63,22 +63,29 @@ router.post('/', (req, res) => {
     )
     .get(req.profileId, mod, logged_at, mod);
 
+  // A human typing a weight into this app OWNS that day's reading from then
+  // on — source becomes 'manual' even if Plated wrote the row originally.
+  // Plated's writer respects that (it skips a day that holds a manual row),
+  // which is the mirror of its own rule that it only corrects rows it
+  // sourced. Without this, correcting a Plated-pushed figure here was
+  // undone by the next sync.
   let id;
   if (existing) {
     // The newer reading replaces the day's value rather than joining it. Keeps
     // a correction propagating instead of leaving two rows to disagree.
     db.prepare(
-      `UPDATE bodyweights SET weight = ?, weight_unit = ?, notes = ?, logged_at = COALESCE(?, datetime('now'))
+      `UPDATE bodyweights SET weight = ?, weight_unit = ?, notes = ?, source = 'manual',
+              logged_at = COALESCE(?, datetime('now'))
         WHERE id = ?`
     ).run(Number(weight), weight_unit, notes, logged_at, existing.id);
     id = existing.id;
   } else if (logged_at) {
     id = Number(db
-      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, logged_at, profile_id) VALUES (?, ?, ?, ?, ?)')
+      .prepare("INSERT INTO bodyweights (weight, weight_unit, notes, logged_at, profile_id, source) VALUES (?, ?, ?, ?, ?, 'manual')")
       .run(Number(weight), weight_unit, notes, logged_at, req.profileId).lastInsertRowid);
   } else {
     id = Number(db
-      .prepare('INSERT INTO bodyweights (weight, weight_unit, notes, profile_id) VALUES (?, ?, ?, ?)')
+      .prepare("INSERT INTO bodyweights (weight, weight_unit, notes, profile_id, source) VALUES (?, ?, ?, ?, 'manual')")
       .run(Number(weight), weight_unit, notes, req.profileId).lastInsertRowid);
   }
   const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(id);
@@ -103,6 +110,10 @@ router.patch('/:id', (req, res) => {
     }
   }
   if (!updates.length) return res.status(400).json({ error: 'no fields to update' });
+  // Editing the weight itself is a human taking ownership of the day, same as
+  // POST above. Editing only the note is not — renaming a note shouldn't stop
+  // Plated keeping its own row current.
+  if ('weight' in (req.body || {})) updates.push("source = 'manual'");
   values.push(id);
   db.prepare(`UPDATE bodyweights SET ${updates.join(', ')} WHERE id = ?`).run(...values);
   const row = db.prepare('SELECT * FROM bodyweights WHERE id = ?').get(id);

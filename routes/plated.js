@@ -71,7 +71,13 @@ const router = express.Router();
 //   3  + bodyweight rows are { date, logged_at, bodyweight_kg }; `date` is
 //        ALWAYS a plain local YYYY-MM-DD and an instant always keeps its own
 //        name; ?tzOffset= accepted alongside ?tz=
-const CONTRACT_VERSION = 3;
+//   4  + POST /bodyweight holds at most one row per profile per local day, and
+//        a day already holding a MANUAL weigh-in is left alone: the response
+//        is { updated: false, skipped: "<reason>" } rather than a write. On
+//        3 and earlier a push could sit alongside a manual row for the same
+//        day, and a restore could mint a second Plated-sourced row, so which
+//        reading won depended on query order.
+const CONTRACT_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // CORS — allow Plated (different Railway domain) to call these routes.
@@ -530,17 +536,58 @@ router.post('/bodyweight', (req, res) => {
 
     // Dedupe by the user's LOCAL date (logged_at shifted back by the offset),
     // and only against a prior Plated push — manual weigh-ins are always kept.
+    //
+    // Keyed on source = 'plated', NOT on the note text. The note is still
+    // written for display, but it is user-editable free text: keying on it
+    // meant anyone who typed 'via Plated' into their own note had that
+    // manual weigh-in treated as ours and overwritten on the next sync.
+    // ORDER BY id so that if more than one Plated row for a day somehow
+    // exists, the pick is at least deterministic rather than whatever the
+    // query planner returns first — the real guarantee is the one-per-day
+    // upsert in routes/import.js, which is what used to mint the duplicate.
     const localMod = `${-west} minutes`;
     const existing = db
-      .prepare("SELECT id FROM bodyweights WHERE profile_id = ? AND notes = 'via Plated' AND date(logged_at, ?) = ?")
+      .prepare(
+        `SELECT id FROM bodyweights
+          WHERE profile_id = ? AND source = 'plated' AND date(logged_at, ?) = ?
+          ORDER BY id LIMIT 1`
+      )
       .get(req.profileId, localMod, day);
+
+    // A day the user weighed themselves in THIS app is theirs. Pushing over
+    // it would undo a correction they made by hand; inserting alongside it
+    // would leave two readings for one day, which is the invariant Plated
+    // asked us to hold ("at most one row per profile per local day"). So a
+    // manual row wins and the push is a reported no-op — the mirror of
+    // Plated's own rule that it only corrects rows it sourced itself.
+    const manual = db
+      .prepare(
+        `SELECT id, weight, weight_unit FROM bodyweights
+          WHERE profile_id = ? AND source != 'plated' AND date(logged_at, ?) = ?
+          ORDER BY id LIMIT 1`
+      )
+      .get(req.profileId, localMod, day);
+
+    if (!existing && manual) {
+      return res.json({
+        success: true,
+        data: {
+          date: day,
+          bodyweight_kg: kg,
+          updated: false,
+          skipped: 'a manual weigh-in already exists for this day and was kept'
+        }
+      });
+    }
 
     if (existing) {
       db.prepare("UPDATE bodyweights SET weight = ?, weight_unit = 'kg', logged_at = ? WHERE id = ?")
         .run(kg, loggedAt, existing.id);
     } else {
-      db.prepare("INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes) VALUES (?, ?, 'kg', ?, 'via Plated')")
-        .run(req.profileId, kg, loggedAt);
+      db.prepare(
+        `INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes, source)
+         VALUES (?, ?, 'kg', ?, 'via Plated', 'plated')`
+      ).run(req.profileId, kg, loggedAt);
     }
 
     res.json({ success: true, data: { date: day, bodyweight_kg: kg, updated: !!existing } });
