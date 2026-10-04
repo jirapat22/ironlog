@@ -18,9 +18,24 @@
 //     happens and confirm the test notices. Plated shipped an isolation test
 //     asserting `day.sessions.length >= 2`, which passed even with the
 //     profile scoping removed from their delete — it reported safety it did
-//     not have. Each guard test below records the mutation it was verified
-//     against, so the next person can re-run that check instead of trusting
-//     this comment.
+//     not have.
+//
+// Every guard test here was verified that way rather than by reading it. Each
+// mutation was applied alone, the named test run, the file restored:
+//
+//   routes/import.js  drop `profile_id = ?` from the bodyweight upsert lookup
+//                       -> "a restore does not reach into another profile"      CAUGHT
+//   routes/export.js  remove `notes` from the payload
+//                       -> "the export carries every table ..."                 CAUGHT
+//   routes/import.js  `if (!checked.ok)` -> `if (false)` (skip bounds)
+//                       -> "a restore skips the sets ..."                        CAUGHT
+//   routes/import.js  `if (!(privateInBackup && ownedByOther))` -> `if (true)`
+//                       -> "a restored private exercise ..."                     CAUGHT
+//   routes/import.js  `findBwDay.get(...)` -> `null` (blind insert)
+//                       -> "restoring the same backup twice ..."                 CAUGHT
+//
+// Re-run these before trusting any of it after a refactor. A guard test that
+// has stopped biting is worse than no test, because it still reports green.
 
 process.env.DB_PATH = ':memory:';
 
@@ -261,11 +276,11 @@ test('a weigh-in keeps its source through a round trip', () => {
 // Case 5 — a restore must not reach into another profile. This is the worst
 // bug available in this route, and the one with no test anywhere until now.
 //
-// Verified by mutation: change the bodyweight upsert's lookup in
-// routes/import.js to drop `profile_id = ?` and this test fails. The weaker
-// assertion it replaced (counting Alice's workouts) passed under that same
-// mutation, which is the whole reason it is written as a full `meaning`
-// comparison against the file she started from.
+// Verified by mutation (see the header): dropping `profile_id = ?` from the
+// bodyweight upsert lookup in routes/import.js fails this test and no other.
+// It is written as a full `meaning` comparison rather than a count because a
+// count is what let the equivalent test pass on Plated's side while their
+// scoping was broken.
 // ---------------------------------------------------------------------------
 test('a restore does not reach into another profile', async () => {
   const r = await as(bob, 'POST', '/api/import', aliceFirstExport);
