@@ -134,7 +134,7 @@ async function openSettingsSheet() {
             <span>Restore from backup</span>
             <label class="btn btn--ghost btn--sm" style="cursor:pointer">Import<input type="file" accept=".json" id="import-file-input" style="display:none"/></label>
           </div>
-          <div class="card__subtitle">Export includes all workouts, sets, body weight, PRs and programs. Import merges — duplicate records are skipped safely.</div>
+          <div class="card__subtitle">Export includes all workouts, sets, body weight, PRs, programs and your notes. Import <strong>adds</strong> to what is already here, so importing the same file twice gives you two copies of it — body weight is the exception, at one entry per day.</div>
           <div class="settings-row">
             <span>Training log (readable)</span>
             <div style="display:flex;gap:8px">
@@ -412,10 +412,24 @@ async function openSettingsSheet() {
       try {
         const text = await file.text();
         const json = JSON.parse(text);
-        const ok = await confirmSheet({ title: 'Import backup', message: `Import ${(json.programs || []).length} programs, ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Existing records are preserved.`, confirmText: 'Import' });
+        const ok = await confirmSheet({ title: 'Import backup', message: `Import ${(json.programs || []).length} programs, ${(json.workouts || []).length} workouts and ${(json.bodyweights || []).length} body-weight entries? Nothing you already have is deleted — this adds to it.`, confirmText: 'Import' });
         if (!ok) { fileInput.value = ''; return; }
         const result = await api('/api/import', { method: 'POST', body: json, timeoutMs: 60000 });
-        toast(`Imported: ${result.imported_programs} programs, ${result.imported_workouts} workouts, ${result.imported_sets} sets, ${result.imported_bodyweights} BW entries`);
+        const bits = [
+          `${result.imported_programs} programs`,
+          `${result.imported_workouts} workouts`,
+          `${result.imported_sets} sets`,
+          `${result.imported_bodyweights} BW entries`
+        ];
+        if (result.imported_notes) bits.push(`${result.imported_notes} notes`);
+        toast(`Imported: ${bits.join(', ')}`);
+        // The server reports what it could NOT write — sets whose exercise
+        // didn't resolve, numbers it refused, an exercise restored under a
+        // different name. That report was being thrown away here, which made
+        // a partial restore indistinguishable from a complete one: the only
+        // place a silently-dropped day can be noticed is this response. Shown
+        // as a second, longer-lived message so it isn't lost under the count.
+        if (result.warning) setTimeout(() => toast(result.warning, 9000), 3200);
         fileInput.value = '';
       } catch (err) { toast(`Import failed: ${err.message}`); }
     };
