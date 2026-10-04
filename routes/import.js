@@ -1,6 +1,7 @@
 const express = require('express');
 const { db, tx, MUSCLE_GROUPS } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
+const { validateSetNumerics } = require('../lib/setBounds');
 const { parseSettingsBag, writeSettings } = require('./settings');
 const { reportHandled } = require('../lib/bugReports');
 
@@ -13,7 +14,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Invalid backup file (expected version 1)' });
   }
 
-  const { exercises = [], programs = [], workouts = [], bodyweights = [], settings = {} } = data;
+  const { exercises = [], programs = [], workouts = [], bodyweights = [], notes = [], settings = {} } = data;
   const profileId = req.profileId;
 
   let importedExercises = 0;
@@ -21,7 +22,11 @@ router.post('/', (req, res) => {
   let importedWorkouts = 0;
   let importedSets = 0;
   let importedBw = 0;
+  let skippedBw = 0;
   let skippedProgramExercises = 0;
+  let skippedSetsInvalid = 0;
+  let importedNotes = 0;
+  const renamedExercises = [];
   const affectedExercises = new Set();
 
   // Reject unknown muscle groups up front (before the transaction) rather
@@ -60,16 +65,90 @@ router.post('/', (req, res) => {
     // whose casing merely drifted from the current catalog (e.g. re-importing
     // an older backup after a rename) from silently creating a second,
     // differently-cased row in the shared, cross-profile catalog.
-    const existingNamesLower = new Set(
-      db.prepare('SELECT name FROM exercises').all().map((r) => r.name.toLowerCase())
+    // Ownership matters as much as the name here. exercises.name is globally
+    // UNIQUE, and a row with created_by_profile_id set is PRIVATE to that
+    // profile (routes/exercises.js:163 is the live ownership check). So
+    // matching purely on name could resolve one profile's private exercise
+    // onto another's:
+    //
+    //   Bob exports with his own custom "Landmine Press". Later Alice creates
+    //   an exercise of the same name — allowed, Bob's row may be long gone, or
+    //   the backup may come from a different install. Bob restores: the name
+    //   matches ALICE's private row, and every one of Bob's sets attaches to
+    //   it. Because personal records are recomputed per exercise after the
+    //   commit, Alice's PRs are then calculated over both their sets, and she
+    //   is handed a personal record she never lifted — in a cache that will
+    //   recompute the same wrong answer on every rebuild.
+    //
+    // Plated hit this one table over (two batches named "Chilli" collapsing
+    // into one food), and their observation carries: the merge is invisible at
+    // restore time. Both rows still exist; the damage only shows when
+    // something later resolves THROUGH the merged row.
+    //
+    // So: a private exercise in the backup becomes a private exercise owned by
+    // the importing profile. If the name is taken by someone else's private
+    // row we cannot insert (UNIQUE) and must not match, so it is restored
+    // under a suffixed name — the sets keep their history and the user can
+    // merge it deliberately with the tool that already exists for that.
+    // Skipping instead would silently drop sets from a restore, which is the
+    // worst outcome for a backup feature.
+    const existingByNameLower = new Map(
+      db.prepare('SELECT id, name, created_by_profile_id FROM exercises').all()
+        .map((r) => [r.name.toLowerCase(), r])
     );
     const insExercise = db.prepare(
-      `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment, weight_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO exercises (name, muscle_group, notes, is_bodyweight, is_assisted, equipment, weight_mode, created_by_profile_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    // Backup id -> the name actually used in THIS database, so the sets and
+    // program-slot loops below resolve to the row we really created rather
+    // than to whatever else happens to hold that name.
+    const nameForBackupId = new Map();
     for (const e of exercises) {
-      const nameLower = String(e.name || '').trim().toLowerCase();
-      if (!nameLower || existingNamesLower.has(nameLower)) continue;
+      const rawName = String(e.name || '').trim();
+      const nameLower = rawName.toLowerCase();
+      if (!nameLower) continue;
+      const privateInBackup = e.created_by_profile_id != null;
+      const hit = existingByNameLower.get(nameLower);
+
+      if (hit) {
+        const ownedByOther = hit.created_by_profile_id != null && hit.created_by_profile_id !== profileId;
+        if (!(privateInBackup && ownedByOther)) {
+          // Safe to reuse: either a shared catalog row, or our own.
+          nameForBackupId.set(e.id, hit.name);
+          continue;
+        }
+        // Someone else's private row wears this name. Restore ours beside it.
+        let candidate = `${rawName} (restored)`;
+        let n = 2;
+        while (existingByNameLower.has(candidate.toLowerCase())) {
+          candidate = `${rawName} (restored ${n++})`;
+        }
+        const equipmentR = e.equipment || 'barbell';
+        const rr = insExercise.run(
+          candidate,
+          e.muscle_group || 'chest',
+          e.notes ?? null,
+          (e.is_bodyweight || e.is_assisted) ? 1 : 0,
+          e.is_assisted ? 1 : 0,
+          equipmentR,
+          e.weight_mode === 'per_arm' || e.weight_mode === 'combined'
+            ? e.weight_mode
+            : (equipmentR === 'dumbbell' ? 'per_arm' : 'combined'),
+          profileId
+        );
+        if (rr.changes) {
+          importedExercises++;
+          renamedExercises.push({ from: rawName, to: candidate });
+          existingByNameLower.set(candidate.toLowerCase(), {
+            id: Number(rr.lastInsertRowid), name: candidate, created_by_profile_id: profileId
+          });
+          nameForBackupId.set(e.id, candidate);
+        }
+        continue;
+      }
+
+      nameForBackupId.set(e.id, rawName);
       const equipment = e.equipment || 'barbell';
       const r = insExercise.run(
         e.name,
@@ -92,9 +171,20 @@ router.post('/', (req, res) => {
         // that fixes seeded rows is flag-gated and won't re-run for imports).
         e.weight_mode === 'per_arm' || e.weight_mode === 'combined'
           ? e.weight_mode
-          : (equipment === 'dumbbell' ? 'per_arm' : 'combined')
+          : (equipment === 'dumbbell' ? 'per_arm' : 'combined'),
+        // Preserve privacy. This argument was absent, so every restored
+        // custom exercise was inserted with created_by_profile_id NULL —
+        // silently promoting one person's private exercise into the shared
+        // catalog, where it then showed up in everybody's picker and could
+        // only be edited by the owner or the admin code.
+        privateInBackup ? profileId : null
       );
-      if (r.changes) { importedExercises++; existingNamesLower.add(nameLower); }
+      if (r.changes) {
+        importedExercises++;
+        existingByNameLower.set(nameLower, {
+          id: Number(r.lastInsertRowid), name: rawName, created_by_profile_id: privateInBackup ? profileId : null
+        });
+      }
     }
 
     // --- 2. Build the name → current-id map AFTER any inserts above
@@ -152,7 +242,11 @@ router.post('/', (req, res) => {
         for (const pde of (d.exercises || [])) {
           // Resolve by the backup's own exercise table -> name -> current id,
           // same fallback chain the sets loop below uses.
-          const name = backupExById.get(pde.exercise_id)?.name?.toLowerCase();
+          // Through nameForBackupId, not the backup's own name: a private
+          // exercise may have been restored under a suffixed name because
+          // another profile holds the original.
+          const name = nameForBackupId.get(pde.exercise_id)?.toLowerCase()
+            ?? backupExById.get(pde.exercise_id)?.name?.toLowerCase();
           const exId = name ? exByName.get(name) : null;
           if (!exId) { skippedProgramExercises++; continue; }
           const newPdeId = Number(
@@ -223,20 +317,45 @@ router.post('/', (req, res) => {
         // Resolve exercise by NAME first (most resilient), falling back to
         // the backup's exercise table by ID. If unresolved, skip so we never
         // insert a dangling FK.
+        // Resolve through the backup's exercise id FIRST, via the name this
+        // import actually used for it. s.exercise_name is only a fallback now:
+        // preferring it re-introduced the merge this commit fixes, because the
+        // name in the file is the name in the SOURCE database, which may
+        // belong to another profile's private row here.
         let exId = null;
-        if (s.exercise_name) {
-          exId = exByName.get(s.exercise_name.toLowerCase()) ?? null;
-        }
+        const mappedName = nameForBackupId.get(s.exercise_id);
+        if (mappedName) exId = exByName.get(mappedName.toLowerCase()) ?? null;
         if (!exId && backupExById.has(s.exercise_id)) {
           const name = backupExById.get(s.exercise_id).name?.toLowerCase();
           exId = name ? exByName.get(name) : null;
         }
+        if (!exId && s.exercise_name) {
+          exId = exByName.get(s.exercise_name.toLowerCase()) ?? null;
+        }
         if (!exId) continue;
 
+        // Same rules the live POST /api/sets enforces, from the same module.
+        // These bounds were unreachable from here (module-local constants in
+        // routes/sets.js), so a hand-edited backup could restore a 1e9 kg
+        // set, a set_number that made the workout unopenable, or text into a
+        // REAL column — SQLite stores '70abc' as text rather than rejecting
+        // it. A restore SKIPS and counts rather than returning 400: one bad
+        // row shouldn't cost the user the other 4,000.
+        const checked = validateSetNumerics({
+          weight: s.weight,
+          weight_unit: s.weight_unit,
+          reps: s.reps,
+          set_number: s.set_number,
+          rpe: s.rpe ?? null,
+          rir: s.rir ?? null
+        });
+        if (!checked.ok) { skippedSetsInvalid++; continue; }
+        const v = checked.values;
+
         insSet.run(
-          profileId, newWorkoutId, exId, s.set_number,
-          s.weight, s.weight_unit, s.reps, s.reps_r ?? null, s.reps_l ?? null,
-          s.rpe ?? null, s.rir ?? null, s.notes ?? null,
+          profileId, newWorkoutId, exId, v.set_number,
+          v.weight, s.weight_unit, v.reps, s.reps_r ?? null, s.reps_l ?? null,
+          v.rpe, v.rir, s.notes ?? null,
           s.is_warmup ? 1 : 0,
           s.logged_at,
           s.load_multiplier ?? multiplierFor(exId)
@@ -246,14 +365,74 @@ router.post('/', (req, res) => {
       }
     }
 
-    // --- 5. Body weights (fresh IDs, scoped to this profile)
+    // --- 5. Body weights. UPSERT on the local day, not a blind insert.
+    //
+    // This is the one table where the import does not simply add. Both live
+    // writers hold "at most one row per profile per local day" (POST
+    // /api/bodyweight dedupes against any row for the day; POST
+    // /api/plated/bodyweight against its own), and a blind insert here broke
+    // that invariant from the outside: restoring a backup minted a second row
+    // for a day that already had one. Plated then had two readings for one
+    // date and which one it kept depended on our query order, so the weight it
+    // showed could change with nothing on screen to explain it.
+    //
+    // Honouring an invariant the rest of the app maintains is not the same as
+    // switching the whole import to replace semantics — every other table here
+    // still adds. It also makes restoring bodyweights idempotent, which is
+    // what you want from a backup.
+    //
+    // `source` rides along so a restored Plated row stays Plated's and a
+    // restored manual row stays the user's; a file predating the column reads
+    // as 'manual', the safe direction (never auto-corrected, rather than
+    // liable to be overwritten).
+    const bwTzWest = Math.max(-840, Math.min(840, Math.trunc(
+      Number(db.prepare("SELECT value FROM app_settings WHERE profile_id = ? AND key = 'nudge_tz_offset_minutes'")
+        .get(profileId)?.value) || 0
+    )));
+    const bwMod = `${-bwTzWest} minutes`;
+    const findBwDay = db.prepare(
+      `SELECT id FROM bodyweights
+        WHERE profile_id = ? AND date(logged_at, ?) = date(?, ?)
+        ORDER BY id LIMIT 1`
+    );
+    const updBw = db.prepare(
+      'UPDATE bodyweights SET weight = ?, weight_unit = ?, logged_at = ?, notes = ?, source = ? WHERE id = ?'
+    );
     const insBw = db.prepare(
-      `INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes, source)
+       VALUES (?, ?, ?, ?, ?, ?)`
     );
     for (const b of bodyweights) {
-      insBw.run(profileId, b.weight, b.weight_unit, b.logged_at, b.notes ?? null);
+      const w = Number(b.weight);
+      // Same reason the sets above are checked: nothing stopped a backup
+      // writing text or a negative into this column either.
+      if (!Number.isFinite(w) || w <= 0 || !b.logged_at) { skippedBw++; continue; }
+      const unit = b.weight_unit === 'lbs' ? 'lbs' : 'kg';
+      const src = b.source === 'plated' ? 'plated' : 'manual';
+      const hit = findBwDay.get(profileId, bwMod, b.logged_at, bwMod);
+      if (hit) {
+        updBw.run(w, unit, b.logged_at, b.notes ?? null, src, hit.id);
+      } else {
+        insBw.run(profileId, w, unit, b.logged_at, b.notes ?? null, src);
+      }
       importedBw++;
+    }
+
+    // --- 6. The standalone notes/ideas list. Deleted with the profile but
+    // never exported until now, so every backup silently lost it.
+    const insNote = db.prepare(
+      'INSERT INTO notes (profile_id, text, category, done, created_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    for (const n of notes) {
+      const text = typeof n?.text === 'string' ? n.text.trim() : '';
+      if (!text) continue;
+      insNote.run(
+        profileId, text,
+        typeof n.category === 'string' && n.category ? n.category : 'idea',
+        n.done ? 1 : 0,
+        n.created_at || new Date().toISOString().slice(0, 19).replace('T', ' ')
+      );
+      importedNotes++;
     }
   });
 
@@ -269,16 +448,27 @@ router.post('/', (req, res) => {
   // Surfaced so a partial import isn't silent.
   // NOTE: import always ADDS — re-importing the same backup duplicates rows.
   const totalSets = workouts.reduce((n, w) => n + (w.sets?.length || 0), 0);
+  // Two different reasons a set can be dropped, reported separately because
+  // they mean different things to the user: "I couldn't find the exercise" is
+  // a matching problem, "these numbers aren't valid" means the file is wrong
+  // or edited. Lumping them lost that distinction.
   const skipped = {
     workouts: 0,
     sets: Math.max(0, totalSets - importedSets),
-    bodyweights: 0,
+    sets_unmatched: Math.max(0, totalSets - importedSets - skippedSetsInvalid),
+    sets_invalid: skippedSetsInvalid,
+    bodyweights: skippedBw,
     program_exercises: skippedProgramExercises
   };
   const warnings = [];
-  if (skipped.sets > 0) warnings.push(`${skipped.sets} set(s) were skipped because their exercise could not be matched.`);
+  if (skipped.sets_unmatched > 0) warnings.push(`${skipped.sets_unmatched} set(s) were skipped because their exercise could not be matched.`);
+  if (skipped.sets_invalid > 0) warnings.push(`${skipped.sets_invalid} set(s) were skipped because their weight, reps or set number was not a valid number.`);
+  if (skipped.bodyweights > 0) warnings.push(`${skipped.bodyweights} body weight entr(ies) were skipped because the weight or date was not valid.`);
   if (skipped.program_exercises > 0) warnings.push(`${skipped.program_exercises} program exercise slot(s) were skipped because their exercise could not be matched.`);
-  if (warnings.length) warnings.push('Import adds records — re-importing the same backup will create duplicates.');
+  for (const r of renamedExercises) {
+    warnings.push(`"${r.from}" is another profile's private exercise here, so yours was restored as "${r.to}".`);
+  }
+  if (warnings.length) warnings.push('Import adds records — re-importing the same backup will create duplicates (body weights are the exception: one entry per day, so they are safe to restore twice).');
 
   res.json({
     imported_settings: settingsBag.writes.length,
@@ -287,6 +477,8 @@ router.post('/', (req, res) => {
     imported_workouts: importedWorkouts,
     imported_sets: importedSets,
     imported_bodyweights: importedBw,
+    imported_notes: importedNotes,
+    renamed_exercises: renamedExercises,
     skipped,
     warning: warnings.length ? warnings.join(' ') : null
   });

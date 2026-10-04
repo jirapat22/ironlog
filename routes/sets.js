@@ -1,6 +1,7 @@
 const express = require('express');
 const { db, effectiveVolumeLoadKgSql } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
+const { MAX_WEIGHT, MAX_REPS, MAX_SET_NUMBER, isValidUnit, validateSetNumerics } = require('../lib/setBounds');
 const { computeImprovedFlags } = require('../lib/improved');
 const { findSuspiciousSets, findUnitOutliers } = require('../lib/mislog');
 
@@ -121,10 +122,10 @@ function checkAndUpdatePR(profileId, exerciseId, weight, unit, reps, setId, load
   return beatPreviousBest;
 }
 
-// Sanity ceilings — see the bound checks in POST / below.
-const MAX_WEIGHT = { kg: 2000, lbs: 4400 };
-const MAX_REPS = 1000;
-const MAX_SET_NUMBER = 100;
+// Sanity ceilings and the numeric rules live in lib/setBounds.js so the
+// backup restore shares them. They were module-local constants here, which
+// meant routes/import.js could not reach them and every bound below was
+// bypassable through a hand-edited backup file.
 
 router.post('/', (req, res) => {
   const {
@@ -147,49 +148,25 @@ router.post('/', (req, res) => {
       error: 'workout_id, exercise_id, set_number, weight, and reps are required'
     });
   }
-  if (!['kg', 'lbs'].includes(weight_unit)) {
+  if (!isValidUnit(weight_unit)) {
     return res.status(400).json({ error: 'weight_unit must be kg or lbs' });
   }
 
   const sides = parseRepsSides(reps_r, reps_l);
   if (!sides.ok) return res.status(400).json({ error: 'reps_r and reps_l must both be positive whole numbers, or both omitted' });
 
-  // Coerce + validate numerics so a stringy value can't silently corrupt
-  // volume/PR math later (SQLite is loosely typed and would store it as-is).
-  const nWeight = Number(weight);
   // A per-side breakdown always wins over whatever `reps` was sent — the
   // weaker side is the number every downstream volume/PR/progression
   // calculation should key off, so the client can't send them out of sync.
-  const nReps = sides.repsR != null ? Math.min(sides.repsR, sides.repsL) : Number(reps);
-  const nSetNumber = Number(set_number);
-  const nRpe = rpe == null ? null : Number(rpe);
-  const nRir = rir == null ? null : Number(rir);
-  if (![nWeight, nReps, nSetNumber].every(Number.isFinite)) {
-    return res.status(400).json({ error: 'weight, reps, and set_number must be numbers' });
-  }
-  // Negative/zero values are meaningless here (the client already blocks them,
-  // but the server is the actual boundary — PR/volume math has no floor of its
-  // own and would happily sum a negative "set" into history forever).
-  if (nWeight < 0) return res.status(400).json({ error: 'weight cannot be negative' });
-  if (!Number.isInteger(nReps) || nReps <= 0) return res.status(400).json({ error: 'reps must be a positive whole number' });
-  if (!Number.isInteger(nSetNumber) || nSetNumber <= 0) return res.status(400).json({ error: 'set_number must be a positive whole number' });
-  // Upper bounds. The floor checks above stop negatives, but nothing stopped a
-  // fat-fingered 100000: it was accepted, took the exercise's PR forever, and
-  // turned a session's volume into 800,480 kg. set_number is worse than wrong
-  // data — the workout view sizes each exercise's row list off the highest
-  // set_number it sees, so a single absurd one made the whole workout
-  // unopenable ("Invalid string length" building ~1e6 rows of markup), with no
-  // way back to it from the UI. Bounds are far past any real lift: 2000 kg /
-  // 4400 lbs is roughly double the heaviest loaded machine.
-  if (nWeight > MAX_WEIGHT[weight_unit]) {
-    return res.status(400).json({ error: `weight must be ${MAX_WEIGHT[weight_unit]} ${weight_unit} or less` });
-  }
-  if (nReps > MAX_REPS) return res.status(400).json({ error: `reps must be ${MAX_REPS} or fewer` });
-  if (nSetNumber > MAX_SET_NUMBER) return res.status(400).json({ error: `set_number must be ${MAX_SET_NUMBER} or less` });
-  if ((nRpe != null && (!Number.isFinite(nRpe) || nRpe < 0 || nRpe > 10)) ||
-      (nRir != null && (!Number.isFinite(nRir) || nRir < 0 || nRir > 10))) {
-    return res.status(400).json({ error: 'rpe and rir must be numbers between 0 and 10 when provided' });
-  }
+  // Resolved here rather than in the validator because only this handler
+  // knows whether a breakdown was sent.
+  const resolvedReps = sides.repsR != null ? Math.min(sides.repsR, sides.repsL) : reps;
+
+  // Coerce + bound-check. Shared with the backup restore, which applies the
+  // same rules but skips and counts instead of returning 400.
+  const checked = validateSetNumerics({ weight, weight_unit, reps: resolvedReps, set_number, rpe, rir });
+  if (!checked.ok) return res.status(400).json({ error: checked.error });
+  const { weight: nWeight, reps: nReps, set_number: nSetNumber, rpe: nRpe, rir: nRir } = checked.values;
 
   // The set must attach to a workout owned by the current profile. bw_kg/
   // started_at are needed below by computeImprovedFlags — selected here so

@@ -272,6 +272,19 @@ router.get('/', (req, res) => {
 
   const settings = db.prepare('SELECT key, value FROM app_settings WHERE profile_id = ?').all(req.profileId);
 
+  // The standalone notes/ideas list. It is in accounts.PER_PROFILE_TABLES, so
+  // deleting a profile deletes it — and it was absent from this payload, which
+  // made export -> delete -> restore lose the whole list silently. That is the
+  // `export must cover everything delete removes` invariant, and the test in
+  // backup.test.js now derives the assertion from PER_PROFILE_TABLES itself so
+  // the next table added can't repeat this.
+  //
+  // Not to be confused with the `notes` COLUMNS on workouts and sets, which
+  // ride along inside those rows and were never affected.
+  const notes = db
+    .prepare('SELECT text, category, done, created_at FROM notes WHERE profile_id = ? ORDER BY id')
+    .all(req.profileId);
+
   const payload = {
     exported_at: new Date().toISOString(),
     version: 1,
@@ -280,6 +293,7 @@ router.get('/', (req, res) => {
     workouts,
     bodyweights,
     personal_records: personalRecords,
+    notes,
     settings: Object.fromEntries(settings.map((r) => [r.key, r.value]))
   };
 
