@@ -2736,11 +2736,15 @@ function seedDraftFromUnloggedSet(set) {
   if (!workoutState || !set) return;
   const key = `${set.exercise_id}-${set.set_number}`;
   const store = workoutState.draft.inputs;
+  // ONLY the fields whose resolution chain ends at null/'' with no fallback.
+  // Seeding w/u/r as well (which the first version of this did) pinned the
+  // row to the weight you had just undone, silently replacing the behaviour
+  // that was already correct: those three fall through to lastLogged -> the
+  // progression recommendation -> the prefill. Undoing a set *because the
+  // weight was wrong* would then hand you the wrong weight back. `??` skips
+  // undefined, so leaving them out keeps that chain intact.
   store[key] = {
     ...(store[key] || {}),
-    w: set.weight != null ? String(set.weight) : '',
-    u: set.weight_unit || 'kg',
-    r: set.reps != null ? String(set.reps) : '',
     rir: set.rir ?? null,
     note: set.notes ?? '',
     repsR: set.reps_r ?? '',

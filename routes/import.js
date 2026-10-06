@@ -104,6 +104,11 @@ router.post('/', (req, res) => {
     // program-slot loops below resolve to the row we really created rather
     // than to whatever else happens to hold that name.
     const nameForBackupId = new Map();
+    // Backup exercise ids we deliberately declined to match, because the name
+    // belongs to another profile's private row. Nothing referencing these may
+    // fall back to resolving by the file's own name — that fallback walks
+    // straight into the row we just avoided, which is the merge this guards.
+    const unsafeBackupIds = new Set();
     for (const e of exercises) {
       const rawName = String(e.name || '').trim();
       const nameLower = rawName.toLowerCase();
@@ -144,6 +149,13 @@ router.post('/', (req, res) => {
             id: Number(rr.lastInsertRowid), name: candidate, created_by_profile_id: profileId
           });
           nameForBackupId.set(e.id, candidate);
+        } else {
+          // Should be unreachable — the candidate name was free. But an
+          // ignored INSERT used to leave this id unmapped, and the loops below
+          // would then resolve it by the file's raw name onto the other
+          // profile's private row. Fail closed instead: the sets are skipped
+          // and counted, which is visible, rather than silently mislinked.
+          unsafeBackupIds.add(e.id);
         }
         continue;
       }
@@ -246,7 +258,9 @@ router.post('/', (req, res) => {
           // exercise may have been restored under a suffixed name because
           // another profile holds the original.
           const name = nameForBackupId.get(pde.exercise_id)?.toLowerCase()
-            ?? backupExById.get(pde.exercise_id)?.name?.toLowerCase();
+            ?? (unsafeBackupIds.has(pde.exercise_id)
+              ? null
+              : backupExById.get(pde.exercise_id)?.name?.toLowerCase());
           const exId = name ? exByName.get(name) : null;
           if (!exId) { skippedProgramExercises++; continue; }
           const newPdeId = Number(
@@ -325,11 +339,12 @@ router.post('/', (req, res) => {
         let exId = null;
         const mappedName = nameForBackupId.get(s.exercise_id);
         if (mappedName) exId = exByName.get(mappedName.toLowerCase()) ?? null;
-        if (!exId && backupExById.has(s.exercise_id)) {
+        const unsafe = unsafeBackupIds.has(s.exercise_id);
+        if (!exId && !unsafe && backupExById.has(s.exercise_id)) {
           const name = backupExById.get(s.exercise_id).name?.toLowerCase();
           exId = name ? exByName.get(name) : null;
         }
-        if (!exId && s.exercise_name) {
+        if (!exId && !unsafe && s.exercise_name) {
           exId = exByName.get(s.exercise_name.toLowerCase()) ?? null;
         }
         if (!exId) continue;
