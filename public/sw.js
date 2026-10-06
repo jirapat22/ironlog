@@ -1,4 +1,4 @@
-const VERSION = 'ironlog-v257';
+const VERSION = 'ironlog-v258';
 // Last-known API responses, kept OUT of the versioned shell cache on purpose:
 // wiping it on every deploy would mean the first launch after an update has
 // nothing to fall back on, which is exactly when you are least likely to have

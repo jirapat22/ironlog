@@ -2710,7 +2710,43 @@ async function persistRirChange(row) {
   if (!setId) return;
   const raw = row.dataset.rir;
   const rir = raw === '' || raw == null ? null : Number(raw);
-  try { await API.updateSet(setId, { rir }); } catch (err) { toast(humanError(err)); }
+  try {
+    const updated = await API.updateSet(setId, { rir });
+    // Write the new value back into the in-memory mirror of the logged sets.
+    // Without this the PATCH succeeded on the server while workoutState kept
+    // the OLD rir, and renderExerciseCard resolves a logged row's pill from
+    // `logged?.rir` — so the next full re-render (adding a set on another
+    // exercise, toggling a warmup, finishing a rest) silently reverted the
+    // value you had just tapped, usually back to blank. The row itself looked
+    // right until then, which is why this reads as "sometimes".
+    const logged = workoutState?.loggedSets?.find((s) => s.id === setId);
+    if (logged) logged.rir = updated && 'rir' in updated ? updated.rir : rir;
+  } catch (err) { toast(humanError(err)); }
+}
+
+// An undone or deleted set puts its row back to "not logged yet". Weight, unit
+// and reps reappear only because their resolution chain happens to fall back
+// to the prefill/recommendation (`logged?.weight ?? draft?.w ?? lastLogged
+// ?? rec ?? prevSet ?? prefillWeight`). RIR, the note and the per-side reps
+// have NO such fallback — their chain ends at `null`/`''` — so they vanished
+// the moment the row stopped being logged, taking the RIR you had set with
+// them. Seed the draft from the row we are about to un-log so the row keeps
+// what was actually on it. clearDraftInput() on the next confirm cleans it up.
+function seedDraftFromUnloggedSet(set) {
+  if (!workoutState || !set) return;
+  const key = `${set.exercise_id}-${set.set_number}`;
+  const store = workoutState.draft.inputs;
+  store[key] = {
+    ...(store[key] || {}),
+    w: set.weight != null ? String(set.weight) : '',
+    u: set.weight_unit || 'kg',
+    r: set.reps != null ? String(set.reps) : '',
+    rir: set.rir ?? null,
+    note: set.notes ?? '',
+    repsR: set.reps_r ?? '',
+    repsL: set.reps_l ?? ''
+  };
+  saveDraft(workoutState.workout.id, workoutState.draft);
 }
 
 // Guards undoLastSet/deleteLoggedSet against a fast double-tap sending two
@@ -2728,6 +2764,7 @@ async function undoLastSet(exId) {
   try {
     await API.deleteSet(lastSet.id);
     if (!workoutState) return;
+    seedDraftFromUnloggedSet(lastSet);
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== lastSet.id);
     haptic(20);
     toast('Set undone');
@@ -2741,9 +2778,14 @@ async function deleteLoggedSet(row) {
   const id = Number(row.dataset.setId);
   if (!id || setsBeingDeleted.has(id)) return;
   setsBeingDeleted.add(id);
+  const deleted = workoutState.loggedSets.find((s) => s.id === id);
   try {
     await API.deleteSet(id);
     if (!workoutState) return;
+    // Same reason as undo: this row stays on screen as an un-logged row, and
+    // its RIR/note/per-side would blank out on the next full re-render even
+    // though weight and reps come back.
+    seedDraftFromUnloggedSet(deleted);
     workoutState.loggedSets = workoutState.loggedSets.filter((s) => s.id !== id);
     if (workoutState.draft.pendingEdits) delete workoutState.draft.pendingEdits[id];
     saveDraft(workoutState.workout.id, workoutState.draft);
