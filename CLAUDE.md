@@ -13,7 +13,7 @@ node --test --test-name-pattern="assisted"   # one test by name
 node --check public/workout.js               # syntax-only check (pre-approved in .claude/settings.json)
 ```
 
-Run a throwaway instance against a copy of the DB, never the real one — and **from the repo root**, because `db.js` resolves its seed data relatively. Note the `C:/` drive letter: Node does **not** understand Git Bash's `/c/tmp/...`, it resolves that drive-relative to `C:\c	mp\...` and silently creates a database there instead (harmless but not where you are looking, and it has littered that path before):
+Run a throwaway instance against a copy of the DB, never the real one — and **from the repo root**, because `db.js` resolves its seed data relatively. Note the `C:/` drive letter: Node does **not** understand Git Bash's `/c/tmp/...`, it resolves that drive-relative to `C:\c\tmp\...` and silently creates a database there instead (harmless but not where you are looking, and it has littered that path before):
 
 ```bash
 DB_PATH=C:/tmp/ilaudit/db/audit.db PORT=3111 node server.js

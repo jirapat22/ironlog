@@ -456,7 +456,8 @@ function getSetCount(ex) {
 const ACTIVITY_TYPES = [
   ['hyrox', 'HYROX'], ['hiit', 'HIIT'], ['boxing', 'Boxing'], ['pilates', 'Pilates'],
   ['run', 'Run'], ['cycle', 'Cycle'], ['row', 'Row'], ['swim', 'Swim'], ['walk', 'Walk'],
-  ['stairmaster', 'StairMaster'], ['cardio', 'Cardio'], ['class', 'Class'], ['other', 'Other']
+  ['stairmaster', 'StairMaster'], ['tennis', 'Tennis'], ['sport', 'Sport'],
+  ['cardio', 'Cardio'], ['class', 'Class'], ['other', 'Other']
 ];
 
 // Only these are naturally distance-tracked — hidden for everything else (a

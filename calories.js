@@ -62,6 +62,17 @@ const ACTIVITY_MET = {
   cardio: 7.5,
   swim: 8,
   stairmaster: 9,
+  // Compendium of Physical Activities: tennis general 7.3 (singles 8.0,
+  // doubles 6.0). One value for both rather than two chips — the RPE
+  // multiplier only spans 0.8-1.04, so it can't really separate them, and
+  // "which chip is doubles" is more decision than the accuracy is worth.
+  // Either way this beats what was available before, which was Cardio (7.5,
+  // close for singles) or Other (6.0, close for doubles) by coincidence.
+  tennis: 7.3,
+  // Catch-all for any other sport: football, basketball, squash, netball.
+  // Casual team sport sits around 7; `other` (6.0) is the non-sport fallback
+  // and undercounts a real game.
+  sport: 7,
   walk: 4,
   pilates: 3
 };

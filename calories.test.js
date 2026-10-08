@@ -10,6 +10,26 @@ test('run, 45 min, RPE 8, 80kg ≈ 552 kcal', () => {
   assert.strictEqual(activityCalories('run', 45, 8, 80), 552);
 });
 
+// 7.3 (tennis) x 0.92 (rpe8) x 80 x 1h = 537.28
+test('tennis, 60 min, RPE 8, 80kg ~ 537 kcal', () => {
+  assert.strictEqual(activityCalories('tennis', 60, 8, 80), 537);
+});
+
+// Before these existed, tennis had to be logged as Cardio (7.5) or Other
+// (6.0). Both are now meaningfully different from the real value, which is
+// the point of adding them rather than leaving people to pick a near-miss.
+test('tennis and sport are distinct from the generic fallbacks', () => {
+  const mins = 60, rpe = 8, bw = 80;
+  const tennis = activityCalories('tennis', mins, rpe, bw);
+  const sport  = activityCalories('sport', mins, rpe, bw);
+  const cardio = activityCalories('cardio', mins, rpe, bw);
+  const other  = activityCalories('other', mins, rpe, bw);
+  assert.notStrictEqual(tennis, cardio, 'tennis still collapses onto cardio');
+  assert.notStrictEqual(sport, other, 'sport still collapses onto other');
+  assert.ok(tennis > other, 'tennis should outvalue the non-sport fallback');
+  assert.ok(sport > other, 'a real game should outvalue the non-sport fallback');
+});
+
 test('null when bodyweight is unknown (cannot estimate)', () => {
   assert.strictEqual(activityCalories('run', 45, 8, null), null);
 });
