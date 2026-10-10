@@ -18,6 +18,13 @@ function parseActivityBody(b) {
     return { error: 'duration_min must be 1–600 minutes' };
   }
   const activityType = String(b.activity_type || 'other').slice(0, 40);
+  // What to CALL this session when the type alone is too coarse — "Squash"
+  // against type 'sport'. Purely a display name: the type still drives the
+  // calorie estimate and the History label map. Trimmed to nothing becomes
+  // null so a blank box is the same as never filling it in, and clearing the
+  // box on an edit genuinely clears it rather than storing "".
+  const rawLabel = b.activity_label == null ? '' : String(b.activity_label).trim().slice(0, 40);
+  const activityLabel = rawLabel || null;
   const rpe = b.rpe == null ? null : Math.max(6, Math.min(10, Number(b.rpe) || 8));
   const distance = Number.isFinite(Number(b.distance)) && Number(b.distance) > 0 ? Number(b.distance) : null;
   const distanceUnit = distance != null && ['km', 'mi', 'm'].includes(b.distance_unit) ? b.distance_unit : null;
@@ -26,7 +33,7 @@ function parseActivityBody(b) {
     : [];
   const notes = b.notes ? String(b.notes).slice(0, 500) : null;
   const countsAsWorkout = b.counts_as_workout ? 1 : 0;
-  return { activityType, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout };
+  return { activityType, activityLabel, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout };
 }
 
 function latestBwKg(profileId) {
@@ -43,7 +50,7 @@ function latestBwKg(profileId) {
 router.post('/activity', (req, res) => {
   const parsed = parseActivityBody(req.body || {});
   if (parsed.error) return res.status(400).json({ error: parsed.error });
-  const { activityType, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout } = parsed;
+  const { activityType, activityLabel, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout } = parsed;
 
   const bwKg = latestBwKg(req.profileId);
   const kcal = activityCalories(activityType, minutes, rpe, bwKg, distance, distanceUnit);
@@ -57,11 +64,11 @@ router.post('/activity', (req, res) => {
   const info = db.prepare(
     `INSERT INTO workouts
        (profile_id, kind, started_at, finished_at, calories_burned, bw_kg, notes,
-        activity_type, duration_min, rpe, distance, distance_unit, muscle_tags, counts_as_workout)
-     VALUES (?, 'activity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        activity_type, activity_label, duration_min, rpe, distance, distance_unit, muscle_tags, counts_as_workout)
+     VALUES (?, 'activity', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     req.profileId, now, now, kcal, bwKg, notes,
-    activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), countsAsWorkout
+    activityType, activityLabel, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), countsAsWorkout
   );
   res.status(201).json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(info.lastInsertRowid));
 });
@@ -200,7 +207,7 @@ router.get('/active', (req, res) => {
 // tab's worth of data to work it out client-side.
 router.get('/next-up', (req, res) => {
   const last = db.prepare(
-    `SELECT w.id, w.started_at, w.finished_at, w.kind, w.activity_type, w.program_day_id,
+    `SELECT w.id, w.started_at, w.finished_at, w.kind, w.activity_type, w.activity_label, w.program_day_id,
             pd.day_label, p.name AS program_name,
             (SELECT COUNT(*) FROM sets s WHERE s.workout_id = w.id) AS total_sets
      FROM workouts w
@@ -258,7 +265,7 @@ router.get('/history', (req, res) => {
   const rows = db
     .prepare(
       `SELECT w.id, w.started_at, w.finished_at, w.notes, w.feel_rating, w.calories_burned,
-              w.kind, w.activity_type, w.duration_min, w.rpe, w.distance, w.distance_unit, w.muscle_tags,
+              w.kind, w.activity_type, w.activity_label, w.duration_min, w.rpe, w.distance, w.distance_unit, w.muscle_tags,
               pd.day_label,
               p.name as program_name,
               COUNT(s.id) as total_sets,
@@ -391,7 +398,7 @@ router.patch('/:id/activity', (req, res) => {
 
   const parsed = parseActivityBody(req.body || {});
   if (parsed.error) return res.status(400).json({ error: parsed.error });
-  const { activityType, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout } = parsed;
+  const { activityType, activityLabel, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout } = parsed;
 
   // Recompute calories from the (possibly-edited) duration/type/RPE. Reuse the
   // bodyweight already snapshotted at log time so editing an already-priced
@@ -404,9 +411,9 @@ router.patch('/:id/activity', (req, res) => {
 
   db.prepare(
     `UPDATE workouts
-       SET activity_type = ?, duration_min = ?, rpe = ?, distance = ?, distance_unit = ?, muscle_tags = ?, notes = ?, calories_burned = ?, bw_kg = ?, counts_as_workout = ?
+       SET activity_type = ?, activity_label = ?, duration_min = ?, rpe = ?, distance = ?, distance_unit = ?, muscle_tags = ?, notes = ?, calories_burned = ?, bw_kg = ?, counts_as_workout = ?
      WHERE id = ?`
-  ).run(activityType, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), notes, kcal, bwKg, countsAsWorkout, id);
+  ).run(activityType, activityLabel, Math.round(minutes), rpe, distance, distanceUnit, JSON.stringify(tags), notes, kcal, bwKg, countsAsWorkout, id);
 
   res.json(db.prepare('SELECT * FROM workouts WHERE id = ?').get(id));
 });

@@ -596,7 +596,10 @@ function historyCardHTML(w) {
   const exAttr = `data-exercise-names="${escapeHtml((w.exercise_names || '').toLowerCase())}"`;
 
   if (w.kind === 'activity') {
-    const label = ACTIVITY_LABELS[w.activity_type] || 'Activity';
+    // A named sport wins over its bucket, so "Squash" rather than "Sport".
+    // The `|| 'Activity'` fallback stays for a type this build doesn't know:
+    // it is a display default, and must never be written back as the type.
+    const label = w.activity_label || ACTIVITY_LABELS[w.activity_type] || 'Activity';
     let tags = [];
     try { tags = JSON.parse(w.muscle_tags || '[]'); } catch { tags = []; }
     const badges = tags.map((g) => `<span class="badge badge--mg mg-${PICKER_GROUP_ORDER.includes(g) ? g : 'other'}">${escapeHtml(g)}</span>`).join('');

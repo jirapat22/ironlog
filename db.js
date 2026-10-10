@@ -288,7 +288,17 @@ function init() {
     // mislabelled manual row is merely never auto-corrected, whereas a
     // mislabelled Plated row would be clobbered. backfillBodyweightSource()
     // then promotes the genuine Plated rows.
-    ['bodyweights', "source TEXT NOT NULL DEFAULT 'manual'"]
+    ['bodyweights', "source TEXT NOT NULL DEFAULT 'manual'"],
+    // What the user actually called this session, when the type alone is too
+    // coarse — "Squash" against activity_type 'sport'. Kept in its own column
+    // rather than written into activity_type, because activity_type is read
+    // as a known value in three places that would all have to learn to parse
+    // a custom one: the calorie MET lookup, the History label map, and the
+    // chip the edit sheet pre-selects. A free-text type silently becomes a
+    // 6.0 MET "unknown" and an "Activity" label; the label column keeps the
+    // session a 'sport' (7.0, correctly) while still reading as Squash.
+    // NULL on every existing row and on every type that needs no label.
+    ['workouts', 'activity_label TEXT']
   ]) {
     const column = def.split(' ')[0];
     if (!columnExists(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);

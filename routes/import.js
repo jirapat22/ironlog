@@ -285,8 +285,9 @@ router.post('/', (req, res) => {
     // lands. Dropped on restore, adding a set from History to a recovered
     // past session would stamp it today instead of on the session's own day.
     const insWorkout = db.prepare(
-      `INSERT INTO workouts (profile_id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned, is_backdated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO workouts (profile_id, program_day_id, started_at, finished_at, notes, feel_rating, bw_kg, calories_burned, is_backdated,
+                             kind, activity_type, activity_label, duration_min, rpe, distance, distance_unit, muscle_tags, counts_as_workout)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     // Resolve a concrete load_multiplier for every imported set. Storing NULL
     // left the row resolving through db.js's COALESCE fallback to the
@@ -322,7 +323,22 @@ router.post('/', (req, res) => {
           w.started_at, w.finished_at ?? null,
           w.notes ?? null, w.feel_rating ?? null,
           w.bw_kg ?? null, w.calories_burned ?? null,
-          w.is_backdated ? 1 : 0
+          w.is_backdated ? 1 : 0,
+          // Everything that makes a non-strength session what it is. None of
+          // it was carried before, and `kind` defaults to 'strength' — so a
+          // restored run, class or tennis match came back as an EMPTY
+          // strength workout: no sets (activities have none), no type, no
+          // duration. The row survived and meant nothing, which is worse
+          // than losing it outright because nothing looks wrong.
+          w.kind === 'activity' ? 'activity' : 'strength',
+          w.activity_type ?? null,
+          w.activity_label ?? null,
+          Number.isFinite(Number(w.duration_min)) ? Math.round(Number(w.duration_min)) : null,
+          Number.isFinite(Number(w.rpe)) ? Number(w.rpe) : null,
+          Number.isFinite(Number(w.distance)) && Number(w.distance) > 0 ? Number(w.distance) : null,
+          ['km', 'mi', 'm'].includes(w.distance_unit) ? w.distance_unit : null,
+          typeof w.muscle_tags === 'string' ? w.muscle_tags : JSON.stringify(w.muscle_tags ?? []),
+          w.counts_as_workout ? 1 : 0
         ).lastInsertRowid
       );
       importedWorkouts++;

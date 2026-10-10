@@ -504,7 +504,19 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
     `<button class="act-chip ${active ? 'act-chip--on' : ''}" data-${attr}="${val}">${escapeHtml(label)}</button>`;
   let existingTags = [];
   if (existing) { try { existingTags = JSON.parse(existing.muscle_tags || '[]'); } catch { existingTags = []; } }
-  const initialType = existing ? existing.activity_type : ACTIVITY_TYPES[0][0];
+  // An activity whose stored type is not one of the chips — a legacy value,
+  // or one written straight to the API. Without this the sheet highlighted no
+  // chip at all and the save handler's `|| 'other'` fallback then REWROTE the
+  // session as "Other", silently, just for having been opened. Verified:
+  // a session stored as 'squash' came back as 'other' with its calories
+  // recalculated from a different MET. Treat it as a custom Sport instead,
+  // which is exactly what it is.
+  const storedType = existing ? existing.activity_type : null;
+  const isKnownType = ACTIVITY_TYPES.some(([v]) => v === storedType);
+  const initialType = existing ? (isKnownType ? storedType : 'sport') : ACTIVITY_TYPES[0][0];
+  const initialLabel = existing
+    ? (existing.activity_label || (isKnownType ? '' : storedType) || '')
+    : '';
   const initialMuscles = existing ? existingTags : (ACTIVITY_DEFAULT_MUSCLES[initialType] || []);
   const activeRpe = existing ? closestRpeOption(existing.rpe) : null;
   sheet.innerHTML = `
@@ -513,6 +525,12 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
       <div class="sheet__body">
         <label class="form-label">Type</label>
         <div class="act-chips">${ACTIVITY_TYPES.map(([v, l]) => chip(v, l, 'act-type', v === initialType)).join('')}</div>
+
+        <div id="act-label-wrap" class="${initialType === 'sport' ? '' : 'hidden'}">
+          <label class="form-label" style="margin-top:16px">Which sport? <span style="color:var(--text-dim);font-weight:400">· optional</span></label>
+          <div class="card__subtitle" style="margin:-4px 0 8px">Named here it reads as itself in History, instead of just "Sport".</div>
+          <input class="input" id="act-label" type="text" maxlength="40" placeholder="e.g. Squash" value="${escapeHtml(initialLabel)}"/>
+        </div>
 
         <label class="form-label" style="margin-top:16px">Duration (minutes)</label>
         <input class="input" id="act-dur" type="text" inputmode="numeric" placeholder="e.g. 45" value="${existing ? existing.duration_min : ''}"/>
@@ -555,6 +573,7 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
       sheet.querySelectorAll('[data-act-type]').forEach((b) => b.classList.toggle('act-chip--on', b === t));
       const type = t.dataset.actType;
       sheet.querySelector('#act-distance-wrap').classList.toggle('hidden', !DISTANCE_TYPES.has(type));
+      sheet.querySelector('#act-label-wrap').classList.toggle('hidden', type !== 'sport');
       if (!existing) {
         const defaults = ACTIVITY_DEFAULT_MUSCLES[type] || [];
         sheet.querySelectorAll('[data-act-mg]').forEach((b) => b.classList.toggle('act-chip--on', defaults.includes(b.dataset.actMg)));
@@ -589,10 +608,16 @@ function openActivitySheet(existing = null, { onSaved } = {}) {
       const distance_unit = distance != null ? document.getElementById('act-dist-unit').textContent.trim() : null;
       const muscle_tags = [...sheet.querySelectorAll('[data-act-mg].act-chip--on')].map((b) => b.dataset.actMg);
       const notes = document.getElementById('act-notes').value.trim() || null;
+      // Same reason the distance field is ignored off its own types: the input
+      // keeps its value when hidden, so switching Sport -> Run would otherwise
+      // carry "Squash" along as the label of a run.
+      const activity_label = activity_type === 'sport'
+        ? (document.getElementById('act-label').value.trim() || null)
+        : null;
       const counts_as_workout = sheet.querySelector('#act-counts-workout').classList.contains('toggle--on');
       const btn = document.getElementById('act-save');
       btn.disabled = true; btn.textContent = 'Saving…';
-      const payload = { activity_type, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes, counts_as_workout };
+      const payload = { activity_type, activity_label, duration_min: minutes, rpe, distance, distance_unit, muscle_tags, notes, counts_as_workout };
       try {
         const saved = existing ? await API.updateActivity(existing.id, payload) : await API.logActivity(payload);
         haptic(20); hideSheet(sheet);
@@ -1081,7 +1106,8 @@ function applyPendingSetRows() {
 function lastSessionLabel(last) {
   if (last.day_label) return last.day_label;
   if (last.kind !== 'activity') return 'Quick workout';
-  const t = last.activity_type || 'Activity';
+  // A named sport reads as itself ("Squash"), not as its bucket ("Sport").
+  const t = last.activity_label || last.activity_type || 'Activity';
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 

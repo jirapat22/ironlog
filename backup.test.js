@@ -102,6 +102,18 @@ function meaning(x) {
     workouts: (x.workouts || [])
       .map((w) => `${w.started_at}|${w.finished_at ?? 'null'}|${w.kind ?? 'null'}|${w.notes ?? 'null'}|${w.bw_kg ?? 'null'}`)
       .sort(),
+    // Activities carry their whole meaning in columns, not in sets — a run
+    // with its type and duration stripped is an empty strength workout with
+    // a timestamp. Compared separately so a failure says which field went.
+    activities: (x.workouts || [])
+      .filter((w) => w.kind === 'activity')
+      .map((w) => [
+        w.started_at, w.activity_type ?? 'null', w.activity_label ?? 'null',
+        w.duration_min ?? 'null', w.rpe ?? 'null',
+        w.distance ?? 'null', w.distance_unit ?? 'null',
+        w.counts_as_workout ? 1 : 0
+      ].join('|'))
+      .sort(),
     sets: (x.workouts || [])
       .flatMap((w) => (w.sets || []).map(
         (s) => `${w.started_at}|${nameOf(s.exercise_id)}|${s.set_number}|${s.weight}|${s.weight_unit}|${s.reps}|${s.is_warmup ? 1 : 0}|${s.load_multiplier ?? 'null'}`
@@ -159,6 +171,17 @@ function seedFixture(profileId, { label }) {
     `INSERT INTO sets (profile_id, workout_id, exercise_id, set_number, weight, weight_unit, reps, is_warmup, logged_at, load_multiplier)
      VALUES (?, ?, ?, 2, 40, 'kg', 10, 1, '2026-09-01 10:05:00', 1)`
   ).run(profileId, workoutId, exId);
+
+  // A non-strength session. Its entire meaning lives in these columns: with
+  // kind stripped it reverts to the 'strength' default and reads as an empty
+  // workout, which is what a restore used to do to every run and class.
+  db.prepare(
+    `INSERT INTO workouts
+       (profile_id, kind, started_at, finished_at, activity_type, activity_label,
+        duration_min, rpe, distance, distance_unit, muscle_tags, counts_as_workout, notes, bw_kg)
+     VALUES (?, 'activity', '2026-09-03 18:00:00', '2026-09-03 19:30:00', 'sport', 'Squash',
+             90, 8, NULL, NULL, '[]', 1, ?, 80.5)`
+  ).run(profileId, `${label} squash night`);
 
   db.prepare(
     "INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, notes, source) VALUES (?, 80.5, 'kg', '2026-09-01 07:00:00', NULL, 'manual')"
@@ -243,7 +266,12 @@ test('the export carries every table that deleting a profile removes', () => {
 
 test('the fixture data actually reaches the file, not just the keys', () => {
   const m = meaning(aliceFirstExport);
-  assert.strictEqual(m.workouts.length, 1, 'the workout did not make the file');
+  assert.strictEqual(m.workouts.length, 2, 'a workout did not make the file');
+  assert.deepStrictEqual(
+    m.activities,
+    ['2026-09-03 18:00:00|sport|Squash|90|8|null|null|1'],
+    'the activity session lost fields on the way into the file'
+  );
   assert.strictEqual(m.sets.length, 2, `expected 1 working set + 1 warmup, got ${JSON.stringify(m.sets)}`);
   // Containment, not a count: creating a profile seeds it editable copies of
   // the default splits, so the fixture program is one among several.
@@ -303,6 +331,9 @@ test('a restore onto a different profile moves the whole thing across', async ()
   assert.deepStrictEqual(b.sets, a.sets, "Bob did not get Alice's sets");
   assert.deepStrictEqual(b.notes, a.notes, 'the notes list did not cross over');
   assert.deepStrictEqual(b.bodyweights, a.bodyweights, 'the weigh-ins did not cross over');
+  // An activity restores as a blank strength workout if the import does not
+  // carry kind/activity_type/duration — the row survives and means nothing.
+  assert.deepStrictEqual(b.activities, a.activities, 'the activity session lost fields in the restore');
 
   // Programs are a CONTAINMENT check, not equality: creating a profile seeds
   // it its own editable copies of the default splits, so Bob already had
@@ -355,7 +386,10 @@ test('the live route rejects a set the bounds forbid', async () => {
 test('a restore skips the sets the live route would have rejected, and says so', async () => {
   // A hand-edited backup: one good set, three the live route would refuse.
   const file = JSON.parse(JSON.stringify(aliceFirstExport));
-  const w = file.workouts[0];
+  // The STRENGTH session specifically — workouts come back newest-first and
+  // the fixture's activity is the newer of the two, so indexing [0] picked a
+  // session with no sets at all.
+  const w = file.workouts.find((x) => (x.sets || []).length > 0);
   const exId = w.sets[0].exercise_id;
   w.sets = [
     { exercise_id: exId, set_number: 1, weight: 100, weight_unit: 'kg', reps: 5, is_warmup: 0, logged_at: '2026-09-01 10:10:00', load_multiplier: 1 },

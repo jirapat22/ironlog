@@ -115,7 +115,7 @@ function renderText(workouts) {
 
     if (w.kind === 'activity') {
       const parts = [];
-      if (w.activity_type) parts.push(w.activity_type);
+      if (w.activity_label || w.activity_type) parts.push(w.activity_label || w.activity_type);
       if (w.duration_min) parts.push(`${w.duration_min} min`);
       if (w.distance) parts.push(`${w.distance} ${w.distance_unit || ''}`.trim());
       if (w.rpe) parts.push(`RPE ${w.rpe}`);
@@ -148,7 +148,7 @@ function renderHtml(workouts) {
     let body;
     if (w.kind === 'activity') {
       const parts = [];
-      if (w.activity_type) parts.push(escapeHtml(w.activity_type));
+      if (w.activity_label || w.activity_type) parts.push(escapeHtml(w.activity_label || w.activity_type));
       if (w.duration_min) parts.push(`${w.duration_min} min`);
       if (w.distance) parts.push(escapeHtml(`${w.distance} ${w.distance_unit || ''}`.trim()));
       if (w.rpe) parts.push(`RPE ${w.rpe}`);
