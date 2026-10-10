@@ -5,6 +5,7 @@ const { caloriesFromSets, activityCalories } = require('../calories');
 const { assertInvariant } = require('../lib/bugReports');
 const { REGION_TO_GROUP } = require('../db');
 const { computeImprovedFlagsBatch, personalRecordSetIds } = require('../lib/improved');
+const { cleanActivityFields } = require('../lib/activityFields');
 
 const router = express.Router();
 
@@ -12,27 +13,15 @@ const MUSCLE_GROUPS = [...new Set(Object.values(REGION_TO_GROUP))];
 
 // Shared validation for activity create/edit — keeps the two routes from
 // drifting (duration cap, allowed distance units, etc.) out of sync.
+// The rules themselves live in lib/activityFields.js so the backup restore
+// shares them — they were local to this file, which is how the import came to
+// bypass every one of them the moment it started carrying activity columns.
+// Same split as the set bounds: identical rules, different reaction. Here a
+// bad duration is a 400, because the user is present and can fix it.
 function parseActivityBody(b) {
-  const minutes = Number(b.duration_min);
-  if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 600) {
-    return { error: 'duration_min must be 1–600 minutes' };
-  }
-  const activityType = String(b.activity_type || 'other').slice(0, 40);
-  // What to CALL this session when the type alone is too coarse — "Squash"
-  // against type 'sport'. Purely a display name: the type still drives the
-  // calorie estimate and the History label map. Trimmed to nothing becomes
-  // null so a blank box is the same as never filling it in, and clearing the
-  // box on an edit genuinely clears it rather than storing "".
-  const rawLabel = b.activity_label == null ? '' : String(b.activity_label).trim().slice(0, 40);
-  const activityLabel = rawLabel || null;
-  const rpe = b.rpe == null ? null : Math.max(6, Math.min(10, Number(b.rpe) || 8));
-  const distance = Number.isFinite(Number(b.distance)) && Number(b.distance) > 0 ? Number(b.distance) : null;
-  const distanceUnit = distance != null && ['km', 'mi', 'm'].includes(b.distance_unit) ? b.distance_unit : null;
-  const tags = Array.isArray(b.muscle_tags)
-    ? [...new Set(b.muscle_tags.filter((t) => MUSCLE_GROUPS.includes(t)))]
-    : [];
-  const notes = b.notes ? String(b.notes).slice(0, 500) : null;
-  const countsAsWorkout = b.counts_as_workout ? 1 : 0;
+  const f = cleanActivityFields(b, MUSCLE_GROUPS);
+  if (!f.durationValid) return { error: 'duration_min must be 1–600 minutes' };
+  const { activityType, activityLabel, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout } = f;
   return { activityType, activityLabel, minutes, rpe, distance, distanceUnit, tags, notes, countsAsWorkout };
 }
 

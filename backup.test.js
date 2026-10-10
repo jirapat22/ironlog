@@ -504,6 +504,36 @@ test('a restored custom exercise stays private, not promoted to the shared catal
   );
 });
 
+// The import must apply the same field rules the live route does. It did not
+// when it first started carrying activity columns, which handed a hand-edited
+// backup a free pass on every bound the UI enforces. Clamped rather than
+// skipped, so the session survives with sane numbers and the response says so.
+test('a restore brings an out-of-range activity into range and reports it', async () => {
+  const file = JSON.parse(JSON.stringify(aliceFirstExport));
+  file.exercises = [];
+  file.programs = [];
+  file.bodyweights = [];
+  file.notes = [];
+  file.workouts = [{
+    started_at: '2026-09-09 18:00:00', finished_at: '2026-09-09 19:00:00',
+    kind: 'activity', notes: null, bw_kg: 80, program_day_id: null, sets: [],
+    activity_type: 'sport', activity_label: 'z'.repeat(300),
+    duration_min: 1e9, rpe: 400, counts_as_workout: 1, muscle_tags: '["legs","not-a-muscle"]'
+  }];
+
+  const gail = accounts.createProfile({ name: 'Gail', passcode: '7777', accent_color: '#7a3ce8' }).profile.id;
+  const r = await as(gail, 'POST', '/api/import', file);
+  assert.strictEqual(r.status, 200, `import failed: ${JSON.stringify(r.body)}`);
+
+  const row = db.prepare("SELECT * FROM workouts WHERE profile_id = ? AND kind = 'activity'").get(gail);
+  assert.ok(row, 'the activity was dropped entirely rather than cleaned');
+  assert.ok(row.duration_min <= 600, `duration stored as ${row.duration_min}`);
+  assert.ok(row.rpe <= 10, `rpe stored as ${row.rpe}`);
+  assert.ok(row.activity_label.length <= 40, `label stored at ${row.activity_label.length} chars`);
+  assert.deepStrictEqual(JSON.parse(row.muscle_tags), ['legs'], 'an unknown muscle group was stored');
+  assert.match(r.body.warning || '', /brought into range/, 'the response did not mention the adjustment');
+});
+
 // ---------------------------------------------------------------------------
 // Rule 2 — absent is not empty. Does not currently apply to us, because the
 // import only ADDS and so has no delete step to get wrong. Asserted anyway, so

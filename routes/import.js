@@ -2,6 +2,7 @@ const express = require('express');
 const { db, tx, MUSCLE_GROUPS } = require('../db');
 const { recomputePrsForExercise } = require('../pr');
 const { validateSetNumerics } = require('../lib/setBounds');
+const { cleanActivityFields } = require('../lib/activityFields');
 const { parseSettingsBag, writeSettings } = require('./settings');
 const { reportHandled } = require('../lib/bugReports');
 
@@ -26,6 +27,7 @@ router.post('/', (req, res) => {
   let skippedProgramExercises = 0;
   let skippedSetsInvalid = 0;
   let importedNotes = 0;
+  let adjustedActivities = 0;
   const renamedExercises = [];
   const affectedExercises = new Set();
 
@@ -313,6 +315,9 @@ router.post('/', (req, res) => {
     );
 
     for (const w of workouts) {
+      const isActivity = w.kind === 'activity';
+      const act = isActivity ? cleanActivityFields(w, MUSCLE_GROUPS) : null;
+      if (act && act.adjusted) adjustedActivities++;
       const programDayId = w.program_day_id == null
         ? null
         : dayIdRemap.get(w.program_day_id)
@@ -330,15 +335,22 @@ router.post('/', (req, res) => {
           // strength workout: no sets (activities have none), no type, no
           // duration. The row survived and meant nothing, which is worse
           // than losing it outright because nothing looks wrong.
-          w.kind === 'activity' ? 'activity' : 'strength',
-          w.activity_type ?? null,
-          w.activity_label ?? null,
-          Number.isFinite(Number(w.duration_min)) ? Math.round(Number(w.duration_min)) : null,
-          Number.isFinite(Number(w.rpe)) ? Number(w.rpe) : null,
-          Number.isFinite(Number(w.distance)) && Number(w.distance) > 0 ? Number(w.distance) : null,
-          ['km', 'mi', 'm'].includes(w.distance_unit) ? w.distance_unit : null,
-          typeof w.muscle_tags === 'string' ? w.muscle_tags : JSON.stringify(w.muscle_tags ?? []),
-          w.counts_as_workout ? 1 : 0
+          //
+          // Cleaned through the SAME rules the live route enforces, from the
+          // same module. The first version of this wrote the file's values
+          // straight in, which handed a hand-edited backup a free pass on
+          // every bound: a 1e9-minute session, an RPE of 400, an unbounded
+          // label. Clamped rather than skipped — see lib/activityFields.js
+          // for why an activity is treated differently from a set here.
+          isActivity ? 'activity' : 'strength',
+          isActivity ? act.activityType : null,
+          isActivity ? act.activityLabel : null,
+          isActivity ? act.minutes : null,
+          isActivity ? act.rpe : null,
+          isActivity ? act.distance : null,
+          isActivity ? act.distanceUnit : null,
+          isActivity ? JSON.stringify(act.tags) : null,
+          isActivity ? act.countsAsWorkout : 0
         ).lastInsertRowid
       );
       importedWorkouts++;
@@ -495,6 +507,7 @@ router.post('/', (req, res) => {
   if (skipped.sets_unmatched > 0) warnings.push(`${skipped.sets_unmatched} set(s) were skipped because their exercise could not be matched.`);
   if (skipped.sets_invalid > 0) warnings.push(`${skipped.sets_invalid} set(s) were skipped because their weight, reps or set number was not a valid number.`);
   if (skipped.bodyweights > 0) warnings.push(`${skipped.bodyweights} body weight entr(ies) were skipped because the weight or date was not valid.`);
+  if (adjustedActivities > 0) warnings.push(`${adjustedActivities} activity session(s) had a duration, effort or name outside the allowed range; the session was kept and the value brought into range.`);
   if (skipped.program_exercises > 0) warnings.push(`${skipped.program_exercises} program exercise slot(s) were skipped because their exercise could not be matched.`);
   for (const r of renamedExercises) {
     warnings.push(`"${r.from}" is another profile's private exercise here, so yours was restored as "${r.to}".`);
