@@ -1538,7 +1538,7 @@ function buildProgressionHint(rec, trend = [], superseded = false) {
     return `
       <div class="prog-hint prog-hint--stale${sup}">
         <div class="prog-hint__main">&#x1F551; Been ${rec.gapDays} days &mdash; easing back in at <strong>${rec.recDisplay}</strong></div>
-        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; same weight until you're back up to speed</div>
+        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; same weight until you're back up to speed</div>
         ${trendLine}
       </div>`;
   }
@@ -1547,14 +1547,14 @@ function buildProgressionHint(rec, trend = [], superseded = false) {
     return `
       <div class="prog-hint prog-hint--up${sup}">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> ${trendBadgeHTML(trendStatus, trend, rec)}</div>
-        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
+        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
   } else if (rec.isFormHeld) {
     return `
       <div class="prog-hint prog-hint--form${sup}">
         <div class="prog-hint__main">&#x26A0; Hit ${rec.hitReps}+, but form was flagged &mdash; repeating <strong>${rec.lastWeight}</strong></div>
-        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList} &mdash; clean it up before adding weight</div>
+        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; clean it up before adding weight</div>
         ${trendLine}
       </div>`;
   } else {
@@ -1565,7 +1565,7 @@ function buildProgressionHint(rec, trend = [], superseded = false) {
     return `
       <div class="prog-hint prog-hint--same${sup}">
         <div class="prog-hint__main">&#x1F3AF; ${sameLabel} &mdash; aim for <strong>${rec.recReps} reps</strong> every set ${trendBadgeHTML(trendStatus, trend, rec)}</div>
-        <div class="prog-hint__sub">Last: ${rec.setsLabel} @ ${rec.lastWeight} &times; ${rec.repsList}${gapStr}${sideStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
+        <div class="prog-hint__sub">Last: ${rec.lastLine}${gapStr}${sideStr} &mdash; hit ${rec.recReps} to ${nextStep}</div>
         ${trendLine}
       </div>`;
   }
@@ -1725,6 +1725,23 @@ function recommendForNext(ex, lastSets) {
   // feel "clean" (e.g. 9 left, 7 right) while still reading as a miss here.
   // Name the lagging side directly instead of leaving "same weight" looking
   // unexplained when the logged number doesn't match what either arm did.
+  // What the "Last:" line actually SAYS. workingSets is the right basis for
+  // the judgement — a lighter back-off set must not block a weight increase —
+  // but the wrong one for describing the session. A descending run of
+  // 50kg x 4, 40kg x 8, 30kg x 10 came out as "1 of 3 sets @ 50kg x 4":
+  // honest about the count since 57375e0, but it names the one set you
+  // FAILED and silently drops the two where you did most of the work. When
+  // the weights differ, list them all, in the order you did them.
+  const ordered = [...lastSets].sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0));
+  const inDisplayUnit = (s) => (s.weight_unit === unit
+    ? s.weight
+    : +fromKg(toKg(s.weight, s.weight_unit), unit).toFixed(2));
+  const lastLine = workingSets.length === lastSets.length
+    ? `${setsLabel} @ ${fmtSetWeight(bestWeight, unit, isBw, isAssisted)} &times; ${repsList}`
+    : ordered
+        .map((s) => `${fmtSetWeight(inDisplayUnit(s), unit, isBw, isAssisted)}&times;${s.reps}`)
+        .join(', ');
+
   const limitingSet = workingSets.find(
     (s) => s.reps === minReps && s.reps_r != null && s.reps_l != null && s.reps_r !== s.reps_l
   );
@@ -1746,7 +1763,7 @@ function recommendForNext(ex, lastSets) {
       : isBw
         ? (recWeight === 0 ? 'BW' : `BW+${recWeight}${unit}`)
         : `${recWeight}${unit}`,
-    setsLabel, repsList, minReps, sideNote
+    setsLabel, repsList, minReps, sideNote, lastLine
   };
 }
 
