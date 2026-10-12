@@ -1547,7 +1547,7 @@ function buildProgressionHint(rec, trend = [], superseded = false) {
     return `
       <div class="prog-hint prog-hint--up${sup}">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> ${trendBadgeHTML(trendStatus, trend, rec)}</div>
-        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; ${rec.mixedWeights ? 'top sets' : 'all'} hit ${rec.hitReps}+ &#x2713;</div>
+        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; ${rec.hitSubject} hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
   } else if (rec.isFormHeld) {
@@ -1788,7 +1788,13 @@ function recommendForNext(ex, lastSets) {
     // was unambiguous while the line quoted exactly those sets. Now that the
     // lighter ones are visible too, any claim has to say which sets it is
     // about, or it reads as being about the last number on the line.
-    mixedWeights: workingSets.length !== lastSets.length
+    mixedWeights: workingSets.length !== lastSets.length,
+    // Who the "hit N+" verdict covers, agreeing with how many sets were
+    // actually at the top weight. "top sets hit 10+" was printed against a
+    // session with exactly one set at that weight.
+    hitSubject: workingSets.length !== lastSets.length
+      ? (workingSets.length === 1 ? 'top set' : 'top sets')
+      : 'all'
   };
 }
 
