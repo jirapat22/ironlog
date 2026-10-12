@@ -1547,7 +1547,7 @@ function buildProgressionHint(rec, trend = [], superseded = false) {
     return `
       <div class="prog-hint prog-hint--up${sup}">
         <div class="prog-hint__main">${upArrow} ${upLabel} &rarr; <strong>${rec.recDisplay} &times; ${rec.recReps}</strong> ${trendBadgeHTML(trendStatus, trend, rec)}</div>
-        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; all hit ${rec.hitReps}+ &#x2713;</div>
+        <div class="prog-hint__sub">Last: ${rec.lastLine} &mdash; ${rec.mixedWeights ? 'top sets' : 'all'} hit ${rec.hitReps}+ &#x2713;</div>
         ${trendLine}
       </div>`;
   } else if (rec.isFormHeld) {
@@ -1559,7 +1559,12 @@ function buildProgressionHint(rec, trend = [], superseded = false) {
       </div>`;
   } else {
     const gap = rec.recReps - rec.minReps;
-    const gapStr = gap > 0 ? ` (${gap} rep${gap > 1 ? 's' : ''} short)` : '';
+    // "(4 reps short)" sat immediately after the lightest set in the list —
+    // e.g. "... 30kg x 10, 25kg x 12 (4 reps short)", where 25kg x 12 was not
+    // short of anything. The shortfall is the TOP set's, so say so whenever
+    // more than one weight is on the line.
+    const shortSubject = rec.mixedWeights ? 'top set ' : '';
+    const gapStr = gap > 0 ? ` (${shortSubject}${gap} rep${gap > 1 ? 's' : ''} short)` : '';
     const sideStr = rec.sideNote ? ` &mdash; ${rec.sideNote}` : '';
     const nextStep = rec.isAssisted ? 'reduce assistance' : 'add weight';
     return `
@@ -1763,7 +1768,13 @@ function recommendForNext(ex, lastSets) {
       : isBw
         ? (recWeight === 0 ? 'BW' : `BW+${recWeight}${unit}`)
         : `${recWeight}${unit}`,
-    setsLabel, repsList, minReps, sideNote, lastLine
+    setsLabel, repsList, minReps, sideNote, lastLine,
+    // True when "Last:" is listing several weights rather than quoting one.
+    // Every judgement in this hint is about the TOP-weight sets only, which
+    // was unambiguous while the line quoted exactly those sets. Now that the
+    // lighter ones are visible too, any claim has to say which sets it is
+    // about, or it reads as being about the last number on the line.
+    mixedWeights: workingSets.length !== lastSets.length
   };
 }
 
