@@ -1741,10 +1741,24 @@ function recommendForNext(ex, lastSets) {
   const inDisplayUnit = (s) => (s.weight_unit === unit
     ? s.weight
     : +fromKg(toKg(s.weight, s.weight_unit), unit).toFixed(2));
+  // Consecutive sets at the same weight collapse into one entry, so the
+  // ordinary "three working sets then a back-off" reads
+  // "60kg x 8, 8, 6, 40kg x 12" rather than repeating the weight three
+  // times. Same shape the single-weight wording already uses ("3 sets @
+  // 40kg x 8, 8, 7"), so the two formats agree, and it keeps the line short
+  // in the case people actually hit most often. A genuine descending run,
+  // where every weight differs, is unaffected — each group holds one set.
+  const groups = [];
+  for (const s of ordered) {
+    const w = inDisplayUnit(s);
+    const prev = groups[groups.length - 1];
+    if (prev && prev.w === w) prev.reps.push(s.reps);
+    else groups.push({ w, reps: [s.reps] });
+  }
   const lastLine = workingSets.length === lastSets.length
     ? `${setsLabel} @ ${fmtSetWeight(bestWeight, unit, isBw, isAssisted)} &times; ${repsList}`
-    : ordered
-        .map((s) => `${fmtSetWeight(inDisplayUnit(s), unit, isBw, isAssisted)}&times;${s.reps}`)
+    : groups
+        .map((g) => `${fmtSetWeight(g.w, unit, isBw, isAssisted)}&times;${g.reps.join(', ')}`)
         .join(', ');
 
   const limitingSet = workingSets.find(
