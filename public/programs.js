@@ -384,8 +384,25 @@ function applyLastTrained(dayId, last, lastByExercise = {}) {
     const exId = Number(lastEl.dataset.exLast);
     // Same rule as the workout card, from one shared definition — these two
     // surfaces answering it separately is exactly how they drifted apart.
-    const s = bestOf(pickMostRecentSets(dayByEx.get(exId), lastByExercise[exId]));
-    if (s) lastEl.textContent = ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}`;
+    const sets = (pickMostRecentSets(dayByEx.get(exId), lastByExercise[exId]) || []).filter((x) => !x.is_warmup);
+    const s = bestOf(sets);
+    if (!s) continue;
+    // This line has room for one set, so it quotes the heaviest — but a
+    // session of 50kg×4, 40kg×8, 30kg×10 then reads "last 50kg×4", which is
+    // the set you FAILED and gives no hint the other two happened. That is
+    // the same complaint the workout card's "Last:" line was reported for;
+    // this surface just had more room to hide it. Not enough space here to
+    // list them, so say how many are not being shown.
+    const atSameWeight = sets.filter(
+      (x) => x.weight === s.weight && x.weight_unit === s.weight_unit
+    ).length;
+    const others = sets.length - atSameWeight;
+    lastEl.textContent =
+      ` · last ${fmtSetWeight(s.weight, s.weight_unit, s.is_bodyweight, s.is_assisted)}×${s.reps}` +
+      (others > 0 ? ` +${others}` : '');
+    lastEl.title = others > 0
+      ? `Heaviest set shown; ${others} more set${others > 1 ? 's' : ''} at a different weight that session`
+      : '';
   }
 }
 
