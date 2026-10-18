@@ -19,7 +19,7 @@ let base;
 let pat;
 let other;
 
-// Week under test: Mon 13 Oct 2026 00:00 NZDT → Mon 20 Oct 00:00 NZDT, as UTC.
+// Week under test: a 7-day window as UTC instants (Tue 13 Oct 00:00 NZDT → Tue 20 Oct). Any window works; the route only sees instants.
 const FROM = '2026-10-12T11:00:00Z';
 const TO = '2026-10-19T11:00:00Z';
 
