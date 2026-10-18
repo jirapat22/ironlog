@@ -44,6 +44,23 @@ const app = express();
 // the entry our own proxy appended.
 app.set('trust proxy', 1);
 
+// Old address → new domain. Since 18/10/2026 the app lives at
+// ironlog.jirapat.dev; a browser visiting the old *.up.railway.app address
+// gets a permanent (301) redirect so bookmarks move over by themselves.
+// Only page loads (GET/HEAD) are redirected — /api and /health keep working on
+// the old address, because a redirect can drop the auth header or turn a POST
+// into a GET, which would break other apps, old installed PWAs and monitors.
+const CANONICAL_HOST = 'ironlog.jirapat.dev';
+app.use((req, res, next) => {
+  const onOldHost = (req.get('host') || '').endsWith('.up.railway.app');
+  const isPageLoad = req.method === 'GET' || req.method === 'HEAD';
+  const isMachinePath = req.path.startsWith('/api') || req.path === '/health';
+  if (onOldHost && isPageLoad && !isMachinePath) {
+    return res.redirect(301, `https://${CANONICAL_HOST}${req.originalUrl}`);
+  }
+  next();
+});
+
 // 50mb covers years of workout history in a single import. This is a small
 // private multi-user app (a handful of trusted profiles), so payload-flood DoS
 // isn't a real concern here.
