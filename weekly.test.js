@@ -87,6 +87,13 @@ before(async () => {
 
   // PR this week + bodyweights this week and last week.
   db.prepare("INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at) VALUES (?, ?, 100, 'kg', 5, '2026-10-14 06:20:00')").run(pat, bench);
+  // A second bench PR at another rep count: 95x8 (e1RM 120.3) beats 100x5 (116.7).
+  db.prepare("INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at) VALUES (?, ?, 95, 'kg', 8, '2026-10-16 06:30:00')").run(pat, bench);
+  // Assisted pull-up: less assistance is better, so 10 kg beats 20 kg.
+  const assisted = Number(db.prepare("INSERT INTO exercises (name, muscle_group, is_bodyweight, is_assisted) VALUES ('Test Assisted Pull-up', 'back', 1, 1)").run().lastInsertRowid);
+  for (const w of [20, 10]) {
+    db.prepare("INSERT INTO personal_records (profile_id, exercise_id, weight, weight_unit, reps, achieved_at) VALUES (?, ?, ?, 'kg', ?, '2026-10-14 06:30:00')").run(pat, assisted, w, w === 20 ? 8 : 6);
+  }
   for (const [w, at] of [[80.0, '2026-10-13 19:00:00'], [79.6, '2026-10-16 19:00:00'], [81.0, '2026-10-08 19:00:00']]) {
     db.prepare("INSERT INTO bodyweights (profile_id, weight, weight_unit, logged_at, source) VALUES (?, ?, 'kg', ?, 'manual')").run(pat, w, at);
   }
@@ -131,7 +138,7 @@ test('summarises only this profile, this week, finished workouts', async () => {
   // Top bench is 100x5 — not the open workout's 200 or the other profile's 500.
   const bench = s.top_lifts.find((t) => t.exercise === 'Bench Press');
   assert.deepStrictEqual([bench.weight, bench.reps], [100, 5]);
-  assert.strictEqual(s.prs.length, 1);
+  assert.strictEqual(s.prs.length, 4); // JSON keeps every PR row
 
   assert.strictEqual(s.bodyweight.avg_kg, 79.8);
   assert.strictEqual(s.bodyweight.prev_avg_kg, 81);
@@ -142,7 +149,10 @@ test('returns a readable note and the full backup payload', async () => {
   const { body } = await get(`/api/orbit/weekly-export?profile_id=${pat}&from=${FROM}&to=${TO}&week=2026-W42`);
   assert.match(body.markdown, /^# 🏋️ IronLog: week 2026-W42/);
   assert.match(body.markdown, /\*\*3 sessions\*\*/);
-  assert.match(body.markdown, /Bench Press\*\*: 100 kg × 5/);
+  // The note merges PRs: one line per exercise, best by e1RM (assisted inverted).
+  assert.match(body.markdown, /- \*\*Bench Press\*\*: 95 kg × 8 _\(2 PRs this week\)_/);
+  assert.match(body.markdown, /- \*\*Test Assisted Pull-up\*\*: 10 kg × 6 _\(2 PRs this week\)_/);
+  assert.strictEqual((body.markdown.match(/\*\*Bench Press\*\*/g) || []).length, 1);
   // The full backup is the same shape as GET /api/export, scoped to this profile.
   assert.ok(Array.isArray(body.full.workouts) && Array.isArray(body.full.bodyweights));
   assert.ok(body.full.workouts.every((w) => w.profile_id === pat));
