@@ -227,10 +227,13 @@ router.get('/readable', (req, res) => {
   res.send('﻿' + renderText(workouts));
 });
 
-router.get('/', (req, res) => {
+// The full backup for one profile. Shared by GET /api/export (session) and
+// GET /api/orbit/weekly-export (API key) so the weekly vault copy is the
+// exact same payload a manual backup produces.
+function buildFullExport(profileId) {
   const exercises = db.prepare('SELECT * FROM exercises ORDER BY muscle_group, name').all();
 
-  const programs = db.prepare('SELECT * FROM programs WHERE profile_id = ? ORDER BY id').all(req.profileId);
+  const programs = db.prepare('SELECT * FROM programs WHERE profile_id = ? ORDER BY id').all(profileId);
   const days = db.prepare('SELECT * FROM program_days ORDER BY program_id, day_order').all();
   const dayExercises = db.prepare(
     'SELECT * FROM program_day_exercises ORDER BY program_day_id, order_index'
@@ -246,8 +249,8 @@ router.get('/', (req, res) => {
 
   const workouts = db
     .prepare('SELECT * FROM workouts WHERE profile_id = ? ORDER BY started_at DESC')
-    .all(req.profileId);
-  const sets = db.prepare('SELECT * FROM sets WHERE profile_id = ? ORDER BY workout_id, set_number').all(req.profileId);
+    .all(profileId);
+  const sets = db.prepare('SELECT * FROM sets WHERE profile_id = ? ORDER BY workout_id, set_number').all(profileId);
   const setsByWorkout = {};
   for (const s of sets) {
     (setsByWorkout[s.workout_id] ||= []).push(s);
@@ -258,7 +261,7 @@ router.get('/', (req, res) => {
 
   const bodyweights = db
     .prepare('SELECT * FROM bodyweights WHERE profile_id = ? ORDER BY logged_at DESC')
-    .all(req.profileId);
+    .all(profileId);
 
   const personalRecords = db
     .prepare(
@@ -268,9 +271,9 @@ router.get('/', (req, res) => {
        WHERE pr.profile_id = ?
        ORDER BY e.name, pr.reps`
     )
-    .all(req.profileId);
+    .all(profileId);
 
-  const settings = db.prepare('SELECT key, value FROM app_settings WHERE profile_id = ?').all(req.profileId);
+  const settings = db.prepare('SELECT key, value FROM app_settings WHERE profile_id = ?').all(profileId);
 
   // The standalone notes/ideas list. It is in accounts.PER_PROFILE_TABLES, so
   // deleting a profile deletes it — and it was absent from this payload, which
@@ -283,7 +286,7 @@ router.get('/', (req, res) => {
   // ride along inside those rows and were never affected.
   const notes = db
     .prepare('SELECT text, category, done, created_at FROM notes WHERE profile_id = ? ORDER BY id')
-    .all(req.profileId);
+    .all(profileId);
 
   const payload = {
     exported_at: new Date().toISOString(),
@@ -296,7 +299,11 @@ router.get('/', (req, res) => {
     notes,
     settings: Object.fromEntries(settings.map((r) => [r.key, r.value]))
   };
+  return payload;
+}
 
+router.get('/', (req, res) => {
+  const payload = buildFullExport(req.profileId);
   res.setHeader('Content-Type', 'application/json');
   res.setHeader(
     'Content-Disposition',
@@ -306,3 +313,4 @@ router.get('/', (req, res) => {
 });
 
 module.exports = router;
+module.exports.buildFullExport = buildFullExport;

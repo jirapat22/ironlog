@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm start                 # node server.js on PORT (default 3000)
 npm run dev               # node --watch server.js
-npm test                  # node --test — 94 tests across the seven *.test.js files
+npm test                  # node --test — 98 tests across the eight *.test.js files
 node --test pr.test.js    # one file
 node --test --test-name-pattern="assisted"   # one test by name
 node --check public/workout.js               # syntax-only check (pre-approved in .claude/settings.json)

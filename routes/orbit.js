@@ -14,6 +14,8 @@
 const crypto = require('crypto');
 const express = require('express');
 const { db } = require('../db');
+const { weeklySummary, weeklyMarkdown } = require('../lib/weekly');
+const { buildFullExport } = require('./export');
 
 const router = express.Router();
 
@@ -168,6 +170,38 @@ router.patch('/notes/:id', (req, res) => {
   const result = db.prepare('UPDATE notes SET done = ? WHERE id = ?').run(done, id);
   if (result.changes === 0) return res.status(404).json({ error: 'not found' });
   res.json({ updated: true, id, done });
+});
+
+// GET /api/orbit/weekly-export?profile_id=1&from=<ISO>&to=<ISO>
+// Weekly backup + summary for the Obsidian vault, fetched by the GitHub Action
+// in jirapat22/orbit-vault every Sunday night. Same ORBIT_API_KEY gate as the
+// rest of this router. `from`/`to` are UTC instants (Mon 00:00 → next Mon 00:00
+// in the user's zone, worked out by the caller), `to` exclusive.
+router.get('/weekly-export', (req, res) => {
+  const profileId = Number(req.query.profile_id);
+  const { from, to } = req.query;
+  if (!Number.isInteger(profileId) || profileId <= 0) {
+    return res.status(400).json({ error: 'profile_id required' });
+  }
+  if (!from || !to || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) {
+    return res.status(400).json({ error: 'from and to must be ISO dates with from < to' });
+  }
+  if (!db.prepare('SELECT 1 FROM profiles WHERE id = ?').get(profileId)) {
+    return res.status(404).json({ error: 'no such profile' });
+  }
+  try {
+    const summary = weeklySummary(profileId, from, to);
+    res.json({
+      app: 'ironlog',
+      generated_at: new Date().toISOString(),
+      summary,
+      markdown: weeklyMarkdown(summary, { weekLabel: String(req.query.week || '') }),
+      full: buildFullExport(profileId)
+    });
+  } catch (err) {
+    console.error('weekly export error:', err);
+    res.status(500).json({ error: 'internal server error' });
+  }
 });
 
 module.exports = router;
