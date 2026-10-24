@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Hosting (since 22/10/2026): read this first
+
+Production runs on Pat's home **Mac mini** (at Lily's), **not Railway**: Docker Compose in `~/Projects/mac-server`
+(repo jirapat22/mac-server, compose service `ironlog`), public at https://ironlog.jirapat.dev through a Cloudflare tunnel.
+
+- **Deploy:** push to `main`, then on the Mac run `cd ~/Projects/mac-server && bash scripts/update.sh`
+  (or `docker compose up -d --build ironlog`). **Pushing alone no longer deploys anything.**
+- **Settings/secrets:** `~/Projects/mac-server/env/ironlog.env` (never committed). **Data:** SQLite `~/Projects/mac-server/data/ironlog/ironlog.db` (in the container: `/data/ironlog.db`).
+- **Logs:** `docker compose logs -f ironlog`. Server health: https://status.jirapat.dev
+- **Railway** is a stopped cold backup (deployment removed, GitHub auto-deploy disconnected). Railway-specific
+  notes elsewhere in this file are history; App Sleeping no longer applies, so the app is always on.
+- **Never write the SQLite file from macOS while the container runs.** WAL locking can't coordinate across the OrbStack VM, and doing it once made Plated report "database disk image is malformed". Stop the container first, or work inside it with `docker compose exec ironlog ...`.
+- Full runbook: `~/Projects/mac-server/README.md`.
+
 ## Commands
 
 ```bash
