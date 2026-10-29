@@ -766,3 +766,4 @@ router.get('/whoami', (req, res) => {
 });
 
 module.exports = router;
+module.exports.buildProfilePayload = buildProfilePayload;   // I.O.'s coach (routes/io.js) reads the same profile view

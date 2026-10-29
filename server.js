@@ -123,6 +123,8 @@ app.use('/api/orbit', orbitRouter);
 // before the session gate. optionalProfile attaches profile_id if a valid
 // session exists, but never rejects.
 app.use('/api/bug-report', optionalProfile, bugReportRouter);
+// I.O. (Pat's Discord assistant): read-only coach data, its own key (routes/io.js)
+app.use('/api/io', require('./routes/io'));
 
 // Everything below this line requires a valid per-profile session. The gate is
 // scoped to /api so the static app shell + lock screen still load unauthenticated
