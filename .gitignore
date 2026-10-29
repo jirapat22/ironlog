@@ -9,3 +9,6 @@ data/
 .idea/
 .vscode/
 npm-debug.log
+
+# Bug reports filed from Discord by I.O. (screenshots + notes, stay on the Mac)
+.bugs/
