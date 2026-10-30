@@ -419,17 +419,32 @@ function watchKeyboardForNav() {
     if (!el) return false;
     return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true;
   };
+  // The second half of the same bug (Discord, 29/10/2026: the bar mid-screen
+  // with NO keyboard showing). Hiding stopped the instant focus left the input,
+  // but iOS takes a moment longer to put the viewport back: the visual viewport
+  // is still scrolled down inside the layout one (offsetTop > 0) or still
+  // short, and a fixed bar shown in that window is painted where the keyboard's
+  // top edge was, and stays there until the next scroll. So: stay hidden while
+  // the viewport is still shifted or shrunk, whether or not anything is focused.
+  const settling = () => vv.offsetTop > 1 || window.innerHeight - vv.height > KEYBOARD_MIN_PX;
   const sync = () => {
     const covered = window.innerHeight - vv.height;
-    document.body.classList.toggle('keyboard-open', isTyping() && covered > KEYBOARD_MIN_PX);
+    const typing = isTyping() && covered > KEYBOARD_MIN_PX;
+    const wasHidden = document.body.classList.contains('keyboard-open');
+    const hide = typing || (wasHidden && settling());
+    document.body.classList.toggle('keyboard-open', hide);
+    // Coming back: a no-op scroll makes iOS recompute fixed positions against
+    // the restored viewport, instead of reusing the stale keyboard-up layout.
+    if (wasHidden && !hide) window.scrollTo(window.scrollX, window.scrollY);
   };
   vv.addEventListener('resize', sync);
   vv.addEventListener('scroll', sync);
   // Focus changes and the viewport settling are separate events in either
-  // order, so re-check on both edges. The delay lets the keyboard animation
-  // finish before we measure.
+  // order, so re-check on both edges. The delays let the keyboard animation
+  // finish before we measure, and the late one catches a viewport that settled
+  // without firing a resize (seen on iOS after dismissing with the ✓ button).
   document.addEventListener('focusin', () => setTimeout(sync, 100));
-  document.addEventListener('focusout', () => setTimeout(sync, 100));
+  document.addEventListener('focusout', () => { setTimeout(sync, 100); setTimeout(sync, 600); });
   sync();
 }
 watchKeyboardForNav();
