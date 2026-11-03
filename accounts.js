@@ -27,7 +27,9 @@ const PER_PROFILE_TABLES = [
   'push_subscriptions',
   'notes',
   'app_settings',
-  'programs'
+  'programs',
+  'polar_links',
+  'polar_sessions'
 ];
 
 const SESSION_MAX_AGE_DAYS = 30;

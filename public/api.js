@@ -196,6 +196,12 @@ const API = {
   deleteMe: () => api('/api/auth/me', { method: 'DELETE' }),
   logout: () => api('/api/auth/logout', { method: 'POST' }),
 
+  // ---- Polar watch ----
+  polarStatus: () => api('/api/polar/status'),
+  polarConnect: () => api('/api/polar/connect', { method: 'POST' }),
+  polarSync: () => api('/api/polar/sync', { method: 'POST' }),
+  polarDisconnect: () => api('/api/polar', { method: 'DELETE' }),
+
   // ---- Bug reports ----
   reportBug: (data) => api('/api/bug-report', { method: 'POST', body: data })
 };

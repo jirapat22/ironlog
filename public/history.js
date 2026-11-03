@@ -389,6 +389,32 @@ async function renderHistory() {
 // reported as the page "pushing downward" right when an edit finished. Keep
 // the existing (already correctly-sized) content on screen until the fresh
 // content is ready, so there's one direct height change instead of two.
+// The Polar watch session that overlapped this workout (GET /api/workouts/:id
+// attaches it as workout.polar). Heart rate, a time-in-zone bar and training
+// load. No calories on purpose: the watch's number isn't trusted here.
+const POLAR_ZONE_COLORS = ['#9aa5b1', '#4a90d9', '#3bb273', '#f2a541', '#e5484d'];
+function polarPanelHTML(p) {
+  if (!p) return '';
+  const mins = (sec) => Math.round((sec || 0) / 60);
+  const dur = mins(p.duration_s);
+  const durText = dur >= 60 ? `${Math.floor(dur / 60)}h ${dur % 60}m` : `${dur} min`;
+  const total = (p.zones || []).reduce((a, b) => a + b, 0);
+  const bar = total ? `
+      <div class="polar-zones" role="img" aria-label="Time in heart rate zones">
+        ${p.zones.map((sec, i) => sec ? `<span style="flex:${sec};background:${POLAR_ZONE_COLORS[i] || '#888'}"></span>` : '').join('')}
+      </div>
+      <div class="polar-zones__legend">${p.zones.map((sec, i) => `<span><i style="background:${POLAR_ZONE_COLORS[i] || '#888'}"></i>Z${i + 1} ${mins(sec)}m</span>`).join('')}</div>` : '';
+  return `
+    <div class="polar-panel">
+      <div class="polar-panel__title">&#x2764;&#xFE0F; Polar · ${escapeHtml(p.sport || 'Session')} · ${durText}</div>
+      <div class="history-activity">
+        ${p.avg_hr ? `<div class="history-activity__line"><span>Heart rate (avg / max)</span><strong>${Number(p.avg_hr)} / ${Number(p.max_hr) || '?'} bpm</strong></div>` : ''}
+        ${p.training_load != null ? `<div class="history-activity__line"><span>Training load</span><strong>${Math.round(p.training_load)}</strong></div>` : ''}
+        ${p.distance_m ? `<div class="history-activity__line"><span>Distance</span><strong>${(p.distance_m / 1000).toFixed(2)} km</strong></div>` : ''}
+      </div>${bar}
+    </div>`;
+}
+
 async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
   const id = Number(card.dataset.id);
   const body = card.querySelector('.history-card__body');
@@ -400,6 +426,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
       let tags = [];
       try { tags = JSON.parse(workout.muscle_tags || '[]'); } catch { tags = []; }
       body.innerHTML = `
+        ${polarPanelHTML(workout.polar)}
         <div class="history-activity">
           <div class="history-activity__line"><span>Duration</span><strong>${workout.duration_min || 0} min</strong></div>
           ${workout.distance ? `<div class="history-activity__line"><span>Distance</span><strong>${workout.distance} ${escapeHtml(workout.distance_unit || '')}</strong></div>` : ''}
@@ -528,6 +555,7 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
     }).filter(Boolean);
 
     body.innerHTML = `
+      ${polarPanelHTML(workout.polar)}
       ${exHTML || '<div class="empty">No sets logged</div>'}
       <button class="btn btn--ghost btn--block" data-add-history-ex style="margin-top:10px">+ Add exercise</button>
       <div class="history-card__body-actions">

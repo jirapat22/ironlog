@@ -19,6 +19,8 @@ const orbitRouter = require('./routes/orbit');
 const notesRouter = require('./routes/notes');
 const authRouter = require('./routes/auth');
 const bugReportRouter = require('./routes/bugReport');
+const polarRouter = require('./routes/polar');
+const polar = require('./lib/polar');
 const { requireProfile, optionalProfile } = require('./auth');
 const { recordBugReport } = require('./lib/bugReports');
 const { sweepExpiredSessions } = require('./accounts');
@@ -35,6 +37,10 @@ try {
 // cron's hourly tick; still needs to run on its own.
 setTimeout(sweepExpiredSessions, 30_000);
 setInterval(sweepExpiredSessions, 60 * 60 * 1000);
+// Polar watch sessions: pull new ones every hour (and once shortly after boot).
+// Polar only keeps 30 days, so an hourly copy never misses one.
+setTimeout(() => polar.syncAll(), 60_000);
+setInterval(() => polar.syncAll(), 60 * 60 * 1000);
 
 const app = express();
 // Railway terminates TLS at a single proxy hop in front of us. Trust exactly
@@ -126,6 +132,22 @@ app.use('/api/bug-report', optionalProfile, bugReportRouter);
 // I.O. (Pat's Discord assistant): read-only coach data, its own key (routes/io.js)
 app.use('/api/io', require('./routes/io'));
 
+// Polar sends the browser back here after "Allow". Not under /api and not
+// session-gated: the random `state` from POST /api/polar/connect says which
+// profile asked, and it only works once, within 10 minutes.
+app.get('/polar/callback', async (req, res) => {
+  const profileId = req.query.state ? polarRouter.takeState(String(req.query.state)) : null;
+  if (!profileId || !req.query.code) return res.redirect('/?polar=failed');
+  try {
+    await polar.connect(profileId, String(req.query.code));
+    await polar.sync(profileId).catch(() => {});   // first pull now, so History has it straight away
+    res.redirect('/?polar=connected');
+  } catch (err) {
+    console.warn(`Polar connect failed: ${err.message}`);
+    res.redirect('/?polar=failed');
+  }
+});
+
 // Everything below this line requires a valid per-profile session. The gate is
 // scoped to /api so the static app shell + lock screen still load unauthenticated
 // (the cookie-based login can't render otherwise). It sets req.profileId for all
@@ -185,6 +207,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/import', importRouter);
 app.use('/api/notes', notesRouter);
+app.use('/api/polar', polarRouter);
 app.use('/api', progressRouter);
 
 // Unknown API paths get a JSON 404 instead of falling through to the SPA

@@ -210,6 +210,35 @@ function init() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Polar watch (lib/polar.js). One link per profile holding its Polar access
+    -- token (never exported), and the sessions pulled from Polar, kept here
+    -- because Polar itself only serves the last 30 days.
+    CREATE TABLE IF NOT EXISTS polar_links (
+      profile_id INTEGER PRIMARY KEY,
+      polar_user_id TEXT,
+      access_token TEXT NOT NULL,
+      connected_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_sync_at TEXT,
+      last_error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS polar_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER NOT NULL,
+      polar_id TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      duration_s INTEGER,
+      sport TEXT,
+      avg_hr INTEGER,
+      max_hr INTEGER,
+      training_load REAL,
+      distance_m REAL,
+      zones TEXT,
+      device TEXT,
+      UNIQUE (profile_id, polar_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_polar_sessions_start ON polar_sessions(profile_id, started_at);
+
     CREATE TABLE IF NOT EXISTS bug_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       profile_id INTEGER,

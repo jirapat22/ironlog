@@ -6,6 +6,7 @@ const { assertInvariant } = require('../lib/bugReports');
 const { REGION_TO_GROUP } = require('../db');
 const { computeImprovedFlagsBatch, personalRecordSetIds } = require('../lib/improved');
 const { cleanActivityFields } = require('../lib/activityFields');
+const polar = require('../lib/polar');
 
 const router = express.Router();
 
@@ -783,6 +784,8 @@ router.get('/:id', (req, res) => {
     }
   }
   row.sets = sets;
+  // Heart rate etc. from the Polar watch session that overlaps this workout (null when none)
+  row.polar = polar.forWorkout(req.profileId, row);
   res.json(row);
 });
 

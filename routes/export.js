@@ -288,6 +288,13 @@ function buildFullExport(profileId) {
     .prepare('SELECT text, category, done, created_at FROM notes WHERE profile_id = ? ORDER BY id')
     .all(profileId);
 
+  // Polar watch sessions. Polar only keeps 30 days, so after that this is the
+  // only copy. (The Polar access token in polar_links is NOT exported: it's a secret.)
+  const polarSessions = db
+    .prepare(`SELECT polar_id, started_at, duration_s, sport, avg_hr, max_hr, training_load, distance_m, zones, device
+              FROM polar_sessions WHERE profile_id = ? ORDER BY started_at`)
+    .all(profileId);
+
   const payload = {
     exported_at: new Date().toISOString(),
     version: 1,
@@ -297,6 +304,7 @@ function buildFullExport(profileId) {
     bodyweights,
     personal_records: personalRecords,
     notes,
+    polar_sessions: polarSessions,
     settings: Object.fromEntries(settings.map((r) => [r.key, r.value]))
   };
   return payload;

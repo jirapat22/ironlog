@@ -5,6 +5,7 @@ const { validateSetNumerics } = require('../lib/setBounds');
 const { cleanActivityFields } = require('../lib/activityFields');
 const { parseSettingsBag, writeSettings } = require('./settings');
 const { reportHandled } = require('../lib/bugReports');
+const { saveSessions } = require('../lib/polar');
 
 const router = express.Router();
 // Body parser size is set globally in server.js — no inline override needed.
@@ -15,7 +16,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Invalid backup file (expected version 1)' });
   }
 
-  const { exercises = [], programs = [], workouts = [], bodyweights = [], notes = [], settings = {} } = data;
+  const { exercises = [], programs = [], workouts = [], bodyweights = [], notes = [], polar_sessions = [], settings = {} } = data;
   const profileId = req.profileId;
 
   let importedExercises = 0;
@@ -27,6 +28,7 @@ router.post('/', (req, res) => {
   let skippedProgramExercises = 0;
   let skippedSetsInvalid = 0;
   let importedNotes = 0;
+  let importedPolar = 0;
   let adjustedActivities = 0;
   const renamedExercises = [];
   const affectedExercises = new Set();
@@ -477,6 +479,23 @@ router.post('/', (req, res) => {
       );
       importedNotes++;
     }
+
+    // --- 7. Polar watch sessions. Upserted on their Polar id (saveSessions), so
+    // restoring the same backup twice doesn't duplicate them. Rows without an
+    // id or a start time are skipped: they can't be matched to a workout anyway.
+    importedPolar = saveSessions(profileId, (Array.isArray(polar_sessions) ? polar_sessions : [])
+      .filter((p) => p && typeof p.polar_id === 'string' && typeof p.started_at === 'string')
+      .map((p) => ({
+        polar_id: p.polar_id.slice(0, 64), started_at: p.started_at.slice(0, 19),
+        duration_s: Number.isFinite(p.duration_s) ? p.duration_s : null,
+        sport: typeof p.sport === 'string' ? p.sport.slice(0, 60) : null,
+        avg_hr: Number.isFinite(p.avg_hr) ? p.avg_hr : null,
+        max_hr: Number.isFinite(p.max_hr) ? p.max_hr : null,
+        training_load: Number.isFinite(p.training_load) ? p.training_load : null,
+        distance_m: Number.isFinite(p.distance_m) ? p.distance_m : null,
+        zones: typeof p.zones === 'string' ? p.zones.slice(0, 200) : null,
+        device: typeof p.device === 'string' ? p.device.slice(0, 60) : null
+      })));
   });
 
   // Recompute PRs for every exercise touched by the import
@@ -522,6 +541,7 @@ router.post('/', (req, res) => {
     imported_sets: importedSets,
     imported_bodyweights: importedBw,
     imported_notes: importedNotes,
+    imported_polar_sessions: importedPolar,
     renamed_exercises: renamedExercises,
     skipped,
     warning: warnings.length ? warnings.join(' ') : null

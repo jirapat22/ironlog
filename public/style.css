@@ -4100,6 +4100,13 @@ body.keyboard-open .update-banner {
    that exact set in History — Personal-records rows use the same base class
    but stay plain (not clickable), hence the separate modifier. */
 .history-activity__line--link { cursor: pointer; }
+
+/* Polar watch session on a History card (history.js polarPanelHTML) */
+.polar-panel { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(127,127,127,0.08)); }
+.polar-panel__title { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+.polar-zones { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 8px; gap: 1px; }
+.polar-zones__legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
+.polar-zones__legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .history-activity__line--link:active { opacity: 0.6; }
 
 /* ─── Muscle-group colors ─────────────────────────────────────────────

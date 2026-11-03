@@ -350,6 +350,13 @@ function boot() {
   // which are ever torn down.
   const firstBoot = !booted;
   booted = true;
+
+  // Back from Polar's "Allow" page (/polar/callback redirects to /?polar=...): say how it went, then tidy the URL.
+  const polarResult = new URLSearchParams(location.search).get('polar');
+  if (polarResult) {
+    toast(polarResult === 'connected' ? 'Polar connected. Your sessions will show on workouts in History.' : "Polar didn't connect. Try again from Settings.");
+    history.replaceState(null, '', location.pathname);
+  }
   $$('.nav__btn').forEach((b) => {
     b.onclick = () => { haptic(10); setTab(b.dataset.tab); };
   });

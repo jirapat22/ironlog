@@ -238,14 +238,16 @@ const COVERED_BY = {
   personal_records: 'personal_records',
   notes: 'notes',
   app_settings: 'settings',
-  programs: 'programs'
+  programs: 'programs',
+  polar_sessions: 'polar_sessions'
 };
 
 // Deliberate omissions, each with its reason. The point of an exemption list
 // over a silent default is that adding a table to PER_PROFILE_TABLES then
 // FORCES a decision: export it, or write down here why not.
 const EXPORT_EXEMPT = new Map([
-  ['push_subscriptions', 'device-bound: a restored push endpoint is already dead, so exporting it would be worse than useless']
+  ['push_subscriptions', 'device-bound: a restored push endpoint is already dead, so exporting it would be worse than useless'],
+  ['polar_links', 'holds the Polar access token, a secret that must not sit in a backup file; reconnecting is one tap in Settings']
 ]);
 
 test('the export carries every table that deleting a profile removes', () => {

@@ -21,6 +21,23 @@ async function openSettingsSheet() {
   let apiKey = null;
   if (me) { try { apiKey = (await API.getApiKey()).api_key; } catch (err) { reportHandled(err, { where: 'openSettingsSheet:getApiKey' }); } }
 
+  // Polar watch link. Hidden entirely when the server has no Polar keys.
+  let polar = null;
+  if (me) { try { polar = await API.polarStatus(); } catch { /* older server or offline: just no section */ } }
+  const polarSection = () => {
+    if (!polar?.available) return '';
+    const synced = polar.last_sync_at ? `Last synced ${formatDateShort(polar.last_sync_at)} ${new Date(polar.last_sync_at.replace(' ', 'T') + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Not synced yet';
+    return polar.connected ? `
+          <div class="card__subtitle" style="margin-bottom:10px;padding-bottom:0">Connected. Heart rate, zones and training load show on matching workouts in History. ${escapeHtml(synced)}.</div>
+          ${polar.last_error ? `<div class="card__subtitle" style="color:var(--danger);margin-bottom:10px;padding-bottom:0">${escapeHtml(polar.last_error)}</div>` : ''}
+          <div style="display:flex;gap:8px">
+            <button class="btn btn--ghost btn--sm" id="polar-sync" style="flex:1">Sync now</button>
+            <button class="btn btn--ghost btn--sm" id="polar-disconnect" style="flex:1">Disconnect</button>
+          </div>` : `
+          <div class="card__subtitle" style="margin-bottom:10px;padding-bottom:0">Adds heart rate, time in each zone and training load from your Polar watch to matching workouts in History. Only sessions from after you connect (Polar's rule).</div>
+          <button class="btn btn--primary btn--block" id="polar-connect">Connect Polar</button>`;
+  };
+
   let serverSettings = {};
   try { serverSettings = await API.settings(); }
   catch { serverSettings = {}; }
@@ -157,6 +174,10 @@ async function openSettingsSheet() {
           </div>
         </div>` : ''}
 
+        ${polar?.available ? `
+        <div class="settings-group__title">Polar watch</div>
+        <div class="settings-group settings-group--free" id="polar-box">${polarSection()}</div>` : ''}
+
         <div class="settings-group__title">App</div>
         <div class="settings-group">
           <div class="settings-row"><span>Installed as PWA</span><span class="settings-row__val">${standalone ? 'Yes' : 'No'}</span></div>
@@ -271,6 +292,41 @@ async function openSettingsSheet() {
         const reveal = sheet.querySelector('#reveal-key');
         if (reveal) reveal.textContent = 'Reveal';
         toast('New key generated — update Plated');
+      } catch (err) { toast(humanError(err)); }
+      return;
+    }
+
+    if (e.target.closest('#polar-connect')) {
+      try {
+        const { url } = await API.polarConnect();
+        location.href = url;                 // Polar's "Allow Ironlog?" page; it sends you back here after
+      } catch (err) { toast(humanError(err)); }
+      return;
+    }
+
+    if (e.target.closest('#polar-sync')) {
+      const btn = e.target.closest('#polar-sync');
+      btn.disabled = true;
+      btn.textContent = 'Syncing…';
+      try {
+        const { saved } = await API.polarSync();
+        toast(saved ? `Polar: ${saved} session${saved === 1 ? '' : 's'} up to date` : 'Polar: nothing new');
+      } catch (err) { toast(humanError(err)); }
+      try { polar = await API.polarStatus(); } catch { /* keep the old status */ }
+      const box = sheet.querySelector('#polar-box');
+      if (box) box.innerHTML = polarSection();
+      return;
+    }
+
+    if (e.target.closest('#polar-disconnect')) {
+      const ok = await confirmSheet({ title: 'Disconnect Polar', message: 'New Polar sessions stop coming in. Sessions already pulled stay on your workouts.', confirmText: 'Disconnect', danger: true });
+      if (!ok) return;
+      try {
+        await API.polarDisconnect();
+        polar = { ...polar, connected: false, last_error: null };
+        const box = sheet.querySelector('#polar-box');
+        if (box) box.innerHTML = polarSection();
+        toast('Polar disconnected');
       } catch (err) { toast(humanError(err)); }
       return;
     }
