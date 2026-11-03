@@ -79,7 +79,15 @@ test('connect swaps the code, registers the user, then sync saves sessions', asy
     if (String(url).includes('/oauth2/token')) return Response.json({ access_token: 'tok', x_user_id: 42 });
     if (String(url).endsWith('/v3/users')) return new Response(null, { status: 409 });   // already registered: fine
     if (String(url).includes('/v3/exercises')) return Response.json([EX, { nonsense: true }]);
-    return new Response(null, { status: 500 });
+    if (String(url).endsWith('/users/sleep')) {
+      return Response.json({ nights: [{ date: '2026-11-02', light_sleep: 14400, deep_sleep: 4800, rem_sleep: 5400,
+                                        total_interruption_duration: 1200, sleep_score: 78 }] });
+    }
+    if (String(url).endsWith('/users/nightly-recharge')) {
+      return Response.json({ recharges: [{ date: '2026-11-02', nightly_recharge_status: 4, ans_charge: 2.5,
+                                           heart_rate_avg: 52, heart_rate_variability_avg: 61, breathing_rate_avg: 14.1 }] });
+    }
+    return new Response(null, { status: 500 });               // cardio load: watch doesn't do it → skipped, not fatal
   };
   await polar.connect(pat, 'one-time-code');
   assert.strictEqual(calls[0].auth, `Basic ${Buffer.from('test-client:test-secret').toString('base64')}`);
@@ -88,7 +96,11 @@ test('connect swaps the code, registers the user, then sync saves sessions', asy
 
   assert.strictEqual(await polar.sync(pat), 1);
   assert.strictEqual(await polar.sync(pat), 1);              // same session again: updated, not doubled
-  assert.match(calls.at(-1).url, /\/v3\/exercises\?zones=true$/);
+  assert.ok(calls.some((c) => /\/v3\/exercises\?zones=true$/.test(c.url)));
+  // Sleep and recharge land in the same day row, neither wiping the other
+  const day = db.prepare('SELECT * FROM polar_daily WHERE profile_id = ? AND date = ?').get(pat, '2026-11-02');
+  assert.deepStrictEqual([day.sleep_s, day.deep_s, day.sleep_score, day.rest_hr, day.hrv_ms, day.cardio_load],
+                         [24600, 4800, 78, 52, 61, null]);
   assert.strictEqual(db.prepare('SELECT COUNT(*) AS n FROM polar_sessions WHERE profile_id = ?').get(pat).n, 1);
   assert.ok(polar.link(pat).last_sync_at);
 });
@@ -119,8 +131,18 @@ test('connect state works once, for the profile that asked', async () => {
   assert.strictEqual(polarRouter.takeState('made-up'), null);
 });
 
+test('day parsers keep only real dates and skip "not available" load days', () => {
+  assert.strictEqual(polar.fromSleep({ date: 'yesterday' }), null);
+  assert.strictEqual(polar.fromCardio({ date: '2026-11-02', cardio_load_status: 'LOAD_STATUS_NOT_AVAILABLE' }), null);
+  assert.deepStrictEqual(polar.fromCardio({ date: '2026-11-02', cardio_load_status: 'MAINTAINING', cardio_load: 40.5,
+                                            strain: 45, tolerance: 50, cardio_load_ratio: 0.9 }),
+                         { date: '2026-11-02', cardio_load: 40.5, strain: 45, tolerance: 50, load_ratio: 0.9, load_status: 'MAINTAINING' });
+});
+
 test('the backup carries the sessions but never the token', () => {
   const out = buildFullExport(pat);
+  assert.strictEqual(out.polar_daily.length, 1);
+  assert.strictEqual(out.polar_daily[0].hrv_ms, 61);
   assert.strictEqual(out.polar_sessions.length, 1);
   assert.strictEqual(out.polar_sessions[0].polar_id, 'ABC123');
   assert.ok(!JSON.stringify(out).includes('"tok"'));
@@ -150,9 +172,11 @@ test('restoring a backup brings the sessions back, once, and skips junk rows', a
     for (let i = 0; i < 2; i++) {
       const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-profile': String(other) },
                                    body: JSON.stringify(backup) }).then((x) => x.json());
-      assert.strictEqual(r.imported_polar_sessions, 1);
+      assert.strictEqual(r.imported_polar_sessions, 2);   // 1 session + 1 day
     }
   } finally { server.close(); }
   const rows = db.prepare('SELECT polar_id, avg_hr, zones FROM polar_sessions WHERE profile_id = ?').all(other);
   assert.deepStrictEqual(rows.map((r) => ({ ...r })), [{ polar_id: 'ABC123', avg_hr: 128, zones: JSON.stringify([1200, 600, 330, 0, 60]) }]);
+  const days = db.prepare('SELECT date, sleep_s, hrv_ms FROM polar_daily WHERE profile_id = ?').all(other);
+  assert.deepStrictEqual(days.map((d) => ({ ...d })), [{ date: '2026-11-02', sleep_s: 24600, hrv_ms: 61 }]);
 });

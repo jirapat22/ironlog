@@ -239,6 +239,29 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_polar_sessions_start ON polar_sessions(profile_id, started_at);
 
+    -- One row per night/day: sleep, Nightly Recharge (overnight heart rate, HRV)
+    -- and Polar's cardio load. Polar keeps only 28 days of these.
+    CREATE TABLE IF NOT EXISTS polar_daily (
+      profile_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      sleep_s INTEGER,
+      deep_s INTEGER,
+      rem_s INTEGER,
+      interruptions_s INTEGER,
+      sleep_score INTEGER,
+      recharge_status INTEGER,
+      ans_charge REAL,
+      rest_hr REAL,
+      hrv_ms REAL,
+      breathing REAL,
+      cardio_load REAL,
+      strain REAL,
+      tolerance REAL,
+      load_ratio REAL,
+      load_status TEXT,
+      PRIMARY KEY (profile_id, date)
+    );
+
     CREATE TABLE IF NOT EXISTS bug_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       profile_id INTEGER,

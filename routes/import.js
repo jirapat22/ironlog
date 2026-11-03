@@ -5,7 +5,7 @@ const { validateSetNumerics } = require('../lib/setBounds');
 const { cleanActivityFields } = require('../lib/activityFields');
 const { parseSettingsBag, writeSettings } = require('./settings');
 const { reportHandled } = require('../lib/bugReports');
-const { saveSessions } = require('../lib/polar');
+const { saveSessions, saveDaily, DAILY_COLS } = require('../lib/polar');
 
 const router = express.Router();
 // Body parser size is set globally in server.js — no inline override needed.
@@ -16,7 +16,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Invalid backup file (expected version 1)' });
   }
 
-  const { exercises = [], programs = [], workouts = [], bodyweights = [], notes = [], polar_sessions = [], settings = {} } = data;
+  const { exercises = [], programs = [], workouts = [], bodyweights = [], notes = [], polar_sessions = [], polar_daily = [], settings = {} } = data;
   const profileId = req.profileId;
 
   let importedExercises = 0;
@@ -496,6 +496,16 @@ router.post('/', (req, res) => {
         zones: typeof p.zones === 'string' ? p.zones.slice(0, 200) : null,
         device: typeof p.device === 'string' ? p.device.slice(0, 60) : null
       })));
+    // Sleep / recovery / cardio load days: numbers only (load_status is a short label), one row per date.
+    importedPolar += saveDaily(profileId, (Array.isArray(polar_daily) ? polar_daily : []).map((d) => {
+      if (!d || typeof d !== 'object') return null;
+      const row = { date: d.date };
+      for (const c of DAILY_COLS) {
+        if (c === 'load_status') row[c] = typeof d[c] === 'string' ? d[c].slice(0, 40) : null;
+        else row[c] = Number.isFinite(d[c]) ? d[c] : null;
+      }
+      return row;
+    }));
   });
 
   // Recompute PRs for every exercise touched by the import

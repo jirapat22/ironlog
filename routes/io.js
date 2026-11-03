@@ -2,7 +2,7 @@
 
 // I.O. — Pat's Discord assistant — runs a training coach in his #ironlog
 // channel: a Sunday check-in plus answers to "what should I train today?".
-// It needs to READ the last few weeks; it never writes anything here.
+// It needs to READ the last few weeks (and the Polar watch data); it never writes anything here.
 //
 // Its own key (IO_API_KEY), pinned to one profile (IO_PROFILE_ID), failing
 // closed when either is unset. Not the profile's Plated API key: that one can
@@ -59,7 +59,22 @@ router.get('/coach', (req, res) => {
     ).all(req.profileId, since);
     let profile = null;
     try { profile = buildProfilePayload(req.profileId); } catch { /* profile incomplete: coach copes */ }
-    res.json({ weeks: summaries, bodyweights, profile });
+    // Polar watch: sessions (heart rate, training load) and nightly sleep / recovery /
+    // cardio load. At least 28 days back, so I.O. can compare this week with a baseline.
+    const polarSince = new Date(Math.min(to.getTime() - weeks * WEEK_MS, to.getTime() - 28 * 86400000));
+    const polar = {
+      connected: !!db.prepare('SELECT 1 FROM polar_links WHERE profile_id = ?').get(req.profileId),
+      sessions: db.prepare(
+        `SELECT started_at, duration_s, sport, avg_hr, max_hr, training_load, zones FROM polar_sessions
+         WHERE profile_id = ? AND started_at >= ? AND started_at < ? ORDER BY started_at`
+      ).all(req.profileId, polarSince.toISOString().slice(0, 19).replace('T', ' '), to.toISOString().slice(0, 19).replace('T', ' '))
+        .map((s) => ({ ...s, zones: s.zones ? JSON.parse(s.zones) : [] })),
+      daily: db.prepare(
+        'SELECT * FROM polar_daily WHERE profile_id = ? AND date >= ? AND date <= ? ORDER BY date'
+      ).all(req.profileId, polarSince.toISOString().slice(0, 10), to.toISOString().slice(0, 10))
+        .map(({ profile_id, ...d }) => d)
+    };
+    res.json({ weeks: summaries, bodyweights, profile, polar });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'internal server error' });

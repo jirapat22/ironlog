@@ -295,6 +295,11 @@ function buildFullExport(profileId) {
               FROM polar_sessions WHERE profile_id = ? ORDER BY started_at`)
     .all(profileId);
 
+  const polarDaily = db
+    .prepare('SELECT * FROM polar_daily WHERE profile_id = ? ORDER BY date')
+    .all(profileId)
+    .map(({ profile_id, ...day }) => day);
+
   const payload = {
     exported_at: new Date().toISOString(),
     version: 1,
@@ -305,6 +310,7 @@ function buildFullExport(profileId) {
     personal_records: personalRecords,
     notes,
     polar_sessions: polarSessions,
+    polar_daily: polarDaily,
     settings: Object.fromEntries(settings.map((r) => [r.key, r.value]))
   };
   return payload;

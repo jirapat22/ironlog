@@ -29,7 +29,8 @@ const PER_PROFILE_TABLES = [
   'app_settings',
   'programs',
   'polar_links',
-  'polar_sessions'
+  'polar_sessions',
+  'polar_daily'
 ];
 
 const SESSION_MAX_AGE_DAYS = 30;

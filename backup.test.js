@@ -239,7 +239,8 @@ const COVERED_BY = {
   notes: 'notes',
   app_settings: 'settings',
   programs: 'programs',
-  polar_sessions: 'polar_sessions'
+  polar_sessions: 'polar_sessions',
+  polar_daily: 'polar_daily'
 };
 
 // Deliberate omissions, each with its reason. The point of an exemption list
