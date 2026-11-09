@@ -1193,7 +1193,21 @@ function repRangeLabel(ex) {
   if (ex.rep_min && ex.rep_max) return ` · aim ${ex.rep_min}–${ex.rep_max}`;
   if (ex.rep_min) return ` · aim ${ex.rep_min}+`;
   if (ex.rep_max) return ` · aim ≤${ex.rep_max}`;
-  return '';
+  // No range set: show the one the progression tip actually coaches against
+  // (bug 09/11/2026: header said "2 × 6" while the tip said "aim for 8 reps",
+  // because the tip falls back to the default 6–8 range and chases its top).
+  const { repMin, repMax } = effectiveRepRange(ex);
+  return ` · aim ${repMin}–${repMax}`;
+}
+
+// The rep range double progression works to. One source for the card header
+// and recommendForNext, so the two can never disagree again. Unset ranges
+// default to 6–8, except when the day slot aims higher (a deliberate 2×12
+// slot shouldn't trigger "add weight" at 8).
+function effectiveRepRange(ex) {
+  const repMax = ex.rep_max ?? Math.max(REP_GOAL_DEFAULT_MAX, Number(ex.target_reps) || 0);
+  const repMin = Math.min(ex.rep_min ?? REP_GOAL_DEFAULT_MIN, repMax);
+  return { repMin, repMax };
 }
 
 function exerciseCardHTML(ex, lastSets, loggedBySet) {
@@ -1655,8 +1669,7 @@ function recommendForNext(ex, lastSets) {
   // single target: top the range on every set → add weight and drop back to
   // the bottom. Unset ranges default to 6–8, except when the day slot aims
   // higher (a deliberate 2×12 slot shouldn't trigger "add weight" at 8).
-  const repMax = ex.rep_max ?? Math.max(REP_GOAL_DEFAULT_MAX, Number(ex.target_reps) || 0);
-  const repMin = Math.min(ex.rep_min ?? REP_GOAL_DEFAULT_MIN, repMax);
+  const { repMin, repMax } = effectiveRepRange(ex);
   const targetReps = repMax;
 
   let bestKg = 0, bestSet = null;
