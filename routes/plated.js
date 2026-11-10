@@ -41,6 +41,7 @@
 'use strict';
 
 const express = require('express');
+const { nzYmd } = require('../lib/nzDate');
 const { db } = require('../db');
 const { platedAuth } = require('../auth');
 const { assertInvariant } = require('../lib/bugReports');
@@ -518,7 +519,7 @@ router.post('/bodyweight', (req, res) => {
     }
     const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? date
-      : new Date().toISOString().slice(0, 10);
+      : nzYmd();
 
     // Plated sends only a calendar date. Anchor it at the user's LOCAL noon
     // (expressed in UTC) so it displays on `day` in the app — otherwise a naive

@@ -16,6 +16,7 @@ const express = require('express');
 const { db } = require('../db');
 const { weeklySummary, weeklyMarkdown } = require('../lib/weekly');
 const { buildFullExport } = require('./export');
+const { nzYmd, nzDayRangeSql } = require('../lib/nzDate');
 
 const router = express.Router();
 
@@ -50,8 +51,10 @@ router.use((req, res, next) => {
 });
 
 // Build a { date, trained, calories_burned, sessions:[...] } summary for one
-// profile on one UTC calendar date.
+// profile on one NZ calendar date (Pat's day, not the server's UTC day, so a
+// 7am workout counts as "today" instead of "yesterday").
 function daySummary(profileId, date) {
+  const [from, to] = nzDayRangeSql(date);
   const rows = db
     .prepare(
       `SELECT
@@ -67,10 +70,10 @@ function daySummary(profileId, date) {
        FROM workouts w
        LEFT JOIN program_days pd ON pd.id = w.program_day_id
        WHERE w.profile_id = ?
-         AND date(w.started_at) = ?
+         AND w.started_at >= ? AND w.started_at < ?
          AND w.finished_at IS NOT NULL`
     )
-    .all(profileId, date);
+    .all(profileId, from, to);
 
   const sessions = rows.map((w) => {
     const burned =
@@ -90,9 +93,6 @@ function daySummary(profileId, date) {
   return { date, trained: sessions.length > 0, calories_burned: caloriesBurned, sessions };
 }
 
-function ymd(d) {
-  return d.toISOString().slice(0, 10);
-}
 
 // Most recent activity for a profile: last login, last finished workout, or
 // last bodyweight entry — whichever is newest. ISO string or null.
@@ -114,8 +114,9 @@ function lastActive(profileId) {
 
 router.get('/', (req, res) => {
   try {
-    const today = ymd(new Date());
-    const yesterday = ymd(new Date(Date.now() - 86400000));
+    const today = nzYmd();
+    // 24 hours back from now lands on yesterday's NZ date.
+    const yesterday = nzYmd(Date.now() - 86400000);
 
     const profiles = db
       .prepare('SELECT id, name, accent_color, created_at FROM profiles ORDER BY id')
