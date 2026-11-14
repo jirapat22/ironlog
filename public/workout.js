@@ -2706,8 +2706,13 @@ function markRowPending(row) {
   }
 }
 
+// After a set is ticked, the untouched rows below copy its weight and reps
+// (so a straight-sets day is one tap each). Only rows of the SAME kind copy:
+// Pat (11/11) "warming up set is weird... i need to manual change the weight
+// of the remaining set": a light warm-up was copied into every working set.
 function cascadePrefillSiblings(confirmedRow, weight, unit, reps) {
   const exId = confirmedRow.dataset.ex;
+  const fromWarmup = confirmedRow.dataset.warmup === '1';
   const card = confirmedRow.closest('.exercise-card');
   if (!card) return;
   const siblings = card.querySelectorAll(`.set-row[data-ex="${exId}"]`);
@@ -2715,6 +2720,7 @@ function cascadePrefillSiblings(confirmedRow, weight, unit, reps) {
     if (sib === confirmedRow) continue;
     if (sib.dataset.setId) continue;
     if (sib.dataset.pristine !== '1') continue;
+    if ((sib.dataset.warmup === '1') !== fromWarmup) continue;   // warm-up -> warm-ups only, work -> work only
     const wIn = sib.querySelector('[data-field="weight"] .num-input__field');
     const rIn = sib.querySelector('[data-field="reps"] .num-input__field');
     const uBtn = sib.querySelector('[data-unit]');
