@@ -440,38 +440,18 @@ function watchKeyboardForNav() {
     const wasHidden = document.body.classList.contains('keyboard-open');
     const hide = typing || (wasHidden && settling());
     document.body.classList.toggle('keyboard-open', hide);
-    // Coming back: a no-op scroll makes iOS recompute fixed positions against
-    // the restored viewport, instead of reusing the stale keyboard-up layout.
-    if (wasHidden && !hide) { window.scrollTo(window.scrollX, window.scrollY); relayoutNav(); }
   };
-  // Third time (Discord bug 09/11/2026): the bar mid-screen again, no keyboard,
-  // on the latest version. The no-op scroll above isn't always enough: iOS can
-  // keep painting a fixed element at the keyboard's old top edge even after the
-  // viewport is back. Taking the bar out of layout for one synchronous reflow
-  // and putting it back makes iOS place it from scratch. It happens inside one
-  // frame, so nothing flickers. Run on the way back AND a beat later, because
-  // the viewport can finish settling after the last event we get.
-  const nav = document.querySelector('.nav');
-  const relayoutNav = () => {
-    if (!nav || document.body.classList.contains('keyboard-open') || isTyping()) return;
-    nav.style.display = 'none';
-    void nav.offsetHeight;                 // force the reflow while it's out
-    nav.style.display = '';
-  };
-  const settleLater = () => { setTimeout(relayoutNav, 700); setTimeout(relayoutNav, 1500); };
-  vv.addEventListener('resize', () => {
-    sync();
-    // The viewport grew back (keyboard gone): re-place the bar once it's done
-    if (!isTyping() && window.innerHeight - vv.height <= KEYBOARD_MIN_PX) settleLater();
-  });
+  // The old patches for the bar painting mid-screen (a no-op scroll, then
+  // re-placing the bar at 0.7 s and 1.5 s) are gone: since the 14/11 shell
+  // rebuild the bar isn't position: fixed, so iOS has nothing to misplace.
+  vv.addEventListener('resize', sync);
   vv.addEventListener('scroll', sync);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) settleLater(); });
   // Focus changes and the viewport settling are separate events in either
   // order, so re-check on both edges. The delays let the keyboard animation
   // finish before we measure, and the late one catches a viewport that settled
   // without firing a resize (seen on iOS after dismissing with the ✓ button).
   document.addEventListener('focusin', () => setTimeout(sync, 100));
-  document.addEventListener('focusout', () => { setTimeout(sync, 100); setTimeout(sync, 600); settleLater(); });
+  document.addEventListener('focusout', () => { setTimeout(sync, 100); setTimeout(sync, 600); });
   sync();
 }
 watchKeyboardForNav();

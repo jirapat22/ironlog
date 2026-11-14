@@ -98,12 +98,30 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* THE APP SHELL (rebuilt 14/11/2026, after the tab bar got stuck mid-screen
+   for the 4th time). Before, the page itself scrolled and the tab bar was
+   position: fixed. iPhone Safari keeps misplacing fixed elements after the
+   keyboard closes, and three patches couldn't stop it. Now the body is one
+   screen-tall column that never scrolls: .app (the content) scrolls on its
+   own, and the nav is simply the last row of the column. Nothing is "fixed",
+   so there is nothing for iOS to misplace.
+     ┌──────────────┐
+     │ .app         │ <- scrolls
+     │  (header,    │
+     │   views)     │
+     ├──────────────┤
+     │ .nav         │ <- always the bottom row
+     └──────────────┘ */
+html,
 body {
-  min-height: 100vh;
-  min-height: 100dvh;
-  /* Bottom clearance for the fixed nav is reserved once, on .app — reserving
-     it here too double-counted the safe-area inset and left a dead gap above
-     the nav. */
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
 }
 
 button,
@@ -125,11 +143,15 @@ button {
 }
 
 .app {
-  max-width: 720px;
-  margin: 0 auto;
-  /* Reserve room for the fixed bottom nav + the home-indicator safe area,
-     counted once here (see body). */
-  padding: 0 16px calc(var(--nav-h) + env(safe-area-inset-bottom));
+  /* The scrolling part of the shell (see body). It spans the full width so a
+     swipe anywhere scrolls it, and the side padding keeps the content in a
+     720px column in the middle, like the old max-width did. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 max(16px, calc((100% - 720px) / 2 + 16px)) 16px;
 }
 
 /* The update banner floats above the nav with no dismiss but "Refresh" —
@@ -138,12 +160,12 @@ button {
    scroll, since the banner's height was never counted in .app's own
    clearance above. */
 body.has-update-banner .app {
-  padding-bottom: calc(var(--nav-h) + var(--update-banner-h) + env(safe-area-inset-bottom));
+  padding-bottom: calc(16px + var(--update-banner-h));
 }
 
 /* The install hint has the same problem and needs the same clearance. */
 body.has-install-hint .app {
-  padding-bottom: calc(var(--nav-h) + var(--install-hint-h) + env(safe-area-inset-bottom));
+  padding-bottom: calc(16px + var(--install-hint-h));
 }
 
 /* Both at once: they are anchored to the same bottom offset, so the update
@@ -155,7 +177,7 @@ body.has-update-banner .install-hint {
 }
 
 body.has-install-hint.has-update-banner .app {
-  padding-bottom: calc(var(--nav-h) + var(--install-hint-h) + var(--update-banner-h) + env(safe-area-inset-bottom));
+  padding-bottom: calc(16px + var(--install-hint-h) + var(--update-banner-h));
 }
 
 .app__header {
@@ -223,10 +245,9 @@ body.has-install-hint.has-update-banner .app {
 }
 
 .nav {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  /* A normal row at the bottom of the shell, not position: fixed (see body) */
+  position: relative;
+  flex: none;
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(4, 1fr);

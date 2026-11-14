@@ -502,11 +502,12 @@ function showSheet(el) {
   requestAnimationFrame(() => el.classList.add('open'));
   if (openSheets.has(el)) return; // already open (re-render / back-nav) — don't re-lock
   if (openSheets.size === 0) {
-    lockedScrollY = window.scrollY;
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${lockedScrollY}px`;
-    document.body.style.left = '0';
-    document.body.style.right = '0';
+    // Since the 14/11 shell rebuild the content scrolls inside #app, not the
+    // page, so freezing #app is all a sheet needs to stop the content behind
+    // it moving (the old trick pinned the whole body with position: fixed).
+    const scroller = appScroller();
+    lockedScrollY = scroller.scrollTop;
+    scroller.style.overflow = 'hidden';
   }
   openSheets.add(el);
 }
@@ -525,12 +526,16 @@ function hideSheet(el) {
   if (!openSheets.has(el)) return; // already closed / never tracked
   openSheets.delete(el);
   if (openSheets.size === 0) {
-    document.body.style.position = '';
-    document.body.style.top = '';
-    document.body.style.left = '';
-    document.body.style.right = '';
-    window.scrollTo(0, lockedScrollY);
+    const scroller = appScroller();
+    scroller.style.overflow = '';
+    scroller.scrollTop = lockedScrollY;
   }
+}
+
+// The element that scrolls the app's content: #app since the 14/11 shell
+// rebuild (style.css, body). Falls back to the page for any screen without it.
+export function appScroller() {
+  return document.getElementById('app') || document.scrollingElement || document.documentElement;
 }
 
 function ensureSheet(id) {
@@ -549,10 +554,10 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
   let drag = null;
   let rafId = null;
 
-  // Page scrolls on the document (body), so auto-scroll drives the document
-  // scroller. EDGE is the zone near the viewport top/bottom that triggers it;
+  // The content scrolls inside #app (the 14/11 shell rebuild), so auto-scroll
+  // drives that. EDGE is the zone near the viewport top/bottom that triggers it;
   // HEADER/NAV keep the trigger clear of the sticky header and fixed bottom nav.
-  const scroller = document.scrollingElement || document.documentElement;
+  const scroller = appScroller();
   const EDGE = 90;
   const HEADER = 64;
   const NAV = 72;
