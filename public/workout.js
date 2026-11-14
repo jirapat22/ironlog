@@ -2610,33 +2610,14 @@ async function confirmSet(row) {
       refreshProgressionHint(exId);
       haptic(30);
       if (!isWarmup) renderSessionCoverage();
-      // Newly-confirmed rows are patched in place rather than fully
-      // re-rendered via setRowHTML, so the form-flag button (only present in
-      // the template when `logged` is set) has to be added here too —
-      // otherwise it silently doesn't exist until some unrelated action
-      // happens to trigger a full re-render.
-      if (!isWarmup) {
-        const formBtn = document.createElement('button');
-        formBtn.className = 'set-row__form-flag';
-        formBtn.dataset.toggleForm = '1';
-        formBtn.title = "Form broke down on this set — won't count toward progressing next time";
-        formBtn.setAttribute('aria-label', 'Flag form breakdown on this set');
-        formBtn.textContent = '⚠️';
-        row.querySelector('[data-rest]')?.insertAdjacentElement('beforebegin', formBtn);
-      }
-      const hints = row.querySelector('.set-row__hints');
-      if (res.improved_from_last && hints) {
-        hints.insertAdjacentHTML('beforeend', improvedBadgeHTML(res, !!ex?.is_bodyweight, !!ex?.is_assisted));
-      }
-      if (res.is_new_pr) {
-        showPRFlash();
-        const prBadge = document.createElement('button');
-        prBadge.className = 'set-row__pr';
-        prBadge.dataset.badgeTitle = 'New PR';
-        prBadge.dataset.badgeMsg = `New personal record: ${fmtSetWeight(weight, unit, !!ex?.is_bodyweight, !!ex?.is_assisted)} × ${reps} reps.`;
-        prBadge.textContent = '🏆';
-        hints?.appendChild(prBadge);
-      }
+      // The 1RM, per-side, improved and PR badges plus the form-flag button
+      // used to be APPENDED here one by one. Appending isn't safe to repeat:
+      // Pat's 13/11 screenshot shows a set with two ⚠️ buttons and
+      // "~67 kg 1RM ~67 kg 1RM". reconcileSetRowBadges rebuilds the badge
+      // line from scratch and only adds the form flag when it's missing, so
+      // running it twice gives the same result as running it once.
+      reconcileSetRowBadges(row, { ...res, weight, weight_unit: unit, reps, reps_r: repsR, reps_l: repsL, is_warmup: isWarmup ? 1 : 0 });
+      if (res.is_new_pr) showPRFlash();
       // Superset partner still owes this same set number? Skip the rest
       // timer — the card explicitly says "go straight into it, rest after
       // both", so popping a countdown (with its own haptic/beep/notification)
@@ -2650,28 +2631,6 @@ async function confirmSet(row) {
         (s) => s.exercise_id === supersetPartnerEx.exercise_id && s.set_number === setNumber && !!s.is_warmup === isWarmup
       );
       if (!partnerOwesThisSet) startRestCountdown(ex?.rest_seconds ?? undefined);
-      // Append e1RM hint to the newly-done row
-      if (!isWarmup && reps > 0) {
-        // Synthetic object is right here: this set was logged moments ago under
-        // ex.weight_mode, so the fallback resolves to its real snapshot.
-        const load = loadKg({ weight, weight_unit: unit }, ex);
-        if (load > 0) {
-          const badge = document.createElement('span');
-          badge.className = 'set-row__hint';
-          badge.textContent = `~${Math.round(e1RM(load, reps))} kg 1RM`;
-          hints?.appendChild(badge);
-        }
-      }
-      // Same gap as the PR/form-flag ones above: setRowHTML's perArmBadge
-      // only ever renders on a full re-render, so a newly-confirmed set
-      // with a right/left breakdown showed nothing until something else
-      // forced one.
-      if (repsR != null && repsL != null && repsR !== repsL) {
-        const perArmBadge = document.createElement('span');
-        perArmBadge.className = 'set-row__hint';
-        perArmBadge.textContent = fmtReps(reps, repsR, repsL);
-        hints?.appendChild(perArmBadge);
-      }
       // Same gap again: setRowHTML always renders the swipe-to-delete
       // overlay for a logged row, but this patch path skipped it — swiping
       // a just-confirmed set did nothing until a later full re-render.
