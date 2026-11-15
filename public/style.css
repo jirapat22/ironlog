@@ -1237,6 +1237,7 @@ body.keyboard-open .update-banner {
 .set-row.warmup .set-row__num {
   color: #ffb347;
   background: rgba(255, 179, 71, 0.15);
+  background-clip: content-box;   /* (the shorthand above resets it; see .set-row__num) */
   border-radius: 4px;
   font-weight: 700;
   font-size: 11px;
@@ -1252,10 +1253,18 @@ body.keyboard-open .update-banner {
   color: #ffb347;
 }
 
+/* The set number is also the warm-up switch. It was 22x18px, hard to hit mid-set (re-audit 15/11/2026):
+   now it fills the row's height, so the tap target is 22x44 without changing the layout. */
 .set-row__num {
   cursor: pointer;
   border-radius: 4px;
-  padding: 2px;
+  padding: 13px 0;           /* the coloured warm-up "W" stays small: its background only fills the middle */
+  background-clip: content-box;
+  min-height: 44px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .set-row__num:active {
