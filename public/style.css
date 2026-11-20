@@ -5026,24 +5026,24 @@ body.keyboard-open .update-banner {
   border-top-color: var(--border-soft);
 }
 
-/* Desktop: each month's sessions two per row. An opened session takes the
-   whole row so its sets have room. */
+/* Desktop: History is a LIST in date order, so it is ONE column, centred
+   at a reading width (same 760px as logging a workout). Until 21/11/2026
+   the sessions sat two per row, but a Push day (3 rows of muscle chips) is
+   twice as tall as a Run, so the pairs never lined up: ragged cards, holes
+   under the short ones, and the date order zig-zagged left-right. Pat said
+   it "looks bad". One column keeps every card full width and in order. */
 @media (min-width: 900px) {
-  #view-history > .ex-sort,
-  #history-filter {
-    max-width: 520px;
+  #view-history {
+    max-width: 760px;
+    margin: 0 auto;
   }
   .hist-month__cards {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    align-items: start;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
   .hist-month__cards .history-card {
     margin-bottom: 0;
-  }
-  .hist-month__cards .history-card.expanded {
-    grid-column: 1 / -1;
   }
   .hist-month {
     margin-bottom: 14px;
