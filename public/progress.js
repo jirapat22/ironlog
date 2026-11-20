@@ -49,6 +49,32 @@ function restoreCollapsedSections() {
   }
 }
 
+// Calm redesign (21/11/2026): on a desktop the sections sit in two columns,
+// the charts on the left and the shorter cards on the right. Done by moving
+// the section nodes into two .pg-col wrappers right after they are created
+// (before anything fills them; every filler finds its section by id, so the
+// move doesn't matter to them). On a phone style.css makes the wrappers
+// invisible to layout (display: contents) and puts the sections back in
+// their original order with CSS `order`, so nothing changes there.
+const PROGRESS_COLUMNS = [
+  ['ps-bodyweight', 'ps-volume', 'ps-overload'],
+  ['ps-consistency', 'ps-muscle-freq', 'ps-tdee', 'ps-pr']
+];
+function arrangeProgressColumns(root) {
+  const grid = document.createElement('div');
+  grid.className = 'progress-grid';
+  for (const ids of PROGRESS_COLUMNS) {
+    const col = document.createElement('div');
+    col.className = 'pg-col';
+    for (const id of ids) {
+      const section = root.querySelector(`#${id}`);
+      if (section) col.appendChild(section);
+    }
+    grid.appendChild(col);
+  }
+  root.prepend(grid);
+}
+
 async function renderProgress() {
   const root = $('#view-progress');
   root.innerHTML = `
@@ -124,6 +150,7 @@ async function renderProgress() {
       </div>
     </div>
   `;
+  arrangeProgressColumns(root);
 
   root.onclick = async (e) => {
     if (e.target.closest('[data-log-bw]')) return openBodyweightSheet();

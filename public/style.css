@@ -4911,3 +4911,68 @@ body.keyboard-open .update-banner {
   .program-card__body { padding: 0 12px 14px; }
   .day-card { padding: 12px; }
 }
+
+/* ---- Progress (calm redesign) ---- */
+.progress-section {
+  border-color: var(--border-soft);
+  border-radius: 20px;
+  padding: var(--card-pad);
+}
+/* Section names become the small uppercase header used everywhere else in
+   the new look (body font, quiet), so the numbers are what you see first. */
+.progress-section__title {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* Phone: one column in the original order. The two column wrappers made by
+   arrangeProgressColumns() (progress.js) step out of the layout, and
+   `order` puts the sections back the way they always were. */
+.progress-grid {
+  display: flex;
+  flex-direction: column;
+}
+.pg-col {
+  display: contents;
+}
+#ps-bodyweight { order: 1; }
+#ps-consistency { order: 2; }
+#ps-muscle-freq { order: 3; }
+#ps-volume { order: 4; }
+#ps-tdee { order: 5; }
+#ps-overload { order: 6; }
+#ps-pr { order: 7; }
+
+/* Desktop: two independent columns (not grid rows), so a tall card on one
+   side never leaves a hole on the other. */
+@media (min-width: 900px) {
+  .progress-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .pg-col {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+  .pg-col .progress-section {
+    margin-bottom: 0;
+  }
+}
+/* Muscle Detail rows use fixed 80px + 90px + 72px columns. At 150% text on
+   a phone that is wider than the card, so the "5d ago" value was cut off
+   the right edge. On narrow screens drop the bar (it repeats the colour the
+   value already has) and let the name shrink instead. */
+@media (max-width: 380px) {
+  .mfreq-row--sub {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .mfreq-row--sub .mfreq-bar-wrap {
+    display: none;
+  }
+}
