@@ -36,6 +36,31 @@ document.addEventListener('ironlog:history-focus', (e) => {
   document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'history' }));
 });
 
+// Calm redesign (21/11/2026): the list is split into months, each under a
+// small uppercase header ("NOVEMBER 2026 · 9 sessions"), like the section
+// headers on the other tabs. The cards inside are exactly the old cards, so
+// every click handler (which finds cards with closest('.history-card'))
+// works unchanged. On a desktop each month's cards sit in a two-column grid.
+// The history arrives newest first, so months come out newest first too.
+function historyMonthsHTML(history) {
+  const months = [];
+  for (const w of history) {
+    const d = new Date(w.started_at.replace(' ', 'T') + 'Z');
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    let m = months[months.length - 1];
+    if (!m || m.key !== key) {
+      m = { key, label: d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }), cards: [] };
+      months.push(m);
+    }
+    m.cards.push(historyCardHTML(w));
+  }
+  return months.map((m) => `
+    <section class="hist-month">
+      <div class="shead"><h2>${escapeHtml(m.label)}</h2><span class="shead__note">${m.cards.length} session${m.cards.length === 1 ? '' : 's'}</span></div>
+      <div class="hist-month__cards">${m.cards.join('')}</div>
+    </section>`).join('');
+}
+
 async function renderHistory() {
   const root = $('#view-history');
   let kindFilter = localStorage.getItem(LS.historyKindFilter) || 'all';
@@ -51,7 +76,7 @@ async function renderHistory() {
     const list = $('#history-list');
 
     if (!history.length) { list.innerHTML = `<div class="empty">No workouts yet</div>`; return; }
-    list.innerHTML = history.map((w) => historyCardHTML(w)).join('') +
+    list.innerHTML = historyMonthsHTML(history) +
       `<div class="empty hidden" id="history-empty-filtered"></div>`;
 
     // Combines the name-search text and the kind toggle — a card must match
@@ -68,6 +93,16 @@ async function renderHistory() {
         const visible = kindMatch && textMatch;
         card.classList.toggle('hidden', !visible);
         if (visible) anyVisible = true;
+      });
+      // A month whose cards are all filtered out hides its header too,
+      // instead of leaving "OCTOBER 2026" over nothing.
+      // The "9 sessions" note counts what is showing, so it follows the
+      // filters as well.
+      list.querySelectorAll('.hist-month').forEach((m) => {
+        const n = m.querySelectorAll('.history-card:not(.hidden)').length;
+        m.classList.toggle('hidden', n === 0);
+        const note = m.querySelector('.shead__note');
+        if (note) note.textContent = `${n} session${n === 1 ? '' : 's'}`;
       });
       const emptyEl = list.querySelector('#history-empty-filtered');
       if (emptyEl) {
@@ -582,8 +617,10 @@ async function loadHistoryCardBody(card, { showSkeleton = true } = {}) {
 // calorie line — so editing, adding or deleting any set silently wiped the
 // kcal figure off that card until the next full reload.
 function strengthStatsHTML(w) {
-  return `${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}<br/>
-          ${Math.round(w.total_volume).toLocaleString()} kg
+  // The kg total is the session's key figure (bigger, in the text colour);
+  // the set count sits under it, quieter. Same two numbers as before.
+  return `<span class="history-card__kg">${Math.round(w.total_volume).toLocaleString()} kg</span><br/>
+          ${w.total_sets} ${w.total_sets === 1 ? 'set' : 'sets'}
           ${w.calories_burned ? `<br/><span style="font-size:11px;color:var(--text-dim)">~${w.calories_burned} kcal</span>` : ''}`;
 }
 

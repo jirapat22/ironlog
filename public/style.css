@@ -4976,3 +4976,81 @@ body.keyboard-open .update-banner {
     display: none;
   }
 }
+
+/* ---- History (calm redesign) ---- */
+/* All / Strength / Cardio as one rounded pill group instead of three boxes. */
+[data-history-kind] {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 4px;
+}
+[data-history-kind] .ex-sort__btn {
+  border: none;
+  border-radius: 999px;
+  background: none;
+  min-height: 38px;
+  font-size: 13px;
+}
+[data-history-kind] .ex-sort__btn--active {
+  background: var(--accent);
+  color: #0c0c0c;
+}
+#history-filter {
+  border-radius: 14px;
+  border-color: var(--border-soft);
+}
+.hist-month + .hist-month {
+  margin-top: 10px;
+}
+.history-card {
+  border-color: var(--border-soft);
+  border-radius: 20px;
+}
+.history-card__head {
+  padding: 16px 18px;
+}
+.history-card__title {
+  font-size: 18px;
+  font-weight: 800;
+}
+/* Number hierarchy: the kg total is the key figure, the set count quieter. */
+.history-card__stats {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.history-card__body {
+  padding: 0 18px 16px;
+  border-top-color: var(--border-soft);
+}
+
+/* Desktop: each month's sessions two per row. An opened session takes the
+   whole row so its sets have room. */
+@media (min-width: 900px) {
+  #view-history > .ex-sort,
+  #history-filter {
+    max-width: 520px;
+  }
+  .hist-month__cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+  .hist-month__cards .history-card {
+    margin-bottom: 0;
+  }
+  .hist-month__cards .history-card.expanded {
+    grid-column: 1 / -1;
+  }
+  .hist-month {
+    margin-bottom: 14px;
+  }
+}
+.history-card__kg {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
