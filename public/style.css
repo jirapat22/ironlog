@@ -4820,3 +4820,94 @@ body.keyboard-open .update-banner {
 /* Same colours as the Progress tab's volume trend: up is good, down amber. */
 .home-week__trend.vol-up { color: var(--success); }
 .home-week__trend.vol-down { color: #ffb347; }
+
+/* ---- Programs (calm redesign) ---- */
+/* The coverage chips now live in a card under a section header, so the
+   strip's own bottom gap is handled by the card margin instead. */
+.card.cov-strip {
+  margin-bottom: 18px;
+  border-radius: 20px;
+}
+.prog-list {
+  display: flex;
+  flex-direction: column;
+}
+.program-card {
+  border-color: var(--border-soft);
+  border-radius: 20px;
+}
+.program-card__header {
+  gap: 12px;
+  padding: 18px;
+}
+.program-card__header > div {
+  flex: 1;
+  min-width: 0;
+}
+.program-card__title {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.program-card__desc {
+  margin-top: 4px;
+  line-height: 1.4;
+}
+/* "3 days": a quiet pill so the list shows each program's size closed. */
+.program-card__days {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.program-card__body {
+  padding: 0 18px 18px;
+  border-top-color: var(--border-soft);
+}
+.day-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 16px;
+}
+.day-card__label {
+  font-size: 16px;
+}
+.prog-new {
+  margin-top: 4px;
+  border-radius: 14px;
+  border-color: var(--border-soft);
+}
+
+/* Desktop: programs side by side, two per row. An opened program takes the
+   whole row so its days have room, and the days themselves sit in a grid. */
+@media (min-width: 900px) {
+  .prog-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+    margin-bottom: 16px;
+  }
+  .prog-list .program-card {
+    margin-bottom: 0;
+  }
+  .prog-list .program-card.expanded {
+    grid-column: 1 / -1;
+  }
+  .program-card__days-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 0 14px;
+  }
+}
+/* Very narrow (small phone or 150% text): a card inside a card loses ~70px
+   to padding, so the day's exercise list wrapped every two words. */
+@media (max-width: 380px) {
+  .program-card__header { padding: 16px 14px; }
+  .program-card__body { padding: 0 12px 14px; }
+  .day-card { padding: 12px; }
+}

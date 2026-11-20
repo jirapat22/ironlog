@@ -62,9 +62,11 @@ async function renderMuscleCoverage() {
   catch { return; }
   const chips = coverageChipsHTML(week, ever);
   if (!chips) return;
+  // Calm redesign: a small uppercase header over its own card, same as the
+  // "This week" card on the Workout home.
   el.innerHTML = `
-    <div class="cov-strip">
-      <div class="cov-strip__title">This week · ${COVERAGE_GOAL}× each</div>
+    <div class="shead"><h2>This week</h2><span class="shead__note">${COVERAGE_GOAL}&times; each muscle</span></div>
+    <div class="card cov-strip">
       <div class="cov-strip__chips">${chips}</div>
     </div>`;
 }
@@ -90,9 +92,12 @@ async function renderPrograms() {
     }
 
     const full = await Promise.all(programs.map((p) => API.program(p.id)));
-    root.innerHTML = `<div id="mg-coverage"></div>` +
-      full.map((p, i) => programCardHTML(p, i, full.length)).join('') +
-      `<button class="btn btn--ghost btn--block" data-new-program style="margin-top:12px">+ Create program</button>`;
+    // Programs sit in .prog-list: one column on a phone, a two-column grid
+    // on a desktop (style.css), where an opened program spans both columns.
+    root.innerHTML = `<div id="mg-coverage"></div>
+      <div class="shead"><h2>Your programs</h2><span class="shead__note">${full.length}</span></div>
+      <div class="prog-list">${full.map((p, i) => programCardHTML(p, i, full.length)).join('')}</div>
+      <button class="btn btn--ghost btn--block prog-new" data-new-program>+ Create program</button>`;
     for (const el of root.querySelectorAll('.program-card')) {
       if (expandedIds.has(el.dataset.programId)) el.classList.add('expanded');
     }
@@ -299,6 +304,7 @@ function programCardHTML(p, i, total) {
           <div class="program-card__title">${escapeHtml(p.name)}</div>
           <div class="program-card__desc">${escapeHtml(p.description || '')}</div>
         </div>
+        <span class="program-card__days">${p.days.length} day${p.days.length === 1 ? '' : 's'}</span>
         <span class="program-card__chevron">&#x276F;</span>
       </button>
       <div class="program-card__body">
@@ -309,7 +315,7 @@ function programCardHTML(p, i, total) {
           <button class="btn btn--ghost btn--sm" data-rename-program="${p.id}">&#x270E; Edit</button>
           <button class="btn btn--ghost btn--sm" data-delete-program="${p.id}" style="color:var(--danger)">&times; Delete</button>
         </div>
-        ${p.days.map((d, i) => dayCardHTML(d, p.id, i, p.days.length)).join('')}
+        <div class="program-card__days-grid">${p.days.map((d, i) => dayCardHTML(d, p.id, i, p.days.length)).join('')}</div>
         <button class="btn btn--ghost btn--sm" data-add-day="${p.id}" style="margin-top:8px;width:100%">+ Add day</button>
       </div>
     </div>
