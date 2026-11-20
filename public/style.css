@@ -4885,23 +4885,22 @@ body.keyboard-open .update-banner {
 /* Desktop: programs side by side, two per row. An opened program takes the
    whole row so its days have room, and the days themselves sit in a grid. */
 @media (min-width: 900px) {
+  /* Programs are a LIST, so one column centred at a reading width (same
+     760px as History and logging a workout). Until 21/11/2026 they sat two
+     per row, but a longer description made one card taller than its
+     neighbour, so the rows were ragged. An opened program's days are a
+     list too (each day's exercise list is a different length), so they
+     also stay one under the other instead of the old side-by-side grid. */
+  #view-programs {
+    max-width: 760px;
+    margin: 0 auto;
+  }
   .prog-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-    align-items: start;
+    gap: 14px;
     margin-bottom: 16px;
   }
   .prog-list .program-card {
     margin-bottom: 0;
-  }
-  .prog-list .program-card.expanded {
-    grid-column: 1 / -1;
-  }
-  .program-card__days-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 0 14px;
   }
 }
 /* Very narrow (small phone or 150% text): a card inside a card loses ~70px
@@ -4945,14 +4944,18 @@ body.keyboard-open .update-banner {
 #ps-overload { order: 6; }
 #ps-pr { order: 7; }
 
-/* Desktop: two independent columns (not grid rows), so a tall card on one
-   side never leaves a hole on the other. */
+/* Desktop: two independent columns (not grid rows) of summary cards, then
+   the long lists (Progressive overload, Personal records) as one full-width
+   row underneath. Rebalanced 21/11/2026: overload used to end the left
+   column, which then ran ~450px past the right one and left a big empty
+   area. Now the columns stretch to the taller one and the LAST card of the
+   shorter column grows to fill, so both bottoms line up with no hole. */
 @media (min-width: 900px) {
   .progress-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
     gap: 18px;
-    align-items: start;
+    align-items: stretch;
   }
   .pg-col {
     display: flex;
@@ -4962,6 +4965,13 @@ body.keyboard-open .update-banner {
   }
   .pg-col .progress-section {
     margin-bottom: 0;
+  }
+  .pg-col:not(:nth-child(3)) > .progress-section:last-child {
+    flex: 1;
+  }
+  /* The third wrapper (the lists) spans both columns. */
+  .pg-col:nth-child(3) {
+    grid-column: 1 / -1;
   }
 }
 /* Muscle Detail rows use fixed 80px + 90px + 72px columns. At 150% text on

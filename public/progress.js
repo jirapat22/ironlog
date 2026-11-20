@@ -51,14 +51,21 @@ function restoreCollapsedSections() {
 
 // Calm redesign (21/11/2026): on a desktop the sections sit in two columns,
 // the charts on the left and the shorter cards on the right. Done by moving
-// the section nodes into two .pg-col wrappers right after they are created
-// (before anything fills them; every filler finds its section by id, so the
-// move doesn't matter to them). On a phone style.css makes the wrappers
+// the section nodes into .pg-col wrappers (two columns, then a full-width
+// row) right after they are created (before anything fills them; every
+// filler finds its section by id, so the move doesn't matter to them). On a phone style.css makes the wrappers
 // invisible to layout (display: contents) and puts the sections back in
 // their original order with CSS `order`, so nothing changes there.
+//
+// Rebalanced 21/11/2026: Progressive overload sat at the bottom of the left
+// column, which made it end ~450px below the right one (a big empty area
+// under Personal Records). The two long LISTS (overload and PRs) now get a
+// third wrapper that spans the full width under both columns, and the
+// summary cards share the two columns, whose bottoms style.css lines up.
 const PROGRESS_COLUMNS = [
-  ['ps-bodyweight', 'ps-volume', 'ps-overload'],
-  ['ps-consistency', 'ps-muscle-freq', 'ps-tdee', 'ps-pr']
+  ['ps-bodyweight', 'ps-volume'],
+  ['ps-consistency', 'ps-muscle-freq', 'ps-tdee'],
+  ['ps-overload', 'ps-pr']
 ];
 function arrangeProgressColumns(root) {
   const grid = document.createElement('div');
