@@ -328,7 +328,10 @@ function trackHeaderHeight() {
   const header = $('#app-header');
   if (!header) return;
   const sync = () => {
-    const h = Math.round(header.getBoundingClientRect().height);
+    // offsetHeight, not getBoundingClientRect: the sticky bar that reads
+    // --header-h sits inside the same zoomed .app as the header, so it wants
+    // layout px. The rect is screen px, 15% too tall under the desktop zoom.
+    const h = header.offsetHeight;
     if (h > 0) document.documentElement.style.setProperty('--header-h', `${h}px`);
   };
   sync();

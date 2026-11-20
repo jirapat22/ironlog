@@ -549,6 +549,20 @@ function ensureSheet(id) {
   return el;
 }
 
+// ---------- Zoom ----------
+// How much an element is scaled by CSS zoom (desktop text step, see the
+// "DESKTOP TEXT SIZE" block in style.css). getBoundingClientRect and pointer
+// clientX/Y are in SCREEN pixels, but scrollLeft, offsetHeight and anything a
+// style sets (a transform, a CSS variable) are in the element's own LAYOUT
+// pixels. At zoom 1.15 the two differ by 15%, so a dragged row would run
+// ahead of the finger and the calendar would scroll past today. Divide screen
+// px by this before writing them into the page. 1 on phones.
+function zoomOf(el) {
+  let z = 1;
+  for (let a = el; a && a.nodeType === 1; a = a.parentElement) z *= parseFloat(getComputedStyle(a).zoom) || 1;
+  return z;
+}
+
 // ---------- Drag-to-reorder ----------
 function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'pde', draggingClass = 'edit-row--dragging' } = {}) {
   let drag = null;
@@ -610,7 +624,7 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
       scroller.scrollTop = before + speed;
       // Only reflow if the scroll actually moved (not clamped at an end).
       if (scroller.scrollTop !== before) {
-        drag.row.style.transform = `translateY(${y - drag.startY}px)`;
+        drag.row.style.transform = `translateY(${(y - drag.startY) / zoomOf(drag.row)}px)`;
         applyReorder(y);
       }
     }
@@ -711,7 +725,7 @@ function enableDragReorder(container, onDrop, { rowSel = '.edit-row', idKey = 'p
     }
     e.preventDefault();
     drag.lastClientY = e.clientY;
-    drag.row.style.transform = `translateY(${e.clientY - drag.startY}px)`;
+    drag.row.style.transform = `translateY(${(e.clientY - drag.startY) / zoomOf(drag.row)}px)`;
     drag.row.style.zIndex = '10';
     applyReorder(e.clientY);
   };
@@ -1895,7 +1909,7 @@ export {
   e1RM, toKg, fromKg, effectiveLoadKg, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg,
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay,
   setOwnerProfile, isOwnerProfile,
-  enableDragReorder,
+  enableDragReorder, zoomOf,
   PICKER_GROUP_ORDER, COVERAGE_GOAL, coverageChipsHTML, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
   renderExerciseEditForm,

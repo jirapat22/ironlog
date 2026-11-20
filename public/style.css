@@ -5054,3 +5054,23 @@ body.keyboard-open .update-banner {
   font-weight: 700;
   color: var(--text);
 }
+
+/* ---- DESKTOP TEXT SIZE (21/11/2026) ----
+   Pat: on a monitor the text was phone-sized and felt small. From 1100px
+   wide, the nav, the page and every sheet are drawn 1.15x bigger with CSS
+   zoom, one step up, like Plated's desktop. A phone and a narrow window
+   never see it. Zoom goes on .app's CHILDREN, not .app itself, so the
+   centring padding below stays in real screen pixels: the column is about
+   1200 real px wide, the width Pat asked for, on any monitor.
+   JS that mixes screen px (getBoundingClientRect, clientX) with layout px
+   (scrollLeft, transforms) divides by zoomOf() in utils.js; see there. */
+@media (min-width: 1100px) {
+  .app > *,
+  .nav,
+  .sheet__inner {
+    zoom: 1.15;
+  }
+  .app {
+    padding: 0 max(32px, calc((100% - 1200px) / 2)) 32px;
+  }
+}

@@ -1,4 +1,4 @@
-import { $, escapeHtml, haptic, toast, humanError, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, effectiveLoadKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML } from './utils.js';
+import { $, escapeHtml, haptic, toast, humanError, formatDateShort, humanAgo, daysAgo, skeletonBlocks, toKg, e1RM, effectiveLoadKg, fmtSetWeight, showSheet, hideSheet, ensureSheet, confirmSheet, SUB_MUSCLES, PICKER_GROUP_ORDER, muscleTagHTML, subMuscleTagHTML, zoomOf } from './utils.js';
 import { API } from './api.js';
 import { assert } from './bugreport.js';
 
@@ -734,7 +734,10 @@ function renderCalendar(entries) {
     }
     const scrollRect = scrollEl.getBoundingClientRect();
     const cellRect = todayCell.getBoundingClientRect();
-    const target = (cellRect.left - scrollRect.left) + scrollEl.scrollLeft - scrollEl.clientWidth / 2 + cellRect.width / 2;
+    // The rects are screen px, scrollLeft/clientWidth layout px: divide by
+    // the zoom so the desktop text step does not scroll past today.
+    const z = zoomOf(scrollEl);
+    const target = (cellRect.left - scrollRect.left + cellRect.width / 2) / z + scrollEl.scrollLeft - scrollEl.clientWidth / 2;
     scrollEl.scrollLeft = Math.max(0, target);
   }
 }
