@@ -993,6 +993,26 @@ const SUB_MUSCLES = {
 // Group order + the exercise-form group list both derive from SUB_MUSCLES keys.
 const PICKER_GROUP_ORDER = Object.keys(SUB_MUSCLES);
 
+// Weekly muscle-coverage chips: sessions so far this week (Mon start, local
+// time) per primary muscle group vs the 2x/week goal. One chip per group in
+// its muscle colour: 0/2 dim, 1/2 tinted, 2/2 solid with a tick. Groups only
+// appear once trained at least once EVER (a never-trained group isn't a
+// weekly goal). Lives here, not in programs.js, because the Workout home
+// shows the same chips since the calm redesign (21/11/2026): one builder
+// means the two screens can never disagree about what counts.
+// week = /api/muscle-coverage rows, ever = /api/muscle-frequency rows.
+const COVERAGE_GOAL = 2;
+function coverageChipsHTML(week, ever) {
+  const by = Object.fromEntries(week.map((r) => [r.muscle_group, r.sessions]));
+  const trained = new Set(ever.map((r) => r.muscle_group));
+  const groups = PICKER_GROUP_ORDER.filter((g) => trained.has(g) || by[g]);
+  return groups.map((g) => {
+    const n = by[g] || 0;
+    const cls = n >= COVERAGE_GOAL ? ' cov-chip--done' : n === 0 ? ' cov-chip--zero' : '';
+    return `<span class="cov-chip mg-${g}${cls}">${g} ${n}/${COVERAGE_GOAL}${n >= COVERAGE_GOAL ? ' \u2713' : ''}</span>`;
+  }).join('');
+}
+
 // Profile accent-color palette — shared by the lock-screen create-profile
 // form (app.js) and the settings accent picker (settings.js), which must
 // stay in sync with each other.
@@ -1876,7 +1896,7 @@ export {
   showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, pickRecentDay,
   setOwnerProfile, isOwnerProfile,
   enableDragReorder,
-  PICKER_GROUP_ORDER, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
+  PICKER_GROUP_ORDER, COVERAGE_GOAL, coverageChipsHTML, ACCENTS, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX,
   SUB_MUSCLES, subMuscleOptions, secondaryChecklistHTML, createSecondaryPicker, renderNewExerciseForm, muscleTagHTML, subMuscleTagHTML, subMuscleShadeClass,
   renderExerciseEditForm,
   pickerChipsHTML, setupPickerFilter,

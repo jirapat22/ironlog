@@ -1,4 +1,4 @@
-import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, daysAgo, humanAgo, humanError, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
+import { $, $$, LS, escapeHtml, haptic, primeAudio, toast, actionToast, fmtDuration, stepForExercise, pickMostRecentSets, skeletonBlocks, showPRFlash, e1RM, toKg, fromKg, effectiveLoadKg, pickRecentDay, fmtSetWeight, fmtReps, weightEquiv, improvedFromLastMsg, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, confirmWeightModeFix, showBadgeDetail, enableDragReorder, PICKER_GROUP_ORDER, FEEL_OPTIONS, feelEmoji, REP_GOAL_DEFAULT_MIN, REP_GOAL_DEFAULT_MAX, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML, coverageChipsHTML, COVERAGE_GOAL, daysAgo, humanAgo, humanError, formatDateShort, readRepRangeInputs, retryWithAdminCode, equipmentLabel } from './utils.js';
 import { API } from './api.js';
 import { startRestCountdown, cancelRestCountdown, isRestActive, resumeRestCountdown, paintRest, refreshBadgeFromCalendar } from './audio.js';
 import { openBodyweightSheet } from './progress.js';
@@ -672,17 +672,37 @@ async function renderWorkout(retriedAfterMissing = false) {
     // Without this it keeps running to completion and beeps at you long
     // after the workout it belonged to ended.
     cancelRestCountdown();
+    // Calm redesign (21/11/2026): the front door is now a few cards. On a
+    // phone they stack; on a desktop .home-grid puts "Next up" on the left
+    // and "This week" + the start buttons beside it (see style.css).
+    // #home-nextup starts as the plain "No active workout" card, so a brand
+    // new profile (no history, no programs) still sees something friendly;
+    // renderHomeNextUp() swaps it for the real "Next up" card when it can.
+    // Every button keeps its data-* hook, so the click handler below is
+    // unchanged.
     root.innerHTML = `
-      <div id="home-nextup"></div>
-      <div class="empty">
-        <div class="empty__icon">&#x1F4AA;</div>
-        <div style="margin-bottom:12px">No active workout</div>
-        <button class="btn btn--primary btn--block" data-start-quick>Quick workout</button>
-        <button class="btn btn--ghost btn--block" data-go-programs style="margin-top:8px">Pick a program</button>
-        <button class="btn btn--ghost btn--block" data-log-activity style="margin-top:8px">Log a class / run / cardio</button>
-        <button class="btn btn--ghost btn--block" data-log-past style="margin-top:8px">Log a past session</button>
+      <div class="home-grid">
+        <div class="home-col">
+          <div id="home-nextup">
+            <div class="home-card home-empty">
+              <div class="empty__icon">&#x1F4AA;</div>
+              <div>No active workout</div>
+            </div>
+          </div>
+          <div id="home-last"></div>
+        </div>
+        <div class="home-col">
+          <div id="home-week"></div>
+          <div class="home-actions">
+            <button class="btn btn--primary btn--block" data-start-quick>Quick workout</button>
+            <button class="btn btn--ghost btn--block" data-go-programs>Pick a program</button>
+            <button class="btn btn--ghost btn--block" data-log-activity>Log a class / run / cardio</button>
+            <button class="btn btn--ghost btn--block" data-log-past>Log a past session</button>
+          </div>
+        </div>
       </div>`;
     renderHomeNextUp();
+    renderHomeWeek();
     root.onclick = async (e) => {
       if (e.target.closest('[data-go-programs]'))
         document.dispatchEvent(new CustomEvent('ironlog:switch-tab', { detail: 'programs' }));
@@ -1122,25 +1142,88 @@ async function renderHomeNextUp() {
   const { last, next } = data;
   if (!last && !next) return;
 
-  const lastLine = last
-    ? `<div class="home-next__last">Last session &middot; ${escapeHtml(lastSessionLabel(last))} &middot; ${humanAgo(last.finished_at || last.started_at)}</div>`
-    : '';
-
+  // Calm redesign: "Next up" is the hero card (small label, big day name,
+  // one full-width Start button), and the last session gets its own slim
+  // card under a section header instead of a grey line above it.
   // Only offer the one-tap start when the suggestion is genuinely the next
   // one round the rotation; with no program history at all it is a guess, so
   // it reads as a suggestion and sends you to Programs instead.
-  const nextBlock = next
-    ? `<div class="home-next__row">
-         <div>
-           <div class="home-next__label">Next up</div>
-           <div class="home-next__day">${escapeHtml(next.day_label)}</div>
-           <div class="home-next__meta">${escapeHtml(next.program_name)} &middot; ${next.last_trained_at ? `last trained ${humanAgo(next.last_trained_at)}` : 'not run yet'}</div>
-         </div>
-         <button class="btn btn--primary btn--sm" data-start-next-day="${next.day_id}">Start</button>
-       </div>`
-    : '';
+  if (next) {
+    el.innerHTML = `
+      <div class="home-card home-next">
+        <div class="home-next__label">Next up</div>
+        <div class="home-next__day">${escapeHtml(next.day_label)}</div>
+        <div class="home-next__meta">${escapeHtml(next.program_name)} &middot; ${next.last_trained_at ? `last trained ${humanAgo(next.last_trained_at)}` : 'not run yet'}</div>
+        <div class="home-next__ex" id="home-next-ex"></div>
+        <button class="btn btn--primary btn--block" data-start-next-day="${next.day_id}">Start workout</button>
+      </div>`;
+    renderHomeNextExercises(next.day_id);
+  }
 
-  el.innerHTML = `<div class="home-next">${lastLine}${nextBlock}</div>`;
+  const lastEl = document.getElementById('home-last');
+  if (last && lastEl) {
+    const sets = Number(last.total_sets) || 0;
+    const icon = last.kind === 'activity' ? '&#x1F3C3;' : '&#x1F3CB;&#xFE0F;';
+    lastEl.innerHTML = `
+      <div class="shead"><h2>Last session</h2><span class="shead__note">${humanAgo(last.finished_at || last.started_at)}</span></div>
+      <div class="home-card home-card--rows">
+        <div class="home-row">
+          <span class="home-row__ic">${icon}</span>
+          <div class="home-row__main">
+            <div class="home-row__title">${escapeHtml(lastSessionLabel(last))}</div>
+            ${last.program_name ? `<div class="home-row__sub">${escapeHtml(last.program_name)}</div>` : ''}
+          </div>
+          ${sets ? `<div class="home-row__val">${sets}&nbsp;<span>set${sets === 1 ? '' : 's'}</span></div>` : ''}
+        </div>
+      </div>`;
+  }
+}
+
+// The day's exercises under "Next up" ("Bench Press 4×6 · Overhead Press
+// 3×8 ..."), so you can see what you're about to start before tapping.
+// Same endpoint the workout itself loads from; decoration only, so any
+// failure just leaves the line empty.
+async function renderHomeNextExercises(dayId) {
+  let day;
+  try { day = await API.dayDetails(dayId); } catch { return; }
+  const el = document.getElementById('home-next-ex');
+  if (!el || !el.isConnected || !day?.exercises?.length) return;
+  el.textContent = day.exercises
+    .map((x) => `${x.name} ${x.target_sets}\u00d7${x.target_reps}`)
+    .join(' \u00b7 ');
+}
+
+// "This week" card on the Workout home: kg lifted so far this week against
+// the same point last week (the number the Progress tab's volume card
+// already shows), plus the 2x/week muscle-coverage chips from Programs.
+// Both come from endpoints the app already had, so no new numbers are
+// invented here; if either fails, that half is simply left out.
+async function renderHomeWeek() {
+  const el = document.getElementById('home-week');
+  if (!el) return;
+  const [compare, week, ever] = await Promise.all([
+    API.weekVolumeCompare().catch(() => null),
+    API.muscleCoverage().catch(() => null),
+    API.muscleFrequency().catch(() => null)
+  ]);
+  if (!el.isConnected) return;
+  const chips = week && ever ? coverageChipsHTML(week, ever) : '';
+  const kg = compare ? Math.round(compare.this_so_far || 0) : null;
+  if (!chips && !kg) return;
+  let trend = '';
+  if (compare && compare.last_to_date > 0) {
+    const pct = Math.round(((compare.this_so_far - compare.last_to_date) / compare.last_to_date) * 100);
+    if (Math.abs(pct) >= 1) trend = `<span class="home-week__trend ${pct > 0 ? 'vol-up' : 'vol-down'}">${pct > 0 ? '+' : ''}${pct}% vs same point last wk</span>`;
+  }
+  el.innerHTML = `
+    <div class="shead"><h2>This week</h2><span class="shead__note">${COVERAGE_GOAL}&times; each muscle</span></div>
+    <div class="home-card">
+      ${kg != null ? `
+        <div class="home-week__label">Kg lifted so far</div>
+        <div class="home-week__row"><span class="home-week__val">${kg.toLocaleString()}</span><span class="home-week__unit">kg</span></div>
+        ${trend}` : ''}
+      ${chips ? `<div class="cov-strip__chips home-week__chips">${chips}</div>` : ''}
+    </div>`;
 }
 
 // Live "muscle groups already hit this workout" strip — same primary +

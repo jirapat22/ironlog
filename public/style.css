@@ -4504,3 +4504,319 @@ body.keyboard-open .update-banner {
   background: var(--surface-2);
   border-color: var(--border);
 }
+
+/* ======================================================================
+   CALM REDESIGN (21/11/2026): phone + desktop.
+   Same look as the redesigned Plated and Finance: calm cards (soft border,
+   bigger radius, more padding) under small uppercase section headers, and
+   a clear number hierarchy. Ironlog keeps its own identity: dark only, the
+   Iron Ledger colours and its self-hosted fonts (no web fonts are loaded
+   from the internet, so it still works offline).
+   The old look is saved as the git tag pre-redesign-ironlog-2026-11-21.
+   ====================================================================== */
+:root {
+  /* A softer edge than --border for card outlines: the old #372d21 line
+     drew a box around everything, which is what made screens feel busy. */
+  --border-soft: #2c241b;
+  --radius: 18px;
+  --radius-sm: 12px;
+  --card-pad: 18px;
+}
+
+.card {
+  border-color: var(--border-soft);
+  padding: var(--card-pad);
+}
+
+/* Small uppercase section header that sits above a card ("THIS WEEK",
+   "LAST SESSION"), with an optional quiet note on the right. */
+.shead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 4px 8px;
+}
+.shead h2 {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.shead__note {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+/* ---- Phone tab bar, restyled: sentence-case labels, no box behind the
+   active tab (just the accent colour), softer top edge. ---- */
+.nav {
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  border-top-color: var(--border-soft);
+  backdrop-filter: blur(14px);
+}
+.nav__btn.active {
+  background: none;
+}
+.nav__label {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* The brand row only exists in the desktop side nav. */
+.nav__brand {
+  display: none;
+}
+
+/* ---- Workout home ---- */
+.home-grid,
+.home-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.home-grid {
+  padding-bottom: 8px;
+}
+.home-card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 20px;
+  padding: var(--card-pad);
+}
+.home-card--rows {
+  padding: 4px 0;
+}
+.home-empty {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 28px 18px;
+}
+
+.home-next__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.home-next__day {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 4px 0 4px;
+  overflow-wrap: anywhere;
+}
+.home-next__meta {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.home-next__ex {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  margin: 12px 0 16px;
+}
+.home-next__ex:empty {
+  margin: 0 0 16px;
+}
+
+/* One row inside a list card: icon tile, title + subline, value on the right. */
+.home-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+}
+.home-row__ic {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+.home-row__main {
+  min-width: 0;
+  flex: 1;
+}
+.home-row__title {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.home-row__sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.home-row__val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.home-row__val span {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.home-week__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.home-week__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+/* The key figure: biggest and heaviest thing in the card. */
+.home-week__val {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1;
+}
+.home-week__unit {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.home-week__trend {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.home-week__chips {
+  margin-top: 16px;
+}
+.home-week__chips:first-child {
+  margin-top: 0;
+}
+
+.home-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.home-actions .btn {
+  border-radius: 14px;
+}
+.home-actions .btn--ghost {
+  border-color: var(--border-soft);
+  background: var(--surface);
+}
+
+/* ---- DESKTOP SHELL: a left side nav replaces the bottom tab bar ----
+   820px, like Finance: below that a 220px side nav would leave a
+   phone-narrow column beside it, so narrower screens keep the phone layout.
+     ┌────────┬──────────────────────┐
+     │ brand  │ header               │
+     │ tabs   │ cards (max 1100px)   │ <- .app scrolls, as on the phone
+     └────────┴──────────────────────┘ */
+@media (min-width: 820px) {
+  :root {
+    /* Nothing sits at the bottom any more, so the toast, update banner and
+       install hint (all positioned "nav height above the bottom") drop down
+       to the bottom edge instead of floating 68px up for no reason. */
+    --nav-h: 0px;
+  }
+  body {
+    flex-direction: row;
+  }
+  .nav {
+    order: -1; /* the nav comes after .app in the HTML; show it first (left) */
+    width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: calc(20px + env(safe-area-inset-top)) 14px 20px;
+    background: var(--surface);
+    border-top: none;
+    border-right: 1px solid var(--border-soft);
+    backdrop-filter: none;
+  }
+  .nav__brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 10px 18px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+  }
+  .nav__brand img {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+  .nav__btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: 10px;
+  }
+  .nav__btn:hover {
+    background: var(--surface-2);
+  }
+  .nav__btn.active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .nav__icon {
+    font-size: 18px;
+    width: 22px;
+    text-align: center;
+  }
+  .nav__label {
+    font-size: 14px;
+  }
+  .app {
+    /* Content in a centred column up to 1100px wide (it was 720px). */
+    padding: 0 max(28px, calc((100% - 1100px) / 2)) 28px;
+  }
+  .app__header {
+    padding-top: calc(24px + env(safe-area-inset-top));
+  }
+  /* Logging a workout is one exercise after another, so it stays a single
+     column at a comfortable reading width rather than stretching set rows
+     across 1100px (the inputs would end up a long way from their labels). */
+  #view-workout:has(.workout-top-sticky) {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+}
+
+/* Wide enough for two columns: "Next up" + last session on the left,
+   "This week" + the start buttons on the right. */
+@media (min-width: 900px) {
+  .home-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  .home-next__day {
+    font-size: 36px;
+  }
+}
+/* Same colours as the Progress tab's volume trend: up is good, down amber. */
+.home-week__trend.vol-up { color: var(--success); }
+.home-week__trend.vol-down { color: #ffb347; }

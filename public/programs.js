@@ -1,4 +1,4 @@
-import { $, LS, escapeHtml, haptic, toast, humanError, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
+import { $, LS, escapeHtml, haptic, toast, humanError, humanAgo, skeletonBlocks, showSheet, hideSheet, ensureSheet, promptSheet, confirmSheet, pickRecentDay, enableDragReorder, PICKER_GROUP_ORDER, COVERAGE_GOAL, coverageChipsHTML, renderExerciseEditForm, renderNewExerciseForm, muscleTagHTML, pickerChipsHTML, setupPickerFilter, fmtSetWeight, pickMostRecentSets, subMuscleShadeClass, exerciseSortHTML, sortExercisesBy, groupBySubMuscle, subGroupToggleHTML } from './utils.js';
 import { API, REST_SECONDS } from './api.js';
 
 function fmtRest(s) {
@@ -52,31 +52,20 @@ async function createProgramFlow() {
 }
 
 // ---------- PROGRAMS tab ----------
-// Weekly muscle-coverage strip: sessions so far this week (Mon start, local
-// time) per primary muscle group vs the 2×/week goal. One chip per group in
-// its muscle colour — 0/2 dim, 1/2 tinted, 2/2 ✓ solid. Groups only appear
-// once trained at least once EVER (a never-trained group isn't a weekly goal).
-const COVERAGE_GOAL = 2;
+// Weekly muscle-coverage strip (2x/week goal). The chips themselves are
+// built by coverageChipsHTML in utils.js, shared with the Workout home.
 async function renderMuscleCoverage() {
   const el = document.getElementById('mg-coverage');
   if (!el) return;
   let week, ever;
   try { [week, ever] = await Promise.all([API.muscleCoverage(), API.muscleFrequency()]); }
   catch { return; }
-  const by = Object.fromEntries(week.map((r) => [r.muscle_group, r.sessions]));
-  const trained = new Set(ever.map((r) => r.muscle_group));
-  const groups = PICKER_GROUP_ORDER.filter((g) => trained.has(g) || by[g]);
-  if (!groups.length) return;
+  const chips = coverageChipsHTML(week, ever);
+  if (!chips) return;
   el.innerHTML = `
     <div class="cov-strip">
       <div class="cov-strip__title">This week · ${COVERAGE_GOAL}× each</div>
-      <div class="cov-strip__chips">
-        ${groups.map((g) => {
-          const n = by[g] || 0;
-          const cls = n >= COVERAGE_GOAL ? ' cov-chip--done' : n === 0 ? ' cov-chip--zero' : '';
-          return `<span class="cov-chip mg-${g}${cls}">${g} ${n}/${COVERAGE_GOAL}${n >= COVERAGE_GOAL ? ' ✓' : ''}</span>`;
-        }).join('')}
-      </div>
+      <div class="cov-strip__chips">${chips}</div>
     </div>`;
 }
 
