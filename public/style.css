@@ -4807,11 +4807,29 @@ body.keyboard-open .update-banner {
 /* Wide enough for two columns: "Next up" + last session on the left,
    "This week" + the start buttons on the right. */
 @media (min-width: 900px) {
+  /* Both columns end at the same line (21/11/2026). With align-items:start
+     the left side (Next up + Last session) stopped ~130px above the right
+     side's last button, leaving an empty patch under Last session. Now the
+     columns stretch to the taller one, the Next up card grows to fill the
+     spare height, and its Start button sinks to the card's bottom edge. */
   .home-grid {
     display: grid;
     grid-template-columns: 1.4fr 1fr;
     gap: 18px;
-    align-items: start;
+    align-items: stretch;
+  }
+  .home-grid > .home-col:first-child > #home-nextup {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  #home-nextup > .home-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  #home-nextup .home-next > .btn {
+    margin-top: auto;
   }
   .home-next__day {
     font-size: 36px;
